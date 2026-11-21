@@ -408,12 +408,23 @@ export class AutoBackupService {
       storeState = {};
     }
 
+    const offloadedKeys = new Set(storageService.getPersistenceDiagnostics().offloadedKeys);
+
     for (const key of targetKeys) {
       try {
         let value: any = undefined;
-        const raw = localStorage.getItem(key);
-        if (raw) {
-          value = JSON.parse(raw);
+        if (offloadedKeys.has(key)) {
+          value = storageService.getItem(key, undefined);
+        } else {
+          const raw = typeof localStorage !== 'undefined' ? localStorage.getItem(key) : null;
+          if (raw) {
+            value = JSON.parse(raw);
+          } else {
+            const cached = storageService.getItem(key, undefined);
+            if (cached !== undefined && cached !== null) {
+              value = cached;
+            }
+          }
         }
         const canonicalProp = STORAGE_KEY_TO_CANONICAL_PROP[key];
         if (

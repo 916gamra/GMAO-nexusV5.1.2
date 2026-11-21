@@ -85,6 +85,9 @@ export default function SettingsOverviewTab({
   });
 
   const [requestingPersist, setRequestingPersist] = useState(false);
+  const [persistenceDiag, setPersistenceDiag] = useState(() =>
+    storageService.getPersistenceDiagnostics()
+  );
 
   useEffect(() => {
     let mounted = true;
@@ -97,14 +100,24 @@ export default function SettingsOverviewTab({
         }
         if (mounted) {
           setIdbInfo({ ...info, isPersisted: persisted });
+          setPersistenceDiag(storageService.getPersistenceDiagnostics());
         }
       } catch {
         // Ignore fallback
       }
     };
     loadIdbStats();
+    const refreshDiag = () => {
+      if (mounted) {
+        setPersistenceDiag(storageService.getPersistenceDiagnostics());
+      }
+    };
+    window.addEventListener('gmao:storage_health_changed', refreshDiag);
+    window.addEventListener('gmao:idb_hydrated', refreshDiag);
     return () => {
       mounted = false;
+      window.removeEventListener('gmao:storage_health_changed', refreshDiag);
+      window.removeEventListener('gmao:idb_hydrated', refreshDiag);
     };
   }, [effectiveRawStockCount, effectiveMouvementsCount]);
 
@@ -150,13 +163,15 @@ export default function SettingsOverviewTab({
       {/* 1. Storage Engine & Volume Metrics */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <SettingsSectionCard
-          title="Moteur de Stockage Hybride (L1 + L2 IndexedDB)"
-          description="Allocation dynamique de la mémoire locale et protection contre l'éviction navigateur."
+          title="Moteur de Stockage IndexedDB Principal (Haute Capacité)"
+          description="Stockage durable haute capacité pour plusieurs années d'historique sans saturation du plafond localStorage (5 Mo)."
           icon={<HardDrive />}
           headerRight={
             <span className="inline-flex items-center gap-1.5 text-[11px] font-bold px-3 py-1 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200/80">
               <Sparkles className="w-3 h-3" />
-              Capacité Étendue ({ceilingMB >= 1024 ? `${ceilingMB / 1024} Go` : `${ceilingMB} Mo`})
+              {persistenceDiag.engine === 'indexeddb-primary'
+                ? `IndexedDB Principal (${ceilingMB >= 1024 ? `${ceilingMB / 1024} Go` : `${ceilingMB} Mo`})`
+                : `Fallback (${ceilingMB >= 1024 ? `${ceilingMB / 1024} Go` : `${ceilingMB} Mo`})`}
             </span>
           }
         >
@@ -234,20 +249,39 @@ export default function SettingsOverviewTab({
 
             <div className="grid grid-cols-2 gap-3 pt-1">
               <div className="bg-slate-50/70 p-3.5 rounded-xl border border-slate-200/80">
-                <div className="text-[11px] text-slate-500 font-medium">L1 Cache Rapide</div>
+                <div className="text-[11px] text-slate-500 font-medium">Base Principale Durable</div>
+                <div className="text-sm font-bold text-slate-800 mt-1 flex items-center gap-2">
+                  <Database className="w-4 h-4 text-sky-700 shrink-0" />
+                  <span>
+                    {persistenceDiag.isIdbSupported ? 'IndexedDB Principal' : idbInfo.activeTier}
+                  </span>
+                </div>
+                <div className="text-[10px] text-slate-500 font-mono mt-1">
+                  {persistenceDiag.offloadedCount > 0
+                    ? `${persistenceDiag.offloadedCount} table(s) lourde(s) déchargée(s) d'office`
+                    : 'Déchargement auto > 128 Ko + Snapshot IDB'}
+                </div>
+              </div>
+              <div className="bg-slate-50/70 p-3.5 rounded-xl border border-slate-200/80">
+                <div className="text-[11px] text-slate-500 font-medium">Config &amp; Préférences</div>
                 <div className="text-sm font-bold text-slate-800 mt-1 flex items-center gap-2">
                   <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
                   <span>localStorage ({effectiveStorageKb} KB)</span>
                 </div>
-              </div>
-              <div className="bg-slate-50/70 p-3.5 rounded-xl border border-slate-200/80">
-                <div className="text-[11px] text-slate-500 font-medium">L2 Base Massive</div>
-                <div className="text-sm font-bold text-slate-800 mt-1 flex items-center gap-2">
-                  <Database className="w-4 h-4 text-sky-700 shrink-0" />
-                  <span>IndexedDB ({idbInfo.activeTier})</span>
+                <div className="text-[10px] text-slate-500 mt-1">
+                  Réservé aux réglages légers &amp; démarrage rapide
                 </div>
               </div>
             </div>
+
+            {persistenceDiag.failedKeys.length > 0 && (
+              <div className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-xs text-rose-800 flex items-start gap-2">
+                <ShieldAlert className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
+                <span>
+                  Alerte persistance : {persistenceDiag.failedKeys.length} clé(s) n&apos;ont pas pu être confirmées sur disque. Exportez un Snapshot JSON de sécurité.
+                </span>
+              </div>
+            )}
           </div>
         </SettingsSectionCard>
 

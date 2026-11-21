@@ -1,36 +1,174 @@
 import { constantTimeEqual, sha256Hex, symmetricDecrypt } from '../core/security/nativeCrypto';
 import { Logger } from '../core/logger/LoggerService';
 import { indexedDBService } from '../infrastructure/database/IndexedDBService';
-import { STORAGE_KEYS, ALL_LEGACY_KEYS } from '../infrastructure/persistence/storageKeys';
+import {
+  STORAGE_KEYS,
+  ALL_LEGACY_KEYS,
+  IDB_PRIMARY_KEYS,
+  IDB_ONLY_KEYS,
+} from '../infrastructure/persistence/storageKeys';
 import { getSafeLocalStorage } from '../infrastructure/persistence/safeStorage';
 
 // Cache configuration
 const MAX_CACHE_SIZE = 50;
 const CACHE_CLEANUP_INTERVAL = 5 * 60 * 1000; // 5 minutes
+// Domain collections larger than 128KB automatically offload from 5MB localStorage to IndexedDB Primary
+const LOCALSTORAGE_OFFLOAD_THRESHOLD_BYTES = 128 * 1024;
+
+const SECURITY_MANAGED_PREFIXES = ['gmao_auth_', 'gmao_security_', 'gmao_vault_'];
+const SECURITY_MANAGED_EXACT = new Set([
+  'gmao_auth_accounts_v2',
+  'gmao_security_audit_log_v1',
+  'gmao_security_audit_head_v1',
+]);
+
+function isSecurityManagedKey(key: string): boolean {
+  if (SECURITY_MANAGED_EXACT.has(key)) return true;
+  return SECURITY_MANAGED_PREFIXES.some((prefix) => key.startsWith(prefix));
+}
 
 // Map for memory cache with access timestamp
-let memoryCache = new Map();
+const memoryCache = new Map<string, any>();
 let lastCleanupTime = Date.now();
 
-// Function to clean up stale cache entries
+// Batch 5: IndexedDB-Primary tracking state
+const offloadedToIdbKeys = new Set<string>();
+const pendingIdbWrites = new Set<Promise<unknown>>();
+const idbWriteFailures = new Map<string, string>();
+let lastIdbCommitAt: number | null = null;
+let isIdbHydrated = false;
+let hydrateAllPromise: Promise<{
+  hydratedCount: number;
+  migratedUpCount: number;
+  source: 'indexeddb' | 'localstorage';
+}> | null = null;
+
+function loadOffloadedKeysFromLocalStorage(): void {
+  offloadedToIdbKeys.clear();
+  try {
+    const ls = getSafeLocalStorage();
+    if (!ls) return;
+    const raw = ls.getItem(STORAGE_KEYS.IDB_OFFLOADED_KEYS);
+    if (!raw) return;
+    const parsed = JSON.parse(raw);
+    if (Array.isArray(parsed)) {
+      for (const k of parsed) {
+        if (typeof k === 'string' && k.trim()) {
+          offloadedToIdbKeys.add(k);
+        }
+      }
+    }
+  } catch {
+    // ignore malformed offload index
+  }
+}
+
+function persistOffloadedKeysIndex(): void {
+  try {
+    const ls = getSafeLocalStorage();
+    if (!ls) return;
+    if (offloadedToIdbKeys.size === 0) {
+      ls.removeItem(STORAGE_KEYS.IDB_OFFLOADED_KEYS);
+    } else {
+      ls.setItem(STORAGE_KEYS.IDB_OFFLOADED_KEYS, JSON.stringify(Array.from(offloadedToIdbKeys)));
+    }
+  } catch {
+    // ignore quota error on tiny index
+  }
+}
+
+function markKeyOffloadedToIdb(key: string): void {
+  if (!offloadedToIdbKeys.has(key)) {
+    offloadedToIdbKeys.add(key);
+    persistOffloadedKeysIndex();
+  }
+}
+
+function unmarkKeyOffloadedToIdb(key: string): void {
+  if (offloadedToIdbKeys.has(key)) {
+    offloadedToIdbKeys.delete(key);
+    persistOffloadedKeysIndex();
+  }
+}
+
+function isProtectedFromCacheEviction(key: string): boolean {
+  return IDB_PRIMARY_KEYS.has(key) || offloadedToIdbKeys.has(key);
+}
+
+function emitStorageHealthChanged(): void {
+  try {
+    if (typeof window !== 'undefined' && typeof CustomEvent !== 'undefined') {
+      window.dispatchEvent(
+        new CustomEvent('gmao:storage_health_changed', {
+          detail: {
+            failedKeys: Array.from(idbWriteFailures.keys()),
+            offloadedCount: offloadedToIdbKeys.size,
+            lastIdbCommitAt,
+          },
+        })
+      );
+    }
+  } catch {
+    // ignore event dispatch errors in headless environments
+  }
+}
+
+function trackIdbWrite(keys: string[], promise: Promise<boolean>): Promise<boolean> {
+  const tracked = promise
+    .then((ok) => {
+      if (ok) {
+        let hadFailure = false;
+        for (const k of keys) {
+          if (idbWriteFailures.delete(k)) hadFailure = true;
+        }
+        lastIdbCommitAt = Date.now();
+        if (hadFailure) emitStorageHealthChanged();
+      } else {
+        for (const k of keys) {
+          idbWriteFailures.set(k, 'IndexedDB transaction returned false');
+        }
+        emitStorageHealthChanged();
+      }
+      return ok;
+    })
+    .catch((err) => {
+      const msg = err instanceof Error ? err.message : String(err || 'IndexedDB write error');
+      for (const k of keys) {
+        idbWriteFailures.set(k, msg);
+      }
+      Logger.warn(`[StorageService] IndexedDB primary write error for [${keys.join(', ')}]:`, err, 'storageService');
+      emitStorageHealthChanged();
+      return false;
+    })
+    .finally(() => {
+      pendingIdbWrites.delete(tracked);
+    });
+
+  pendingIdbWrites.add(tracked);
+  return tracked;
+}
+
+loadOffloadedKeysFromLocalStorage();
+
+// Function to clean up stale transient cache entries (NEVER evicts IndexedDB-Primary or offloaded keys)
 function cleanupCache() {
   const now = Date.now();
-  const keysToDelete = [];
+  const keysToDelete: string[] = [];
 
-  // Remove entries not accessed for more than 10 minutes
   for (const [key, value] of memoryCache) {
-    if (value && value._lastAccessed && (now - value._lastAccessed) > 10 * 60 * 1000) {
+    if (isProtectedFromCacheEviction(key)) continue;
+    if (value && value._lastAccessed && now - value._lastAccessed > 10 * 60 * 1000) {
       keysToDelete.push(key);
     }
   }
 
-  keysToDelete.forEach(key => memoryCache.delete(key));
+  keysToDelete.forEach((key) => memoryCache.delete(key));
 
-  // If cache still exceeds limit, evict the oldest 20%
-  if (memoryCache.size > MAX_CACHE_SIZE) {
-    const keys = Array.from(memoryCache.keys());
-    const keysToRemove = keys.slice(0, Math.floor(keys.length * 0.2));
-    keysToRemove.forEach(key => memoryCache.delete(key));
+  // Count only evictable transient entries against MAX_CACHE_SIZE
+  const evictableKeys = Array.from(memoryCache.keys()).filter((k) => !isProtectedFromCacheEviction(k));
+  if (evictableKeys.length > MAX_CACHE_SIZE) {
+    const keysToRemove = evictableKeys.slice(0, Math.floor(evictableKeys.length * 0.2));
+    keysToRemove.forEach((key) => memoryCache.delete(key));
   }
 
   lastCleanupTime = now;
@@ -147,6 +285,63 @@ function purgeObsoleteStorageKeys() {
   }
 
   return freedCount;
+}
+
+/**
+ * Offloads heavy domain keys already held in RAM + IndexedDB out of localStorage
+ * when localStorage approaches its ~5MB quota ceiling, preserving small config/auth keys.
+ */
+function offloadHeavyLocalStorageKeysToIdb(): number {
+  if (!indexedDBService.isSupported()) return 0;
+  const ls = getSafeLocalStorage();
+  if (!ls) return 0;
+
+  let freed = 0;
+  const candidates: Array<{ key: string; bytes: number }> = [];
+
+  try {
+    // Always remove FULL_STATE_SNAPSHOT from localStorage first
+    if (ls.getItem(STORAGE_KEYS.FULL_STATE_SNAPSHOT) !== null) {
+      ls.removeItem(STORAGE_KEYS.FULL_STATE_SNAPSHOT);
+      markKeyOffloadedToIdb(STORAGE_KEYS.FULL_STATE_SNAPSHOT);
+      freed++;
+    }
+
+    for (const key of IDB_PRIMARY_KEYS) {
+      if (key === STORAGE_KEYS.FULL_STATE_SNAPSHOT) continue;
+      const raw = ls.getItem(key);
+      if (raw && raw.length > 8 * 1024) {
+        candidates.push({ key, bytes: raw.length });
+      }
+    }
+
+    candidates.sort((a, b) => b.bytes - a.bytes);
+    for (const item of candidates) {
+      const cached = memoryCache.get(item.key);
+      if (cached !== undefined) {
+        const value = cached && typeof cached === 'object' && cached.data !== undefined ? cached.data : cached;
+        trackIdbWrite([item.key], indexedDBService.setItem(item.key, value));
+      } else {
+        try {
+          const raw = ls.getItem(item.key);
+          if (raw) {
+            const parsed = JSON.parse(raw);
+            memoryCache.set(item.key, { data: parsed, _lastAccessed: Date.now() });
+            trackIdbWrite([item.key], indexedDBService.setItem(item.key, parsed));
+          }
+        } catch {
+          // ignore unparseable entry
+        }
+      }
+      ls.removeItem(item.key);
+      markKeyOffloadedToIdb(item.key);
+      freed++;
+    }
+  } catch (err) {
+    Logger.warn('[StorageService] Failed to offload heavy keys to IndexedDB:', err, 'storageService');
+  }
+
+  return freed;
 }
 
 // Pre-populate memoryCache from localStorage safely on startup
@@ -425,36 +620,224 @@ export const storageService = {
   },
 
   /**
-   * Synchronous storage with immediate persistence to localStorage and memoryCache
+   * Pre-boot IndexedDB-Primary hydration (Batch 5).
+   * Loads all persisted 'app_data' keys from IndexedDB into the non-evictable RAM mirror
+   * BEFORE React mounts and BEFORE Zustand initializes, while migrating legacy localStorage-only
+   * installations upward into IndexedDB in a single atomic transaction.
    */
-  setItem(key: string, value: unknown): boolean {
+  async hydrateAllFromIndexedDB(): Promise<{
+    hydratedCount: number;
+    migratedUpCount: number;
+    source: 'indexeddb' | 'localstorage';
+  }> {
+    if (hydrateAllPromise) return hydrateAllPromise;
+
+    hydrateAllPromise = (async () => {
+      loadOffloadedKeysFromLocalStorage();
+
+      if (!indexedDBService.isSupported()) {
+        isIdbHydrated = true;
+        return { hydratedCount: 0, migratedUpCount: 0, source: 'localstorage' as const };
+      }
+
+      try {
+        const idbEntries = await indexedDBService.getAllEntries('app_data');
+        const ls = getSafeLocalStorage();
+
+        const lsStartMode = this.getItem(STORAGE_KEYS.START_MODE);
+        const idbStartMode = idbEntries[STORAGE_KEYS.START_MODE];
+        const isEmptyFactoryMode = lsStartMode === 'empty' || idbStartMode === 'empty';
+
+        const alreadyMigrated =
+          this.getItem(STORAGE_KEYS.IDB_PRIMARY_MIGRATED) === 'true' ||
+          this.getItem(STORAGE_KEYS.IDB_PRIMARY_MIGRATED) === true ||
+          idbEntries[STORAGE_KEYS.IDB_PRIMARY_MIGRATED] === 'true' ||
+          idbEntries[STORAGE_KEYS.IDB_PRIMARY_MIGRATED] === true;
+
+        let hydratedCount = 0;
+
+        // 1. Hydrate RAM mirror authoritatively from IndexedDB
+        for (const [k, idbVal] of Object.entries(idbEntries)) {
+          if (!k.startsWith('gmao_') || isSecurityManagedKey(k)) continue;
+          if (idbVal === undefined || idbVal === null) continue;
+
+          // Respect explicit empty factory state: never revive non-empty domain data
+          if (isEmptyFactoryMode && IDB_PRIMARY_KEYS.has(k)) {
+            if (
+              (Array.isArray(idbVal) && idbVal.length > 0) ||
+              (k === STORAGE_KEYS.FULL_STATE_SNAPSHOT)
+            ) {
+              continue;
+            }
+          }
+
+          const hasLocalCopy = ls ? ls.getItem(k) !== null : false;
+          const isOffloadedOrIdbOnly = offloadedToIdbKeys.has(k) || IDB_ONLY_KEYS.has(k);
+          const shouldPreferIdb =
+            isOffloadedOrIdbOnly ||
+            !hasLocalCopy ||
+            (alreadyMigrated && IDB_PRIMARY_KEYS.has(k));
+
+          if (shouldPreferIdb) {
+            memoryCache.set(k, { data: idbVal, _lastAccessed: Date.now() });
+            hydratedCount++;
+          }
+        }
+
+        // 2. Upgrade Migration: copy any existing localStorage keys missing from IndexedDB upward in one atomic batch
+        const toMigrateUp: Record<string, unknown> = {};
+        if (ls) {
+          for (let i = 0; i < ls.length; i++) {
+            const k = ls.key(i);
+            if (!k || !k.startsWith('gmao_') || isSecurityManagedKey(k)) continue;
+            if (k === STORAGE_KEYS.IDB_OFFLOADED_KEYS || k === STORAGE_KEYS.IDB_PRIMARY_MIGRATED) continue;
+            if (Object.prototype.hasOwnProperty.call(idbEntries, k)) continue;
+
+            const raw = ls.getItem(k);
+            if (
+              !raw ||
+              raw.startsWith('WC:') ||
+              raw.startsWith('U2FsdGVkX1') ||
+              raw.startsWith('NC1:') ||
+              raw.startsWith('NC2:') ||
+              raw.startsWith('AG1:')
+            ) {
+              continue;
+            }
+            try {
+              toMigrateUp[k] = JSON.parse(raw);
+            } catch {
+              toMigrateUp[k] = raw;
+            }
+          }
+
+          // Reclaim localStorage quota immediately by offloading FULL_STATE_SNAPSHOT once preserved in IndexedDB
+          if (ls.getItem(STORAGE_KEYS.FULL_STATE_SNAPSHOT) !== null) {
+            if (!Object.prototype.hasOwnProperty.call(idbEntries, STORAGE_KEYS.FULL_STATE_SNAPSHOT)) {
+              const snapRaw = ls.getItem(STORAGE_KEYS.FULL_STATE_SNAPSHOT);
+              if (snapRaw) {
+                try {
+                  const parsedSnap = JSON.parse(snapRaw);
+                  toMigrateUp[STORAGE_KEYS.FULL_STATE_SNAPSHOT] = parsedSnap;
+                  memoryCache.set(STORAGE_KEYS.FULL_STATE_SNAPSHOT, {
+                    data: parsedSnap,
+                    _lastAccessed: Date.now(),
+                  });
+                } catch {
+                  // ignore malformed snapshot
+                }
+              }
+            }
+            ls.removeItem(STORAGE_KEYS.FULL_STATE_SNAPSHOT);
+            markKeyOffloadedToIdb(STORAGE_KEYS.FULL_STATE_SNAPSHOT);
+          }
+        }
+
+        const migratedUpCount = Object.keys(toMigrateUp).length;
+        if (migratedUpCount > 0 || !alreadyMigrated) {
+          toMigrateUp[STORAGE_KEYS.IDB_PRIMARY_MIGRATED] = 'true';
+          await trackIdbWrite(
+            Object.keys(toMigrateUp),
+            indexedDBService.setItemsBatch(toMigrateUp)
+          );
+          if (ls) {
+            try {
+              ls.setItem(STORAGE_KEYS.IDB_PRIMARY_MIGRATED, 'true');
+            } catch {
+              // ignore quota error on tiny flag
+            }
+          }
+          memoryCache.set(STORAGE_KEYS.IDB_PRIMARY_MIGRATED, {
+            data: 'true',
+            _lastAccessed: Date.now(),
+          });
+        }
+
+        isIdbHydrated = true;
+        if (typeof window !== 'undefined' && typeof CustomEvent !== 'undefined') {
+          window.dispatchEvent(
+            new CustomEvent('gmao:idb_hydrated', {
+              detail: { hydratedCount, migratedUpCount },
+            })
+          );
+        }
+
+        return { hydratedCount, migratedUpCount, source: 'indexeddb' as const };
+      } catch (err) {
+        Logger.warn('[StorageService] Pre-boot IndexedDB hydration notice:', err, 'storageService');
+        isIdbHydrated = true;
+        return { hydratedCount: 0, migratedUpCount: 0, source: 'localstorage' as const };
+      } finally {
+        hydrateAllPromise = null;
+      }
+    })();
+
+    return hydrateAllPromise;
+  },
+
+  /**
+   * Synchronous storage with IndexedDB-Primary write-through, non-evictable domain RAM mirror,
+   * and automatic localStorage offloading for large/heavy collections.
+   */
+  setItem(key: string, value: unknown, options?: { skipIdbWrite?: boolean }): boolean {
+    const idbSupported = indexedDBService.isSupported();
+    const skipIdbWrite = Boolean(options?.skipIdbWrite);
+
+    if (value === null || value === undefined) {
+      memoryCache.delete(key);
+      unmarkKeyOffloadedToIdb(key);
+      try {
+        const ls = getSafeLocalStorage();
+        if (ls) ls.removeItem(key);
+      } catch (e) {
+        Logger.warn(`localStorage remove error for ${key}:`, e, 'storageService');
+      }
+      if (key.startsWith('gmao_') && !skipIdbWrite) {
+        trackIdbWrite([key], indexedDBService.removeItem(key));
+      }
+      return true;
+    }
+
     const cachedEntry = { data: value, _lastAccessed: Date.now() };
     if (memoryCache.has(key)) {
       memoryCache.delete(key);
     }
     memoryCache.set(key, cachedEntry);
 
-    // Evict oldest entries if exceeding capacity (strict LRU policy)
-    if (memoryCache.size > MAX_CACHE_SIZE) {
-      const keys = Array.from(memoryCache.keys());
-      const numToRemove = memoryCache.size - MAX_CACHE_SIZE;
+    // Evict oldest TRANSIENT entries only (never evict IndexedDB-Primary or offloaded domain keys)
+    const evictableKeys = Array.from(memoryCache.keys()).filter((k) => !isProtectedFromCacheEviction(k));
+    if (evictableKeys.length > MAX_CACHE_SIZE) {
+      const numToRemove = evictableKeys.length - MAX_CACHE_SIZE;
       for (let i = 0; i < numToRemove; i++) {
-        memoryCache.delete(keys[i]);
+        memoryCache.delete(evictableKeys[i]);
       }
     }
+
+    let persistedToLocalStorage = false;
+    let offloadedCleanlyToIdb = false;
 
     try {
       const ls = getSafeLocalStorage();
       if (ls) {
-        if (value === null || value === undefined) {
-          ls.removeItem(key);
-          memoryCache.delete(key);
+        const serialized = typeof value === 'object' ? JSON.stringify(value) : String(value);
+        const shouldOffloadDirectly =
+          idbSupported &&
+          (IDB_ONLY_KEYS.has(key) ||
+            (IDB_PRIMARY_KEYS.has(key) && serialized.length > LOCALSTORAGE_OFFLOAD_THRESHOLD_BYTES));
+
+        if (shouldOffloadDirectly) {
+          // Remove any older localStorage copy so stale data can never shadow IndexedDB Primary
+          if (ls.getItem(key) !== null) {
+            ls.removeItem(key);
+          }
+          markKeyOffloadedToIdb(key);
+          offloadedCleanlyToIdb = true;
         } else {
-          const serialized = typeof value === 'object' ? JSON.stringify(value) : String(value);
           try {
             ls.setItem(key, serialized);
+            persistedToLocalStorage = true;
+            unmarkKeyOffloadedToIdb(key);
           } catch (writeErr: any) {
-            // If quota exceeded, purge stale keys and retry once
             const isQuotaError =
               writeErr?.name === 'QuotaExceededError' ||
               writeErr?.code === 22 ||
@@ -463,23 +846,41 @@ export const storageService = {
               writeErr?.message?.includes('exceeded');
 
             if (isQuotaError) {
-              const purged = purgeObsoleteStorageKeys();
-              if (purged > 0) {
+              purgeObsoleteStorageKeys();
+
+              if (idbSupported && IDB_PRIMARY_KEYS.has(key)) {
+                // Cleanly offload this domain key to IndexedDB Primary and clear any stale localStorage copy
+                if (ls.getItem(key) !== null) {
+                  ls.removeItem(key);
+                }
+                markKeyOffloadedToIdb(key);
+                offloadedCleanlyToIdb = true;
+              } else {
+                // Free space by offloading heavy domain keys to IndexedDB, then retry writing this small config/auth key
+                offloadHeavyLocalStorageKeysToIdb();
                 try {
                   ls.setItem(key, serialized);
-                  return true;
+                  persistedToLocalStorage = true;
+                  unmarkKeyOffloadedToIdb(key);
                 } catch (retryErr) {
-                  // Fallback safely to memoryCache
-                  Logger.warn(
-                    `[StorageService] setItem retry after quota purge failed for '${key}':`,
-                    retryErr,
-                    'storageService'
-                  );
+                  if (idbSupported && key.startsWith('gmao_')) {
+                    if (ls.getItem(key) !== null) {
+                      ls.removeItem(key);
+                    }
+                    markKeyOffloadedToIdb(key);
+                    offloadedCleanlyToIdb = true;
+                  } else {
+                    Logger.warn(
+                      `[StorageService] setItem retry after quota purge failed for '${key}':`,
+                      retryErr,
+                      'storageService'
+                    );
+                  }
                 }
               }
+            } else {
+              Logger.warn(`localStorage write error for ${key}:`, writeErr, 'storageService');
             }
-            // Retain data in memoryCache so application works uninterrupted
-            Logger.info(`[StorageService] Active memory retention for '${key}' (Storage quota protected)`);
           }
         }
       }
@@ -487,47 +888,86 @@ export const storageService = {
       Logger.warn(`localStorage unexpected error for ${key}:`, e, 'storageService');
     }
 
-    // L3 Master Storage Sync: Mirror automatically to IndexedDB in background
-    if (key.startsWith('gmao_')) {
+    // Primary durable commit to IndexedDB for all canonical GMAO keys
+    if (key.startsWith('gmao_') && !skipIdbWrite) {
       try {
-        if (value === null || value === undefined) {
-          indexedDBService.removeItem(key).catch(() => {});
-        } else {
-          indexedDBService.setItem(key, value).catch(() => {});
-        }
+        trackIdbWrite([key], indexedDBService.setItem(key, value));
       } catch (err) {
-        Logger.warn(`[StorageService] Background IndexedDB mirror error for '${key}':`, err, 'storageService');
+        Logger.warn(`[StorageService] IndexedDB primary write error for '${key}':`, err, 'storageService');
       }
+    }
+
+    // Return false only if neither localStorage nor IndexedDB can persist the value durably
+    if (!persistedToLocalStorage && !offloadedCleanlyToIdb && !idbSupported) {
+      idbWriteFailures.set(key, 'Storage quota exceeded with IndexedDB unavailable');
+      emitStorageHealthChanged();
+      return false;
     }
 
     return true;
   },
 
   /**
-   * Asynchronous setItem that awaits IndexedDB completion in addition to synchronous memoryCache + localStorage write.
+   * Batch write multiple canonical keys: updates RAM mirror + tiered localStorage synchronously,
+   * then commits ALL gmao_* entries to IndexedDB Primary in ONE atomic transaction (eliminates 40x write amplification).
+   */
+  async setItemsBatch(itemsMap: Record<string, unknown> = {}): Promise<boolean> {
+    if (!itemsMap || typeof itemsMap !== 'object') return false;
+    const idbPayload: Record<string, unknown> = {};
+    const keysToRemoveFromIdb: string[] = [];
+
+    for (const [key, value] of Object.entries(itemsMap)) {
+      if (!key) continue;
+      this.setItem(key, value, { skipIdbWrite: true });
+      if (key.startsWith('gmao_')) {
+        if (value === null || value === undefined) {
+          keysToRemoveFromIdb.push(key);
+        } else {
+          idbPayload[key] = value;
+        }
+      }
+    }
+
+    let ok = true;
+    const idbKeys = Object.keys(idbPayload);
+    if (idbKeys.length > 0) {
+      ok = await trackIdbWrite(idbKeys, indexedDBService.setItemsBatch(idbPayload));
+    }
+    if (keysToRemoveFromIdb.length > 0) {
+      await Promise.all(
+        keysToRemoveFromIdb.map((k) => trackIdbWrite([k], indexedDBService.removeItem(k)))
+      );
+    }
+    return ok;
+  },
+
+  /**
+   * Asynchronous setItem that awaits IndexedDB completion in addition to synchronous memoryCache + tiered localStorage write.
    * Prevents L2 -> L1 hydration races during factory clear/reset operations.
    */
   async setItemAsync(key: string, value: unknown): Promise<boolean> {
-    this.setItem(key, value);
+    this.setItem(key, value, { skipIdbWrite: true });
     if (key.startsWith('gmao_')) {
       try {
         if (value === null || value === undefined) {
-          await indexedDBService.removeItem(key);
-        } else {
-          await indexedDBService.setItem(key, value);
+          return await trackIdbWrite([key], indexedDBService.removeItem(key));
         }
+        return await trackIdbWrite([key], indexedDBService.setItem(key, value));
       } catch (err) {
         Logger.warn(`[StorageService] setItemAsync IndexedDB error for '${key}':`, err, 'storageService');
+        return false;
       }
     }
     return true;
   },
 
   /**
-   * Remove item from memory cache, localStorage, and IndexedDB
+   * Remove item from memory cache, localStorage, offload index, and IndexedDB
    */
   removeItem(key: string): boolean {
     memoryCache.delete(key);
+    unmarkKeyOffloadedToIdb(key);
+    idbWriteFailures.delete(key);
     try {
       const ls = getSafeLocalStorage();
       if (ls) {
@@ -539,7 +979,7 @@ export const storageService = {
 
     if (key.startsWith('gmao_')) {
       try {
-        indexedDBService.removeItem(key).catch(() => {});
+        trackIdbWrite([key], indexedDBService.removeItem(key));
       } catch (err) {
         Logger.warn(`[StorageService] removeItem IndexedDB mirror error for '${key}':`, err, 'storageService');
       }
@@ -552,12 +992,21 @@ export const storageService = {
    * Asynchronous removeItem that awaits IndexedDB removal completion.
    */
   async removeItemAsync(key: string): Promise<boolean> {
-    this.removeItem(key);
+    memoryCache.delete(key);
+    unmarkKeyOffloadedToIdb(key);
+    idbWriteFailures.delete(key);
+    try {
+      const ls = getSafeLocalStorage();
+      if (ls) ls.removeItem(key);
+    } catch (err) {
+      Logger.warn(`[StorageService] removeItemAsync localStorage error for '${key}':`, err, 'storageService');
+    }
     if (key.startsWith('gmao_')) {
       try {
-        await indexedDBService.removeItem(key);
+        return await trackIdbWrite([key], indexedDBService.removeItem(key));
       } catch (err) {
         Logger.warn(`[StorageService] removeItemAsync IndexedDB error for '${key}':`, err, 'storageService');
+        return false;
       }
     }
     return true;
@@ -572,6 +1021,8 @@ export const storageService = {
     for (const k of keys) {
       if (!k) continue;
       memoryCache.delete(k);
+      unmarkKeyOffloadedToIdb(k);
+      idbWriteFailures.delete(k);
       try {
         if (ls) {
           ls.removeItem(k);
@@ -582,7 +1033,7 @@ export const storageService = {
     }
     try {
       await Promise.all(
-        keys.filter(Boolean).map((k) => indexedDBService.removeItem(k).catch(() => false))
+        keys.filter(Boolean).map((k) => trackIdbWrite([k], indexedDBService.removeItem(k)))
       );
     } catch (err) {
       Logger.warn('[StorageService] removeItemsBatchAsync IndexedDB batch error:', err, 'storageService');
@@ -591,11 +1042,53 @@ export const storageService = {
   },
 
   /**
-   * Hydrate a key from IndexedDB if not found or evicted in localStorage.
-   * Implements guarded L3 -> L2 -> L1 healing flow:
+   * Awaits all in-flight IndexedDB primary commits so callers (backups, resets, tests) have durable guarantees.
+   */
+  async flushPendingWrites(): Promise<void> {
+    if (pendingIdbWrites.size === 0) return;
+    await Promise.allSettled(Array.from(pendingIdbWrites));
+  },
+
+  /**
+   * Returns live persistence engine diagnostics for SettingsOverviewTab & health monitoring.
+   */
+  getPersistenceDiagnostics(): {
+    engine: 'indexeddb-primary' | 'localstorage-fallback' | 'memory-degraded';
+    isIdbSupported: boolean;
+    isIdbHydrated: boolean;
+    offloadedKeys: string[];
+    offloadedCount: number;
+    pendingWritesCount: number;
+    failedKeys: string[];
+    lastIdbCommitAt: number | null;
+  } {
+    const isIdbSupported = indexedDBService.isSupported();
+    const failedKeys = Array.from(idbWriteFailures.keys());
+    const engine: 'indexeddb-primary' | 'localstorage-fallback' | 'memory-degraded' =
+      failedKeys.length > 0 && !isIdbSupported
+        ? 'memory-degraded'
+        : isIdbSupported
+        ? 'indexeddb-primary'
+        : 'localstorage-fallback';
+
+    return {
+      engine,
+      isIdbSupported,
+      isIdbHydrated,
+      offloadedKeys: Array.from(offloadedToIdbKeys),
+      offloadedCount: offloadedToIdbKeys.size,
+      pendingWritesCount: pendingIdbWrites.size,
+      failedKeys,
+      lastIdbCommitAt,
+    };
+  },
+
+  /**
+   * Hydrate a key from IndexedDB if not found, evicted, or offloaded from localStorage.
+   * Implements guarded L2 -> L1 healing flow:
    * - Never overwrites an explicit empty factory state (START_MODE === 'empty').
    * - Allows Real Factory Mode (START_MODE === 'custom' with DEMO_MODE === false) to self-heal from IndexedDB.
-   * - Never overwrites a key that already has an authoritative array/object in localStorage.
+   * - Never overwrites a key that already has an authoritative array/object in memory unless it is offloaded.
    */
   async hydrateFromIndexedDB<T = any>(key: string, fallback: T = null as T): Promise<T> {
     try {
@@ -609,13 +1102,17 @@ export const storageService = {
       }
 
       const existing = this.getItem<unknown>(key, undefined);
-      if (Array.isArray(existing) && existing.length > 0) {
+      if (Array.isArray(existing) && existing.length > 0 && !offloadedToIdbKeys.has(key)) {
         return existing as T;
       }
 
       const idbVal = await indexedDBService.getItem(key, null);
       if (idbVal !== null && idbVal !== undefined) {
-        this.setItem(key, idbVal);
+        memoryCache.set(key, { data: idbVal, _lastAccessed: Date.now() });
+        // Only write back to localStorage if not offloaded / IDB-only
+        if (!offloadedToIdbKeys.has(key) && !IDB_ONLY_KEYS.has(key)) {
+          this.setItem(key, idbVal, { skipIdbWrite: true });
+        }
         return idbVal;
       }
     } catch (err) {
@@ -625,10 +1122,14 @@ export const storageService = {
   },
 
   /**
-   * Clear entire memory cache
+   * Clear entire memory cache and resync runtime offload/error metadata
    */
   clearCache() {
     memoryCache.clear();
+    idbWriteFailures.clear();
+    isIdbHydrated = false;
+    hydrateAllPromise = null;
+    loadOffloadedKeysFromLocalStorage();
   },
 
   /**

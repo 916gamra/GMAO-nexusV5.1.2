@@ -58,52 +58,58 @@ export function useGmaoPersistence({
         const idbSnap = await indexedDBService.getItem(STORAGE_KEYS.FULL_STATE_SNAPSHOT);
         if (!idbSnap || typeof idbSnap !== 'object') return;
 
-        const patch: Record<string, unknown> = {};
-        const arrayFields = [
-          'pdrGroups',
-          'types',
-          'designations',
-          'rawStock',
-          'families',
-          'templates',
-          'blueprints',
-          'machines',
-          'generalSystemTypes',
-          'zones',
-          'machineElementsLedger',
-          'warehouseItems',
-          'entrepotComponents',
-          'compGroups',
-          'compFamilies',
-          'compTemplates',
-          'partGroups',
-          'partTypes',
-          'partDesignations',
-          'users',
-          'technicians',
-          'operations',
-          'mouvements',
-          'sortieDemands',
-          'replenishmentOrders',
-          'preventiveTasks',
-          'preventiveActions',
-          'preventiveGuides',
-          'preventivePlans',
-          'preventiveExecutions',
-          'meterReadings',
-          'auditEvents',
-          'sortiesExterne',
-          'correctiveInterventions',
-          'correctiveTravauxAFaire',
-          'correctiveIntervenants',
-          'workshopOrders',
-          'needRequests',
-        ];
+        const offloadedSet = new Set(storageService.getPersistenceDiagnostics().offloadedKeys);
+        const fieldStorageKeyMap: Record<string, string> = {
+          pdrGroups: STORAGE_KEYS.PDR_GROUPS,
+          types: STORAGE_KEYS.STOCK_TYPES,
+          designations: STORAGE_KEYS.DESIGNATIONS,
+          rawStock: STORAGE_KEYS.RAW_STOCK,
+          families: STORAGE_KEYS.FAMILIES,
+          templates: STORAGE_KEYS.TEMPLATES,
+          blueprints: STORAGE_KEYS.BLUEPRINTS,
+          machines: STORAGE_KEYS.MACHINES,
+          generalSystemTypes: STORAGE_KEYS.GENERAL_SYSTEM_TYPES,
+          zones: STORAGE_KEYS.ZONES,
+          machineElementsLedger: STORAGE_KEYS.MACHINE_BOM,
+          warehouseItems: STORAGE_KEYS.WAREHOUSE_ITEMS,
+          entrepotComponents: STORAGE_KEYS.ENTREPOT_COMPONENTS,
+          compGroups: STORAGE_KEYS.COMP_GROUPS,
+          compFamilies: STORAGE_KEYS.COMP_FAMILIES,
+          compTemplates: STORAGE_KEYS.COMP_TEMPLATES,
+          partGroups: STORAGE_KEYS.PART_GROUPS,
+          partTypes: STORAGE_KEYS.PART_TYPES,
+          partDesignations: STORAGE_KEYS.PART_DESIGNATIONS,
+          users: STORAGE_KEYS.PERSONNEL,
+          technicians: STORAGE_KEYS.TECHNICIANS,
+          operations: STORAGE_KEYS.OPERATIONS,
+          mouvements: STORAGE_KEYS.MOUVEMENTS,
+          sortieDemands: STORAGE_KEYS.SORTIE_DEMANDS,
+          replenishmentOrders: STORAGE_KEYS.REPLENISHMENT_ORDERS,
+          preventiveTasks: STORAGE_KEYS.PREVENTIVE_TASKS,
+          preventiveActions: STORAGE_KEYS.PREVENTIVE_ACTIONS,
+          preventiveGuides: STORAGE_KEYS.PREVENTIVE_GUIDES,
+          preventivePlans: STORAGE_KEYS.PREVENTIVE_PLANS,
+          preventiveExecutions: STORAGE_KEYS.PREVENTIVE_EXECUTIONS,
+          meterReadings: STORAGE_KEYS.METER_READINGS,
+          auditEvents: STORAGE_KEYS.AUDIT_EVENTS,
+          sortiesExterne: STORAGE_KEYS.SORTIE_EXTERNE,
+          correctiveInterventions: STORAGE_KEYS.CORRECTIVE_INTERVENTIONS,
+          correctiveTravauxAFaire: STORAGE_KEYS.CORRECTIVE_TRAVAUX,
+          correctiveIntervenants: STORAGE_KEYS.CORRECTIVE_INTERVENANTS,
+          workshopOrders: STORAGE_KEYS.WORKSHOP_ORDERS,
+          needRequests: STORAGE_KEYS.NEED_REQUESTS,
+        };
 
-        for (const field of arrayFields) {
+        const patch: Record<string, unknown> = {};
+        for (const [field, storageKey] of Object.entries(fieldStorageKeyMap)) {
           const currentVal = state?.[field];
           const idbVal = idbSnap[field];
-          if ((!Array.isArray(currentVal) || currentVal.length === 0) && Array.isArray(idbVal) && idbVal.length > 0) {
+          const isCurrentEmpty = !Array.isArray(currentVal) || currentVal.length === 0;
+          const isOffloadedAndRicher =
+            offloadedSet.has(storageKey) &&
+            Array.isArray(idbVal) &&
+            (!Array.isArray(currentVal) || idbVal.length > currentVal.length);
+          if ((isCurrentEmpty && Array.isArray(idbVal) && idbVal.length > 0) || isOffloadedAndRicher) {
             patch[field] = idbVal;
           }
         }

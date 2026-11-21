@@ -463,32 +463,124 @@ class IndexedDBService {
   }
 
   /**
-   * Retrieves all items from a given store.
+   * Retrieves all key-value pairs from an out-of-line key store (defaults to 'app_data')
+   * in a single readonly transaction for fast pre-boot IndexedDB-Primary hydration.
    */
-  async getAll(storeName = 'app_data') {
+  async getAllEntries(storeName = 'app_data'): Promise<Record<string, unknown>> {
     if (!this.isSupported()) {
+      const obj: Record<string, unknown> = {};
       if (storeName === 'app_data') {
-        const obj: Record<string, any> = {};
         for (const [k, v] of this.fallbackMemoryStore.entries()) {
           obj[k] = v;
         }
+      }
+      return obj;
+    }
+
+    try {
+      const db = await this.init();
+      if (!db || !db.objectStoreNames.contains(storeName)) {
+        const obj: Record<string, unknown> = {};
+        if (storeName === 'app_data') {
+          for (const [k, v] of this.fallbackMemoryStore.entries()) {
+            obj[k] = v;
+          }
+        }
         return obj;
       }
+
+      return new Promise((resolve) => {
+        try {
+          const tx = db.transaction(storeName, 'readonly');
+          const store = tx.objectStore(storeName);
+
+          if (typeof store.getAllKeys === 'function' && typeof store.getAll === 'function') {
+            let keys: IDBValidKey[] | null = null;
+            let values: unknown[] | null = null;
+            let settled = false;
+
+            const finish = () => {
+              if (settled || keys === null || values === null) return;
+              settled = true;
+              const result: Record<string, unknown> = {};
+              const len = Math.min(keys.length, values.length);
+              for (let i = 0; i < len; i++) {
+                result[String(keys[i])] = values[i];
+              }
+              resolve(result);
+            };
+
+            const keysReq = store.getAllKeys();
+            const valsReq = store.getAll();
+            keysReq.onsuccess = () => {
+              keys = keysReq.result || [];
+              finish();
+            };
+            valsReq.onsuccess = () => {
+              values = valsReq.result || [];
+              finish();
+            };
+            keysReq.onerror = () => {
+              if (!settled) {
+                settled = true;
+                resolve({});
+              }
+            };
+            valsReq.onerror = () => {
+              if (!settled) {
+                settled = true;
+                resolve({});
+              }
+            };
+          } else {
+            const result: Record<string, unknown> = {};
+            const cursorReq = store.openCursor();
+            cursorReq.onsuccess = (evt: any) => {
+              const cursor = evt?.target?.result;
+              if (cursor) {
+                result[String(cursor.key)] = cursor.value;
+                cursor.continue();
+              } else {
+                resolve(result);
+              }
+            };
+            cursorReq.onerror = () => resolve(result);
+          }
+        } catch {
+          resolve({});
+        }
+      });
+    } catch (err) {
+      Logger.warn(`IndexedDB getAllEntries [${storeName}] error:`, err);
+      return {};
+    }
+  }
+
+  /**
+   * Retrieves all items from a given store.
+   * For 'app_data', returns a key-value record consistently across browser IDB and fallback mode.
+   */
+  async getAll(storeName = 'app_data') {
+    if (storeName === 'app_data') {
+      return this.getAllEntries('app_data');
+    }
+
+    if (!this.isSupported()) {
       return [];
     }
 
     try {
       const store = await this.getStore(storeName, 'readonly');
-      if (!store) return storeName === 'app_data' ? {} : [];
+      if (!store) return [];
 
       return new Promise((resolve) => {
         const request = store.getAll();
-        request.onsuccess = () => resolve(request.result || (storeName === 'app_data' ? {} : []));
-        request.onerror = () => resolve(storeName === 'app_data' ? {} : []);
+        request.onsuccess = () => resolve(request.result || []);
+        request.onerror = () => resolve([]);
       });
     } catch (err) {
       Logger.warn(`IndexedDB getAll [${storeName}] error:`, err);
-      return storeName === 'app_data' ? {} : [];
+      return [];
     }
   }
 

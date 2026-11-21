@@ -210,7 +210,7 @@ export default function SettingsDirectoryTab({
                     )}
                   </div>
                   <p className="text-[11px] text-slate-500 mt-0.5 leading-snug">
-                    Ce PC héberge la base <code className="font-mono">gmao_state.json</code> et le miroir Excel pour l&apos;usine.
+                    Ce PC héberge la base SQLite ACID (<code className="font-mono">ciob_gmao.db</code>) et dessert 1–4 PC + smartphones sur le Wi-Fi usine.
                   </p>
                 </div>
               </button>
@@ -424,12 +424,32 @@ export default function SettingsDirectoryTab({
             </div>
           </div>
         </div>
+
+        {/* Local Factory Topology Guide (Standalone PC vs Wi-Fi LAN 1-4 PC + 5-6 Mobiles) */}
+        <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-3 text-[11px] text-slate-600">
+          <div className="p-3 rounded-xl bg-slate-50/80 border border-slate-200/80">
+            <div className="font-bold text-slate-800 mb-1">
+              Mode 1 PC Autonome (Sans serveur LAN)
+            </div>
+            <p className="leading-relaxed">
+              Les données résident durablement dans <b>IndexedDB Principal</b> (capacité Go). Utilisez le dossier partagé entreprise (<code className="font-mono">Z:\Partage\...</code>) pour vos exports Snapshot JSON et miroirs Excel.
+            </p>
+          </div>
+          <div className="p-3 rounded-xl bg-slate-50/80 border border-slate-200/80">
+            <div className="font-bold text-slate-800 mb-1">
+              Mode Wi-Fi Usine (1–4 PC + 5–6 Smartphones)
+            </div>
+            <p className="leading-relaxed">
+              Hébergez <code className="font-mono">ciob_gmao.db</code> sur le disque local du PC/Serveur Hôte (copiez ses sauvegardes <code className="font-mono">backups/</code> vers le dossier partagé) et connectez les autres PC et téléphones via le lien Wi-Fi / QR Code.
+            </p>
+          </div>
+        </div>
       </SettingsSectionCard>
 
       {/* 3. Shared Folder & Excel Mirror File Binding */}
       <SettingsSectionCard
-        title="Liaison du Fichier Miroir Excel (.xlsx) & Synchronisation"
-        description="Associez un fichier Excel local via l'API File System du navigateur ou définissez la cadence de rafraîchissement multi-postes."
+        title="Dossier Partagé Entreprise & Fichier Miroir Excel (.xlsx — Sortant)"
+        description="Reliez un classeur Excel sur ce poste ou sur un lecteur réseau monté comme miroir/archive de sauvegarde. Pour l'accès simultané PC + mobiles, utilisez le serveur Wi-Fi Hôte ci-dessus."
         icon={<FolderSync />}
         headerRight={
           linkedFileName ? (

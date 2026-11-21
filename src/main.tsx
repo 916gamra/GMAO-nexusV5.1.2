@@ -92,22 +92,25 @@ const renderApp = () => {
   }
 };
 
-// Fallback timer guarantees the UI mounts immediately even if IndexedDB is slow/blocked in a sandboxed iframe
-const initFallbackTimer = setTimeout(renderApp, 250);
+// Fallback timer guarantees the UI mounts promptly even if IndexedDB is slow/blocked in a sandboxed iframe
+const initFallbackTimer = setTimeout(renderApp, 600);
 
-// Initialize key separation (IndexedDB non-extractable CryptoKey -> RAM secret) before rendering
-SecurityService.init()
-  .catch((err) => {
+// Initialize key separation (IndexedDB non-extractable CryptoKey -> RAM secret)
+// AND pre-hydrate IndexedDB-Primary storage into RAM mirror before mounting React/Zustand
+Promise.allSettled([
+  SecurityService.init().catch((err) => {
     Logger.warn('SecurityService keystore init notice:', err, 'SecurityService');
-  })
-  .finally(() => {
-    clearTimeout(initFallbackTimer);
-    renderApp();
+  }),
+  storageService.hydrateAllFromIndexedDB().catch((err) => {
+    Logger.warn('IndexedDB-Primary hydration notice:', err, 'storageService');
+  }),
+]).finally(() => {
+  clearTimeout(initFallbackTimer);
+  renderApp();
+  // Background legacy WC/AES decryption migration after hydration
+  storageService.init().catch((err) => {
+    Logger.warn('Initialization notice:', err, 'storageService');
   });
-
-// Background initialization for storage migrations
-storageService.init().catch((err) => {
-  Logger.warn('Initialization notice:', err, 'storageService');
 });
 
 // Enregistrement du Service Worker pour le mode 100% Offline et PWA (uniquement en production)
