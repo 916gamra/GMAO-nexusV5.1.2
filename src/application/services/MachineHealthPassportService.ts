@@ -194,6 +194,7 @@ export interface PassportLifecycleEventInput {
   event_type?: string;
   to_status?: string;
   from_status?: string;
+  lifecycle_state?: string;
   suspended_tasks_count?: number | string;
   restored_tasks_count?: number | string;
   reason?: string;
@@ -211,6 +212,7 @@ export interface PassportMachineInput {
   id_zone?: string;
   zone?: string;
   id_family?: string;
+  asset_class?: string;
   status?: string;
   statut?: string;
   is_active?: boolean;

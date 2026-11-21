@@ -52,6 +52,11 @@ export interface EquipmentModalsProps {
     movementsCount?: number;
     preventiveCount: number;
     correctiveCount: number;
+    preventiveExecutionsCount?: number;
+    sortieDemandsCount?: number;
+    warehouseCount?: number;
+    externalSortiesCount?: number;
+    bomCount?: number;
     [key: string]: unknown;
   } | null;
   preventiveTasks: PreventiveTaskItem[];

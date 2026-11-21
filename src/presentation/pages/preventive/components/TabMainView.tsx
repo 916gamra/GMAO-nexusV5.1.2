@@ -72,6 +72,7 @@ import { reconcileFieldClaim } from '../../../../core/security/validationReconci
 import { hasPreventiveExecutionAnomaly } from '../../../../application/services/MachineHealthPassportService';
 import { storageService } from '../../../../utils/storageService';
 import { STORAGE_KEYS } from '../../../../infrastructure/persistence/storageKeys';
+import type { PreventiveTaskItem } from '../../../../types/store';
 
 export { buildConsumablePdrInventory };
 
@@ -231,7 +232,11 @@ export default function TabMainView({
 
   // Annotate tasks with orphan status
   const tasksWithOrphanFlag = useMemo(
-    () => dataIntegrityService.annotatePreventiveOrphans(scopedTasks, machines),
+    () =>
+      dataIntegrityService.annotatePreventiveOrphans<PreventiveTaskItem>(
+        scopedTasks as PreventiveTaskItem[],
+        machines
+      ),
     [scopedTasks, machines]
   );
 

@@ -32,6 +32,60 @@ export interface StockCalculationResult {
   lastUpdated: Date;
 }
 
+export interface StockArticleLike {
+  ref?: string;
+  Ref?: string;
+  designation?: string;
+  name?: string;
+  stockInitial?: number | string;
+  stock_initial?: number | string;
+  initialStock?: number | string;
+  stockActuel?: number;
+  alerte?: 'OK' | 'ALERTE' | 'RUPTURE' | string;
+  seuil?: number | string;
+  minThreshold?: number | string;
+  isAchatUnique?: boolean;
+  prixUnitaire?: number | string;
+  unitPrice?: number | string;
+  prix_unitaire?: number | string;
+  prix?: number | string;
+  [key: string]: unknown;
+}
+
+export interface StockMovementLike {
+  id?: string | number;
+  code_bon?: string;
+  ref?: string;
+  Ref?: string;
+  type?: string;
+  quantite?: number | string;
+  quantity?: number | string;
+  [key: string]: unknown;
+}
+
+interface StockCacheEntry {
+  value: number;
+  timestamp: number;
+}
+
+export interface StockReportItem {
+  ref: string;
+  designation: string;
+  stockInitial: number;
+  stockActuel: number;
+  unitPrice: number;
+  totalValue: number;
+  status: 'OK' | 'ALERTE' | 'RUPTURE';
+}
+
+export interface StockVerificationMismatch {
+  ref: string;
+  field: 'stockActuel' | 'alerte';
+  expected: number | string;
+  calculated: number | string;
+  difference?: number;
+}
+
 /**
  * Canonical Stock Calculation Service for CIOB GMAO Nexus v5.0.2.
  *
@@ -42,9 +96,9 @@ export interface StockCalculationResult {
  * - **Per-Reference Serial Concurrency Queue:** `queueConcurrentMovement` serializes concurrent async mutations targeting the same `ref` key to eliminate race conditions.
  */
 export class StockCalculationService {
-  static cache = new Map();
+  static cache = new Map<string, StockCacheEntry>();
   static cacheTtlMs = 5000; // 5s cache TTL
-  static movementQueue = new Map(); // Key: ref -> Promise chain for concurrency control
+  static movementQueue = new Map<string, Promise<unknown>>(); // Key: ref -> Promise chain for concurrency control
   static normalizeType = normalizeType;
 
   /**
@@ -54,7 +108,7 @@ export class StockCalculationService {
    * @param movements - Array of stock movement records (`IMouvement[]`).
    * @returns Deterministic string fingerprint used as part of the L1 cache key.
    */
-  static getMovementHash(movements) {
+  static getMovementHash(movements: StockMovementLike[] | null | undefined): string {
     if (!Array.isArray(movements) || movements.length === 0) return 'mvt_0';
     const len = movements.length;
     let h = 2166136261 >>> 0;
@@ -78,7 +132,7 @@ export class StockCalculationService {
    * Clears the L1 calculation cache and invalidates the `'stock'` and `'formula'` tags
    * in the global `multiLevelCacheManager`.
    */
-  static clearCache() {
+  static clearCache(): void {
     this.cache.clear();
     multiLevelCacheManager.invalidateByTag('stock');
     multiLevelCacheManager.invalidateByTag('formula');
@@ -92,17 +146,18 @@ export class StockCalculationService {
    * @param movements - Array of stock movement records.
    * @returns Total quantity entered (`>= 0`). Returns `0` on empty ref or error.
    */
-  static calculateEntrees(ref, movements = []) {
+  static calculateEntrees(
+    ref: string | null | undefined,
+    movements: StockMovementLike[] = []
+  ): number {
     try {
       if (!ref) return 0;
       const refKey = String(ref).toUpperCase().trim();
       const hash = `${refKey}_entrees_${this.getMovementHash(movements)}`;
 
-      if (this.cache.has(hash)) {
-        const cached = this.cache.get(hash);
-        if (Date.now() - cached.timestamp < this.cacheTtlMs) {
-          return cached.value;
-        }
+      const cached = this.cache.get(hash);
+      if (cached && Date.now() - cached.timestamp < this.cacheTtlMs) {
+        return cached.value;
       }
 
       const entrees = movements.reduce((sum, m) => {
@@ -110,7 +165,7 @@ export class StockCalculationService {
         const mRef = String(m.ref || m.Ref || '').toUpperCase().trim();
         const normalized = normalizeType(m.type || '');
         if (mRef === refKey && normalized === 'ENTREE') {
-          return sum + safeNum(m.quantite || m.quantity, 0);
+          return sum + safeNum(m.quantite ?? m.quantity, 0);
         }
         return sum;
       }, 0);
@@ -131,17 +186,18 @@ export class StockCalculationService {
    * @param movements - Array of stock movement records.
    * @returns Total quantity withdrawn (`>= 0`). Returns `0` on empty ref or error.
    */
-  static calculateSorties(ref, movements = []) {
+  static calculateSorties(
+    ref: string | null | undefined,
+    movements: StockMovementLike[] = []
+  ): number {
     try {
       if (!ref) return 0;
       const refKey = String(ref).toUpperCase().trim();
       const hash = `${refKey}_sorties_${this.getMovementHash(movements)}`;
 
-      if (this.cache.has(hash)) {
-        const cached = this.cache.get(hash);
-        if (Date.now() - cached.timestamp < this.cacheTtlMs) {
-          return cached.value;
-        }
+      const cached = this.cache.get(hash);
+      if (cached && Date.now() - cached.timestamp < this.cacheTtlMs) {
+        return cached.value;
       }
 
       const sorties = movements.reduce((sum, m) => {
@@ -149,7 +205,7 @@ export class StockCalculationService {
         const mRef = String(m.ref || m.Ref || '').toUpperCase().trim();
         const normalized = normalizeType(m.type || '');
         if (mRef === refKey && normalized === 'SORTIE') {
-          return sum + safeNum(m.quantite || m.quantity, 0);
+          return sum + safeNum(m.quantite ?? m.quantity, 0);
         }
         return sum;
       }, 0);
@@ -170,11 +226,17 @@ export class StockCalculationService {
    * @param movements - Array of stock movement records (`IMouvement[]`).
    * @returns Current stock balance. Falls back to `stockInitial` if an unexpected error occurs.
    */
-  static calculateStockActuel(article, movements = []) {
+  static calculateStockActuel(
+    article: StockArticleLike | null | undefined,
+    movements: StockMovementLike[] = []
+  ): number {
     try {
       if (!article) return 0;
       const ref = article.ref || article.Ref || '';
-      const stockInitial = safeNum(article.stockInitial || article.stock_initial, 0);
+      const stockInitial = safeNum(
+        article.stockInitial ?? article.stock_initial ?? article.initialStock,
+        0
+      );
       const entrees = this.calculateEntrees(ref, movements);
       const sorties = this.calculateSorties(ref, movements);
 
@@ -182,14 +244,17 @@ export class StockCalculationService {
         stockInitial,
         entrees,
         sorties,
-        article.seuil || article.minThreshold || 0,
-        article.isAchatUnique
+        article.seuil ?? article.minThreshold ?? 0,
+        Boolean(article.isAchatUnique)
       );
 
       return status.stockActuelRaw !== undefined ? status.stockActuelRaw : status.stockActuel;
     } catch (error) {
       Logger.error('❌ Stock calculation failed', error, 'StockCalc');
-      return safeNum(article?.stockInitial, 0);
+      return safeNum(
+        article?.stockInitial ?? article?.stock_initial ?? article?.initialStock,
+        0
+      );
     }
   }
 
@@ -204,9 +269,12 @@ export class StockCalculationService {
    * @param currentStock - Computed current stock balance.
    * @returns Alert level: `'OK' | 'ALERTE' | 'RUPTURE'`.
    */
-  static getAlertStatus(article, currentStock) {
+  static getAlertStatus(
+    article: StockArticleLike | null | undefined,
+    currentStock: number
+  ): 'OK' | 'ALERTE' | 'RUPTURE' {
     try {
-      const seuil = safeNum(article?.seuil || article?.minThreshold, 0);
+      const seuil = safeNum(article?.seuil ?? article?.minThreshold, 0);
       if (article?.isAchatUnique) return 'OK';
       if (currentStock <= 0) return 'RUPTURE';
       if (currentStock <= seuil) return 'ALERTE';
@@ -227,7 +295,12 @@ export class StockCalculationService {
    * @param movements - Movement history used to compute live availability.
    * @returns Availability check object (`available`, `currentStock`, `requestedQty`, `shortage`, `message`).
    */
-  static checkAvailability(ref, requestedQty, article, movements = []) {
+  static checkAvailability(
+    ref: string,
+    requestedQty: unknown,
+    article: StockArticleLike | null | undefined,
+    movements: StockMovementLike[] = []
+  ) {
     try {
       const qty = safeNum(requestedQty, 0);
       if (qty <= 0) {
@@ -249,7 +322,7 @@ export class StockCalculationService {
           currentStock,
           requestedQty: qty,
           shortage,
-          message: `Stock insuffisant pour la référence "${ref}". Mousse disponible: ${currentStock}, Demandé: ${qty}, Manquant: ${shortage}.`,
+          message: `Stock insuffisant pour la référence "${ref}". Stock disponible: ${currentStock}, Demandé: ${qty}, Manquant: ${shortage}.`,
         };
       }
 
@@ -280,8 +353,8 @@ export class StockCalculationService {
   static checkNetAvailability(
     ref: string,
     requestedQty: number,
-    article: any,
-    movements: any[] = [],
+    article: StockArticleLike | null | undefined,
+    movements: StockMovementLike[] = [],
     reservedQty = 0,
     excludeClaimReservedQty = 0
   ) {
@@ -336,22 +409,25 @@ export class StockCalculationService {
    * @param movementTaskFn - Async callback performing the stock check and movement persistence.
    * @returns Promise resolving with the result of `movementTaskFn()`.
    */
-  static async queueConcurrentMovement(ref, movementTaskFn) {
+  static async queueConcurrentMovement<T>(
+    ref: string | null | undefined,
+    movementTaskFn: () => Promise<T> | T
+  ): Promise<T> {
     const key = String(ref || 'global').toLowerCase().trim();
     const currentQueue = this.movementQueue.get(key) || Promise.resolve();
 
-    const nextTask = currentQueue
+    const nextTask: Promise<T> = currentQueue
       .then(async () => {
         this.clearCache();
         return await movementTaskFn();
       })
-      .catch((err) => {
+      .catch((err: unknown) => {
         Logger.error(`Concurrent movement queue error for [${key}]:`, err, 'StockCalc');
         throw err;
       });
 
     // Keep queue alive even if task rejects
-    this.movementQueue.set(key, nextTask.catch(() => {}));
+    this.movementQueue.set(key, nextTask.catch(() => undefined));
     return nextTask;
   }
 
@@ -363,28 +439,32 @@ export class StockCalculationService {
    * @param movements - Array of stock movements (`IMouvement[]`).
    * @returns Aggregated valuation report (`totalArticles`, `totalQuantity`, `totalValue`, `summary`, `ruptureItems`, `alerteItems`).
    */
-  static generateStockReport(articles = [], movements = []) {
+  static generateStockReport(
+    articles: StockArticleLike[] = [],
+    movements: StockMovementLike[] = []
+  ) {
     try {
       let totalValue = 0;
       let totalQuantity = 0;
       let countRupture = 0;
       let countAlerte = 0;
       let countOK = 0;
-      const ruptureItems = [];
-      const alerteItems = [];
+      const ruptureItems: StockReportItem[] = [];
+      const alerteItems: StockReportItem[] = [];
 
       // Single-pass O(M) index
-      const mvtIndex = new Map();
+      const mvtIndex = new Map<string, { entrees: number; sorties: number }>();
       movements.forEach((m) => {
         if (!m) return;
         const r = String(m.ref || m.Ref || '').toUpperCase().trim();
         if (!r) return;
-        if (!mvtIndex.has(r)) {
-          mvtIndex.set(r, { entrees: 0, sorties: 0 });
+        let entry = mvtIndex.get(r);
+        if (!entry) {
+          entry = { entrees: 0, sorties: 0 };
+          mvtIndex.set(r, entry);
         }
-        const entry = mvtIndex.get(r);
         const normalized = normalizeType(m.type || '');
-        const qty = safeNum(m.quantite || m.quantity, 0);
+        const qty = safeNum(m.quantite ?? m.quantity, 0);
         if (normalized === 'ENTREE') {
           entry.entrees += qty;
         } else if (normalized === 'SORTIE') {
@@ -395,20 +475,24 @@ export class StockCalculationService {
       // Single-pass O(A) calculations
       articles.forEach((art) => {
         if (!art) return;
-        const refKey = String(art.ref || '').toUpperCase().trim();
+        const rawRef = String(art.ref || art.Ref || '').trim();
+        const refKey = rawRef.toUpperCase();
         const mTotals = mvtIndex.get(refKey) || { entrees: 0, sorties: 0 };
-        const init = safeNum(art.stockInitial || art.initialStock, 0);
+        const init = safeNum(art.stockInitial ?? art.stock_initial ?? art.initialStock, 0);
         const currentStock = Math.max(0, init + mTotals.entrees - mTotals.sorties);
         const status = this.getAlertStatus(art, currentStock);
-        const unitPrice = safeNum(art.prixUnitaire || art.unitPrice || art.prix_unitaire, 0);
+        const unitPrice = safeNum(
+          art.prixUnitaire ?? art.unitPrice ?? art.prix_unitaire ?? art.prix,
+          0
+        );
         const itemVal = currentStock * unitPrice;
 
         totalValue += itemVal;
         totalQuantity += currentStock;
 
-        const reportItem = {
-          ref: art.ref,
-          designation: art.designation || art.name || '',
+        const reportItem: StockReportItem = {
+          ref: rawRef,
+          designation: String(art.designation || art.name || ''),
           stockInitial: init,
           stockActuel: currentStock,
           unitPrice,
@@ -447,8 +531,8 @@ export class StockCalculationService {
         totalQuantity: 0,
         totalValue: 0,
         summary: { rupture: 0, alerte: 0, ok: 0 },
-        ruptureItems: [],
-        alerteItems: [],
+        ruptureItems: [] as StockReportItem[],
+        alerteItems: [] as StockReportItem[],
       };
     }
   }
@@ -462,8 +546,8 @@ export class StockCalculationService {
    * @returns Array of {@link StockCalculationResult} in the same order as `articles`.
    */
   static calculateAllStocks(
-    articles: any[] = [],
-    movements: any[] = []
+    articles: StockArticleLike[] = [],
+    movements: StockMovementLike[] = []
   ): StockCalculationResult[] {
     const index = new Map<string, { entreesSum: number; sortiesSum: number }>();
 
@@ -487,10 +571,13 @@ export class StockCalculationService {
 
     const now = new Date();
     return (Array.isArray(articles) ? articles : []).map((article) => {
-      const ref = String(article?.ref || '').trim();
+      const ref = String(article?.ref || article?.Ref || '').trim();
       const key = ref.toUpperCase();
-      const stockInitial = safeNum(article?.stockInitial, 0);
-      const seuil = safeNum(article?.seuil, 0);
+      const stockInitial = safeNum(
+        article?.stockInitial ?? article?.stock_initial ?? article?.initialStock,
+        0
+      );
+      const seuil = safeNum(article?.seuil ?? article?.minThreshold, 0);
       const unitPrice = safeNum(
         article?.prix_unitaire ?? article?.prixUnitaire ?? article?.unitPrice ?? article?.prix,
         0
@@ -501,12 +588,17 @@ export class StockCalculationService {
       const rawActuel = stockInitial + entrees - sorties;
       const stockActuel = Math.max(0, rawActuel);
       const totalValue = Number((stockActuel * unitPrice).toFixed(2));
-      const alerte: 'OK' | 'ALERTE' | 'RUPTURE' =
-        rawActuel <= 0 ? 'RUPTURE' : rawActuel <= seuil ? 'ALERTE' : 'OK';
+      const alerte: 'OK' | 'ALERTE' | 'RUPTURE' = article?.isAchatUnique
+        ? 'OK'
+        : rawActuel <= 0
+        ? 'RUPTURE'
+        : rawActuel <= seuil
+        ? 'ALERTE'
+        : 'OK';
 
       return {
         ref,
-        designation: article?.designation || '',
+        designation: String(article?.designation || article?.name || ''),
         stockInitial,
         entrees,
         sorties,
@@ -527,7 +619,10 @@ export class StockCalculationService {
    * @param movements - Movement ledger (`IMouvement[]`).
    * @returns Computed {@link StockCalculationResult}.
    */
-  static calculateStockByRef(article: any, movements: any[] = []): StockCalculationResult {
+  static calculateStockByRef(
+    article: StockArticleLike,
+    movements: StockMovementLike[] = []
+  ): StockCalculationResult {
     const [res] = this.calculateAllStocks([article], movements);
     return res;
   }
@@ -566,15 +661,16 @@ export class StockCalculationService {
    * @returns Summary metrics (`totalArticles`, `totalValue`, `articlesInRupture`, `articlesInAlerte`, `articlesOK`, `averageStock`).
    */
   static getStockStatistics(stocks: StockCalculationResult[] = []) {
-    const rawValue = stocks.reduce((sum, s: any) => {
-      if (typeof s?.totalValue === 'number' && Number.isFinite(s.totalValue)) {
-        return sum + s.totalValue;
+    const rawValue = stocks.reduce((sum: number, s) => {
+      const item = s as StockCalculationResult & Record<string, unknown>;
+      if (typeof item?.totalValue === 'number' && Number.isFinite(item.totalValue)) {
+        return sum + item.totalValue;
       }
       const price = safeNum(
-        s?.unitPrice ?? s?.prix_unitaire ?? s?.prixUnitaire ?? s?.prix,
+        item?.unitPrice ?? item?.prix_unitaire ?? item?.prixUnitaire ?? item?.prix,
         0
       );
-      return sum + safeNum(s?.stockActuel, 0) * price;
+      return sum + safeNum(item?.stockActuel, 0) * price;
     }, 0);
 
     return {
@@ -598,17 +694,21 @@ export class StockCalculationService {
    * @param movements - Authoritative movement ledger.
    * @returns Audit result `{ isValid, mismatches }`.
    */
-  static async verifyCalculations(articles = [], movements = []) {
+  static async verifyCalculations(
+    articles: StockArticleLike[] = [],
+    movements: StockMovementLike[] = []
+  ) {
     try {
-      const mismatches = [];
+      const mismatches: StockVerificationMismatch[] = [];
 
       for (const article of articles) {
         const calculatedStock = this.calculateStockActuel(article, movements);
         const calculatedAlert = this.getAlertStatus(article, calculatedStock);
+        const ref = String(article.ref || article.Ref || '');
 
         if (article.stockActuel !== undefined && Math.abs(article.stockActuel - calculatedStock) > 0.01) {
           mismatches.push({
-            ref: article.ref,
+            ref,
             field: 'stockActuel',
             expected: article.stockActuel,
             calculated: calculatedStock,
@@ -618,7 +718,7 @@ export class StockCalculationService {
 
         if (article.alerte && article.alerte !== calculatedAlert) {
           mismatches.push({
-            ref: article.ref,
+            ref,
             field: 'alerte',
             expected: article.alerte,
             calculated: calculatedAlert,
@@ -630,9 +730,12 @@ export class StockCalculationService {
         isValid: mismatches.length === 0,
         mismatches,
       };
-    } catch (error: any) {
+    } catch (error: unknown) {
       Logger.error('❌ Verification failed', error, 'StockCalc');
-      return { isValid: false, error: error?.message || String(error) };
+      return {
+        isValid: false,
+        error: error instanceof Error ? error.message : String(error),
+      };
     }
   }
 }

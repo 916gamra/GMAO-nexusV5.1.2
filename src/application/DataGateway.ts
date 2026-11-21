@@ -759,9 +759,12 @@ export const DataGateway = {
     this.saveAuditEvents([]);
     if (setters.setAuditEvents) setters.setAuditEvents([]);
 
+    storageService.setItem(STORAGE_KEYS.CBM_MANUAL_RULES, []);
+
     if (typeof window !== 'undefined') {
       window.dispatchEvent(new CustomEvent('preventive_tasks_updated', { detail: [] }));
       window.dispatchEvent(new CustomEvent('preventive_executions_updated', { detail: [] }));
+      window.dispatchEvent(new CustomEvent('gmao:cbm-rules-updated', { detail: [] }));
     }
 
     // Return a promise that resolves once IndexedDB batch write + entity store clear completes
@@ -788,6 +791,7 @@ export const DataGateway = {
       [STORAGE_KEYS.PREVENTIVE_PLANS]: [],
       [STORAGE_KEYS.PREVENTIVE_EXECUTIONS]: [],
       [STORAGE_KEYS.METER_READINGS]: [],
+      [STORAGE_KEYS.CBM_MANUAL_RULES]: [],
       [STORAGE_KEYS.CORRECTIVE_INTERVENTIONS]: [],
       [STORAGE_KEYS.CORRECTIVE_ACTIONS_BY_PANNE]: {},
       [STORAGE_KEYS.CORRECTIVE_PANNE_CATEGORIES]: {},
@@ -925,6 +929,9 @@ export const DataGateway = {
     const meterReadings = (Array.isArray(serverData.meterReadings)
       ? serverData.meterReadings
       : []) as IMeterReading[];
+    const cbmManualRules = Array.isArray(serverData.cbmManualRules)
+      ? (serverData.cbmManualRules as unknown[])
+      : null;
     const auditEvents = (Array.isArray(serverData.auditEvents)
       ? serverData.auditEvents
       : []) as IAuditEvent[];
@@ -944,6 +951,7 @@ export const DataGateway = {
       sortieDemands.length > 0 ||
       replenishmentOrders.length > 0 ||
       meterReadings.length > 0 ||
+      (cbmManualRules ? cbmManualRules.length > 0 : false) ||
       workshopOrders.length > 0 ||
       needRequests.length > 0 ||
       auditEvents.length > 0;
@@ -972,6 +980,18 @@ export const DataGateway = {
     this.savePreventivePlans(preventivePlans);
     this.savePreventiveExecutions(preventiveExecutions);
     this.saveMeterReadings(meterReadings);
+    if (cbmManualRules !== null) {
+      const cleanCbmRules = cbmManualRules.filter(
+        (rule): rule is Record<string, unknown> => Boolean(rule && typeof rule === 'object')
+      );
+      storageService.setItem(STORAGE_KEYS.CBM_MANUAL_RULES, cleanCbmRules);
+      indexedDBService.setItem(STORAGE_KEYS.CBM_MANUAL_RULES, cleanCbmRules).catch(() => {});
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(
+          new CustomEvent('gmao:cbm-rules-updated', { detail: cleanCbmRules })
+        );
+      }
+    }
     this.saveAuditEvents(auditEvents);
     this.saveCorrectiveInterventions(correctiveInterventions);
     this.saveCorrectiveActionsByPanne(correctiveActionsByPanne);

@@ -18,7 +18,7 @@ interface StockReplenishmentModalProps {
   onClose: () => void;
   reorderAlerts: any;
   initialTab?: 'BASKET' | 'ORDERS';
-  showToast?: (msg: string, type?: string) => void;
+  showToast?: (msg: string, type?: 'success' | 'error' | 'warning' | 'info') => void;
 }
 
 interface ReceptionLineDraft {

@@ -23,6 +23,8 @@ import {
 } from '../../../../domain/preventive/cbmTelemetryService';
 import { useGmaoStore } from '../../../../store/useGmaoStore';
 import { storageService } from '../../../../utils/storageService';
+import { indexedDBService } from '../../../../utils/indexedDBService';
+import { serverSyncService } from '../../../../services/serverSyncService';
 import { STORAGE_KEYS } from '../../../../infrastructure/persistence/storageKeys';
 import type { IMachine } from '../../../../types/domain';
 
@@ -37,9 +39,16 @@ export function loadPersistedCbmRules(): ICbmSensorRule[] {
   }
 }
 
-export function savePersistedCbmRules(rules: ICbmSensorRule[]): void {
+export function savePersistedCbmRules(rules: ICbmSensorRule[], notifySync = true): void {
   try {
     storageService.setItem(STORAGE_KEYS.CBM_MANUAL_RULES, rules);
+    indexedDBService.setItem(STORAGE_KEYS.CBM_MANUAL_RULES, rules).catch(() => {});
+    if (notifySync) {
+      serverSyncService.markLocalModified();
+      if (storageService.getItem(STORAGE_KEYS.AUTO_WRITE_EXCEL) !== false) {
+        serverSyncService.scheduleAutoPush(undefined, 2000);
+      }
+    }
   } catch {
     // ignore storage errors
   }
@@ -47,7 +56,7 @@ export function savePersistedCbmRules(rules: ICbmSensorRule[]): void {
 
 interface CbmIoTSensorPanelProps {
   machines: IMachine[];
-  showToast?: ((msg: string, type?: string) => void) | null;
+  showToast?: ((msg: string, type?: 'success' | 'error' | 'warning' | 'info') => void) | null;
   defaultExpanded?: boolean;
 }
 
@@ -76,8 +85,17 @@ export default function CbmIoTSensorPanel({
   const [newRuleCrit, setNewRuleCrit] = useState<string>('90');
 
   useEffect(() => {
-    savePersistedCbmRules(sensorRules);
-  }, [sensorRules]);
+    const handleExternalUpdate = (ev: Event) => {
+      const customEv = ev as CustomEvent<ICbmSensorRule[]>;
+      if (Array.isArray(customEv?.detail)) {
+        setSensorRules(customEv.detail);
+      } else {
+        setSensorRules(loadPersistedCbmRules());
+      }
+    };
+    window.addEventListener('gmao:cbm-rules-updated', handleExternalUpdate);
+    return () => window.removeEventListener('gmao:cbm-rules-updated', handleExternalUpdate);
+  }, []);
 
   const activeSensor =
     sensorRules.find((r) => r.id === selectedSensorId) || sensorRules[0] || null;
@@ -286,7 +304,7 @@ export default function CbmIoTSensorPanel({
                     const code = String(m.id_machine_registered || m.code_machine || '');
                     return (
                       <option key={code} value={code}>
-                        {code} — {m.designation || m.nom_machine || code}
+                        {code} — {String(m.designation || m.nom_machine || code)}
                       </option>
                     );
                   })}

@@ -462,6 +462,9 @@ export const serverSyncService = {
     const meterReadings = Array.isArray(store.meterReadings)
       ? store.meterReadings
       : storageService.getItem(STORAGE_KEYS.METER_READINGS) || [];
+    const cbmManualRules = Array.isArray(store.cbmManualRules)
+      ? store.cbmManualRules
+      : storageService.getItem(STORAGE_KEYS.CBM_MANUAL_RULES) || [];
     const auditEvents = Array.isArray(store.auditEvents)
       ? store.auditEvents
       : storageService.getItem(STORAGE_KEYS.AUDIT_EVENTS) || [];
@@ -533,6 +536,7 @@ export const serverSyncService = {
       preventivePlans,
       preventiveExecutions,
       meterReadings,
+      cbmManualRules,
       auditEvents,
       correctiveInterventions,
       correctiveActionsByPanne,

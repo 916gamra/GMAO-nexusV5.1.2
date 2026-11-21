@@ -46,6 +46,7 @@ export const ALLOWED_ENTITIES = [
   'sortiesExterne',
   'sortieDemands',
   'meterReadings',
+  'cbmManualRules',
   'replenishmentOrders',
   'workshopOrders',
   'needRequests',

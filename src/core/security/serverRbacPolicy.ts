@@ -58,6 +58,7 @@ export const FIELD_WRITABLE_ENTITIES = new Set<string>([
   'preventiveTasks',
   'preventiveExecutions',
   'meterReadings',
+  'cbmManualRules',
   'sortieDemands',
   'workshopOrders',
   'needRequests',

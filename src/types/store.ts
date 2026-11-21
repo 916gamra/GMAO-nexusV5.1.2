@@ -194,10 +194,11 @@ export interface SortieExterneItem {
 }
 
 export interface SortieMountedPayload {
-  date_montage: string;
-  id_machine_cible: string;
-  note: string;
-  technicien_montage: string;
+  date_montage?: string;
+  id_machine_cible?: string;
+  id_machine?: string;
+  note?: string;
+  technicien_montage?: string;
   [key: string]: unknown;
 }
 
@@ -791,6 +792,7 @@ export interface GmaoStoreState {
   // 12. Append-Only Enterprise Audit Ledger (AUDIT-LEDGER-P0)
   // ==========================================
   auditEvents: ReadonlyArray<IAuditEvent>;
+  setAuditEvents?: (events: StateUpdater<IAuditEvent[]>) => void;
   appendAuditEvent: (
     payload: Omit<IAuditEvent, 'id' | 'ts' | 'actorId' | 'actorName' | 'actorRole'> &
       Partial<Pick<IAuditEvent, 'id' | 'ts' | 'actorId' | 'actorName' | 'actorRole'>>

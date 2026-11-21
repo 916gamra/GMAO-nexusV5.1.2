@@ -11,6 +11,19 @@ Official Git release tag convention: `ciobGMAO-nexusV{MAJOR}.{MINOR}.{PATCH}` (w
 
 ## [Unreleased]
 
+### Security & Concurrency
+- Enforced server-side RBAC on backup/restore/Excel import routes (`storageRoutes.ts`, `excelRoutes.ts`), added `STRICT_ADMIN_ONLY_ENTITIES`, and serialized read-modify-write state mutations via `withMutationLock` (`stateStore.ts`, `sqliteStateStore.ts`).
+
+### Fixed
+- **Persistence & Real Factory Hydration:** Expanded `useAutoSave` across all 40 persisted store collections, aligned `AutoBackupService` restore keys, prevented silent hydration regressions in Real Factory Mode (`START_MODE === 'empty'`), and stabilized LAN polling lifecycle.
+- **Stock & Preventive Logic:** Fixed `"Stock disponible:"` wording and `isAchatUnique` parity in `StockCalculationService.calculateAllStocks`, switched numeric alias lookups to nullish coalescing (`??`), and preserved original pending execution IDs during resubmission deduplication in `ExecutionService.recordExecution`.
+- **CBM Manual Rules Lifecycle:** Integrated `STORAGE_KEYS.CBM_MANUAL_RULES` (`cbmManualRules`) end-to-end across `ALLOWED_ENTITIES`, `FIELD_WRITABLE_ENTITIES`, `serverSyncService`, `DataGateway`, `AutoBackupService`, and `CbmIoTSensorPanel` without corrupting engineering units (`mm/s`).
+- **Type Safety:** Eliminated all 38 `typecheck` errors and all 63 `typecheck:strict` errors (`0` errors across `typecheck`, `typecheck:strict`, and `typecheck:server`).
+
+### Chore
+- Removed unused temporary chat/log attachments under `public/assets/aistudio/`.
+- Corrected `AppRouter` ErrorBoundary section labels (`"Arborescence & BOM Nexus"`, `"Référentiel Zones & Secteurs"`) and synced `docs/DATA_SSOT.md` and `CAPABILITIES_AND_STRENGTHS.md`.
+
 ---
 
 ## [5.0.2] — `ciobGMAO-nexusV5.0.2` (2026-11-12)

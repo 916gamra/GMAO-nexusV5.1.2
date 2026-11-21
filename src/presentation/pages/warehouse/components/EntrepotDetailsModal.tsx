@@ -84,10 +84,14 @@ interface PreventiveExecutionRecord {
 interface SortieExterneRecord {
   id?: string;
   id_composant?: string;
+  id_part?: string;
   code_composant?: string;
   id_warehouse_item?: string;
   code_moteur?: string;
+  code_moteur_reel?: string;
+  ref_moteur?: string;
   designation?: string;
+  designation_moteur?: string;
   nom_composant?: string;
   prestataire?: string;
   nature_travaux?: string;

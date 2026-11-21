@@ -512,7 +512,7 @@ describe('Preventive Maintenance — Phase A Security, Maker-Checker, Stock & Li
         }
       );
 
-      expect(first.id).toBe(second.id);
+      expect(first.execution.id).toBe(second.execution.id);
       const allExecs = ExecutionService.getExecutions();
       expect(allExecs.filter((e) => String(e.taskId) === 'T-DUP').length).toBe(1);
       expect(allExecs[0].notes).toBe('Updated claim');

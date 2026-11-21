@@ -417,7 +417,7 @@ export default function PreventiveWeeklyCockpit({
 
                     <div className="text-[11px] text-slate-600 line-clamp-1">
                       <b className="text-slate-800">[{task.action_code || 'C'}]</b>{' '}
-                      {task.type_intervention || task.consigne || 'Opération préventive'}
+                      {String(task.type_intervention || task.consigne || 'Opération préventive')}
                     </div>
 
                     <div className="flex items-center gap-2 flex-wrap text-[10px] font-mono text-slate-500 pt-0.5">

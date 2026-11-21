@@ -10,7 +10,7 @@ import { Logger } from '../core/logger/LoggerService';
  * @param {number} defaultVal - Default fallback value if val is invalid
  * @returns {number}
  */
-export function safeNum(val, defaultVal = NaN) {
+export function safeNum(val: unknown, defaultVal = NaN): number {
   try {
     if (val === null || val === undefined || val === '') return defaultVal;
     if (typeof val === 'number') {
@@ -31,19 +31,19 @@ export function safeNum(val, defaultVal = NaN) {
 }
 
 // Global lookup maps for O(1) search performance
-let stockLookup = new Map();
-let warehouseLookup = new Map();
-let technicianLookup = new Map();
-let zoneLookup = new Map();
-let machineLookup = new Map();
-let operationLookup = new Map();
-let lastContextRef = null;
+let stockLookup = new Map<string, any>();
+let warehouseLookup = new Map<string, any>();
+let technicianLookup = new Map<string, any>();
+let zoneLookup = new Map<string, any>();
+let machineLookup = new Map<string, any>();
+let operationLookup = new Map<string, any>();
+let lastContextRef: Record<string, unknown> | null = null;
 
 /**
  * Updates lookup maps for high performance O(1) validation lookups.
  * Caches by context reference to avoid redundant re-allocations in tight loops.
  */
-export function updateLookups(context: any = {}, force = false) {
+export function updateLookups(context: Record<string, any> = {}, force = false): void {
   try {
     if (!context || typeof context !== 'object') {
       return;
@@ -62,7 +62,7 @@ export function updateLookups(context: any = {}, force = false) {
       operations = []
     } = context;
 
-    stockLookup = new Map();
+    stockLookup = new Map<string, any>();
     if (Array.isArray(stock)) {
       stock.forEach((s) => {
         if (!s) return;
@@ -71,7 +71,7 @@ export function updateLookups(context: any = {}, force = false) {
       });
     }
 
-    warehouseLookup = new Map();
+    warehouseLookup = new Map<string, any>();
     if (Array.isArray(warehouseItems)) {
       warehouseItems.forEach((w) => {
         if (!w) return;
@@ -80,7 +80,7 @@ export function updateLookups(context: any = {}, force = false) {
       });
     }
 
-    technicianLookup = new Map();
+    technicianLookup = new Map<string, any>();
     if (Array.isArray(technicians)) {
       technicians.forEach((t) => {
         if (!t) return;
@@ -89,7 +89,7 @@ export function updateLookups(context: any = {}, force = false) {
       });
     }
 
-    zoneLookup = new Map();
+    zoneLookup = new Map<string, any>();
     if (Array.isArray(zones)) {
       zones.forEach((z) => {
         if (!z) return;
@@ -98,7 +98,7 @@ export function updateLookups(context: any = {}, force = false) {
       });
     }
 
-    machineLookup = new Map();
+    machineLookup = new Map<string, any>();
     if (Array.isArray(machines)) {
       machines.forEach((m) => {
         if (!m) return;
@@ -107,7 +107,7 @@ export function updateLookups(context: any = {}, force = false) {
       });
     }
 
-    operationLookup = new Map();
+    operationLookup = new Map<string, any>();
     if (Array.isArray(operations)) {
       operations.forEach((o) => {
         if (!o) return;
@@ -131,9 +131,22 @@ export function updateLookups(context: any = {}, force = false) {
  * @param {number} sorties
  * @param {number} seuil
  * @param {boolean} isAchatUnique - If true, treated as one-off non-stockable purchase
- * @returns {{ stockActuel: number, stockActuelRaw: number, alerte: 'OK' | 'ALERTE' | 'RUPTURE' | 'NON_STOCKABLE', isValid: boolean, error?: string }}
+ * @returns {{ stockActuel: number, stockActuelRaw: number, alerte: 'OK' | 'ALERTE' | 'RUPTURE', isValid: boolean, error?: string, calculatedAt: string }}
  */
-export function calculateStockStatus(stockInitial, entrees, sorties, seuil, isAchatUnique = false) {
+export function calculateStockStatus(
+  stockInitial: unknown,
+  entrees: unknown,
+  sorties: unknown,
+  seuil: unknown,
+  isAchatUnique = false
+): {
+  stockActuel: number;
+  stockActuelRaw: number;
+  alerte: 'OK' | 'ALERTE' | 'RUPTURE';
+  isValid: boolean;
+  error?: string;
+  calculatedAt: string;
+} {
   try {
     const init = safeNum(stockInitial, 0);
     const ent = safeNum(entrees, 0);
@@ -146,7 +159,7 @@ export function calculateStockStatus(stockInitial, entrees, sorties, seuil, isAc
     // Display stock floor at 0 for safe inventory representation
     const displayStock = Math.max(0, stockActuel);
 
-    let alerte = 'OK';
+    let alerte: 'OK' | 'ALERTE' | 'RUPTURE' = 'OK';
     if (isAchatUnique) {
       alerte = 'OK'; // One-time purchases default to OK
     } else if (displayStock <= 0) {
@@ -162,14 +175,14 @@ export function calculateStockStatus(stockInitial, entrees, sorties, seuil, isAc
       isValid: true,
       calculatedAt: new Date().toISOString(),
     };
-  } catch (error: any) {
+  } catch (error: unknown) {
     Logger.error('calculateStockStatus error:', error, 'formulaEngine');
     return {
       stockActuel: 0,
       stockActuelRaw: 0,
       alerte: 'RUPTURE',
       isValid: false,
-      error: error?.message || 'Error calculating stock status',
+      error: error instanceof Error ? error.message : 'Error calculating stock status',
       calculatedAt: new Date().toISOString(),
     };
   }
@@ -180,9 +193,11 @@ export function calculateStockStatus(stockInitial, entrees, sorties, seuil, isAc
  * @param {object} mvt
  * @returns {{ valid: boolean, errors: string[] }}
  */
-export function validateMouvement(mvt) {
+export function validateMouvement(
+  mvt: Record<string, any> | null | undefined
+): { valid: boolean; errors: string[] } {
   try {
-    const errors = [];
+    const errors: string[] = [];
     if (!mvt || typeof mvt !== 'object') {
       return { valid: false, errors: ['Données de mouvement invalides'] };
     }
@@ -191,7 +206,7 @@ export function validateMouvement(mvt) {
       errors.push("La référence de l'article est requise.");
     }
 
-    const qty = safeNum(mvt.quantite || mvt.quantity);
+    const qty = safeNum(mvt.quantite ?? mvt.quantity);
     if (Number.isNaN(qty) || qty <= 0) {
       errors.push('La quantité doit être un nombre valide et supérieur à 0.');
     }
@@ -213,9 +228,12 @@ export function validateMouvement(mvt) {
  * Validates a movement record with full context (foreign keys, stock availability).
  * Uses lookup maps for O(1) search instead of O(n) find()
  */
-export function validateMovementWithContext(mvt, context) {
+export function validateMovementWithContext(
+  mvt: Record<string, any> | null | undefined,
+  context?: Record<string, any> | null
+): { valid: boolean; errors: string[] } {
   try {
-    const errors = [];
+    const errors: string[] = [];
     if (!mvt || typeof mvt !== 'object') {
       return { valid: false, errors: ['Mouvement non valide ou manquant.'] };
     }
@@ -225,7 +243,7 @@ export function validateMovementWithContext(mvt, context) {
       updateLookups(context);
     }
 
-    const qty = safeNum(mvt.quantite || mvt.quantity);
+    const qty = safeNum(mvt.quantite ?? mvt.quantity);
 
     // 1. Basic validation
     if (!mvt.code_bon || String(mvt.code_bon).trim() === '') {
@@ -257,7 +275,7 @@ export function validateMovementWithContext(mvt, context) {
       );
     }
 
-    if (!mvt.date || isNaN(Date.parse(mvt.date))) {
+    if (!mvt.date || isNaN(Date.parse(String(mvt.date)))) {
       errors.push('La date spécifiée est invalide ou manquante.');
     }
 
@@ -303,7 +321,7 @@ export function validateMovementWithContext(mvt, context) {
 
       // Check stock availability for Sortie of PDR consumables
       if (String(mvt.type).toLowerCase().includes('sortie') && articleInStock && !mvt.skip_stock_limit) {
-        const currentStock = safeNum(articleInStock.stockActuel || articleInStock.stockInitial);
+        const currentStock = safeNum(articleInStock.stockActuel ?? articleInStock.stockInitial);
         if (qty > currentStock) {
           errors.push(
             `Mouvement impossible : Stock insuffisant pour la référence "${mvt.ref}". Disponible : ${currentStock}, Demandé : ${qty}.`
@@ -328,7 +346,11 @@ export function validateMovementWithContext(mvt, context) {
 /**
  * Excel SUMIFS equivalent helper with error safety
  */
-export function sumIfs(records = [], sumField, ...conditions) {
+export function sumIfs(
+  records: Array<Record<string, any>> = [],
+  sumField: string,
+  ...conditions: unknown[]
+): number {
   try {
     if (!Array.isArray(records) || records.length === 0) return 0;
     return records.reduce((sum, item) => {
@@ -337,7 +359,7 @@ export function sumIfs(records = [], sumField, ...conditions) {
       for (let i = 0; i < conditions.length; i += 2) {
         const field = conditions[i];
         const val = conditions[i + 1];
-        if (field && val !== undefined) {
+        if (typeof field === 'string' && field && val !== undefined) {
           if (String(item[field] || '').toLowerCase() !== String(val).toLowerCase()) {
             return sum;
           }
@@ -354,7 +376,10 @@ export function sumIfs(records = [], sumField, ...conditions) {
 /**
  * Excel COUNTIFS equivalent helper with error safety
  */
-export function countIfs(records = [], ...conditions) {
+export function countIfs(
+  records: Array<Record<string, any>> = [],
+  ...conditions: unknown[]
+): number {
   try {
     if (!Array.isArray(records) || records.length === 0) return 0;
     return records.filter((item) => {
@@ -362,7 +387,7 @@ export function countIfs(records = [], ...conditions) {
       for (let i = 0; i < conditions.length; i += 2) {
         const field = conditions[i];
         const val = conditions[i + 1];
-        if (field && val !== undefined) {
+        if (typeof field === 'string' && field && val !== undefined) {
           if (String(item[field] || '').toLowerCase() !== String(val).toLowerCase()) {
             return false;
           }

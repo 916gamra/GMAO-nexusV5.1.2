@@ -336,7 +336,7 @@ export function hasApprovedExecutionInPeriod(
  * Priority: explicit positive rate > matched technician `taux_horaire` > fallback default (35 MAD/h).
  */
 export function resolvePreventiveLaborRate(
-  technicians: Array<Partial<ITechnician> & Record<string, any>> = [],
+  technicians: Array<string | (Partial<ITechnician> & Record<string, any>)> = [],
   executorNameOrId?: unknown,
   explicitRate?: unknown,
   fallbackRate = DEFAULT_PREVENTIVE_LABOR_RATE_MAD
@@ -348,24 +348,26 @@ export function resolvePreventiveLaborRate(
 
   const key = String(executorNameOrId || '').trim().toUpperCase();
   if (key && Array.isArray(technicians) && technicians.length > 0) {
-    const matched = technicians.find((t) => {
-      if (!t) return false;
-      const fullName = t.nom && t.prenom ? `${t.nom} ${t.prenom}`.trim() : undefined;
-      const candidates = [
-        t.id,
-        t.id_technician,
-        t.code,
-        t.nom,
-        t.prenom,
-        fullName,
-        t.nom_technicien,
-        t.name,
-        t.username,
-      ]
-        .filter(Boolean)
-        .map((v) => String(v).trim().toUpperCase());
-      return candidates.includes(key);
-    });
+    const matched = technicians.find(
+      (t): t is Partial<ITechnician> & Record<string, any> => {
+        if (!t || typeof t !== 'object') return false;
+        const fullName = t.nom && t.prenom ? `${t.nom} ${t.prenom}`.trim() : undefined;
+        const candidates = [
+          t.id,
+          t.id_technician,
+          t.code,
+          t.nom,
+          t.prenom,
+          fullName,
+          t.nom_technicien,
+          t.name,
+          t.username,
+        ]
+          .filter(Boolean)
+          .map((v) => String(v).trim().toUpperCase());
+        return candidates.includes(key);
+      }
+    );
     const techRate = Number(
       matched?.taux_horaire ?? matched?.tauxHoraire ?? matched?.hourly_rate ?? 0
     );

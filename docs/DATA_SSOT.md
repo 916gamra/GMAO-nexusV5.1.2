@@ -39,6 +39,7 @@ Toute clé absente de ce registre est considérée comme **legacy** (`LEGACY_KEY
 | **preventiveTasks** | `id` (`code`) | → `machines.id_machine_registered`, `zones.id_zone`, `warehouseItems.id` (`id_composant` / `id_part`) | `gmao_preventive_tasks_v9` | `src/data/preventive/seedPreventiveTasks.json` | `DataGateway.savePreventiveTasks` / `useGmaoStore` |
 | **preventiveExecutions** | `id` | → `preventiveTasks.id`, `machines.id_machine_registered`, `warehouseItems.id` (`id_composant` / `id_part`) | `gmao_preventive_executions_v1` | `[]` | `ExecutionService.recordExecution` / `DataGateway.savePreventiveExecutions` |
 | **meterReadings** | `id` | → `machines.id_machine_registered` (`machineId`) | `gmao_meter_readings_v1` | `[]` | `MeterService` / `DataGateway.saveMeterReadings` |
+| **cbmManualRules** | `id` | → `machines.id_machine_registered` (`machineCode`) | `gmao_cbm_manual_rules_v1` | `[]` | `CbmIoTSensorPanel` / `DataGateway.loadFullServerState` / `AutoBackupService` |
 | **preventiveActions** | `id` (`code`) | — | `gmao_preventive_actions_v3` | `src/data/preventive/seedPreventiveActions.json` | `DataGateway.savePreventiveActions` / `useGmaoStore` |
 | **preventiveGuides** | `id` (`code`) | → `preventiveActions.code` | `gmao_preventive_guides_v3` | `src/data/preventive/seedPreventiveGuides.json` | `DataGateway.savePreventiveGuides` / `useGmaoStore` |
 | **preventivePlans** | `id` (`code`) | → `machines.id_machine_registered` | `gmao_preventive_plans_v3` | `[]` | `DataGateway.savePreventivePlans` / `useGmaoStore` |
@@ -63,6 +64,7 @@ Toute clé absente de ce registre est considérée comme **legacy** (`LEGACY_KEY
 | **partDesignations** | `id` (`ref`) | → `partTypes.id_type`, `partGroups.id_group` | `gmao_part_designations_v2` | `src/data/warehouse/seedPartDesignations.json` | `DataGateway.savePartDesignations` / `useGmaoStore` |
 | **sortiesExterne** | `id` (`code`) | → `machines.id_machine_registered`, `warehouseItems.id` (`id_composant`) | `gmao_sortie_externe_bobinage_v1` | `src/data/movements/seedSortiesExternes.json` | `DataGateway.saveSortiesExterne` / `useGmaoStore` |
 | **financialBudgets** | `fiscalYear` | — | `gmao_financial_budgets_v1` | `[]` | `DataGateway.saveFinancialBudgets` / `useGmaoStore` |
+| **currencyConfig** | `activeCurrencyCode` | — | `gmao_currency_config_v1` | `{}` | `DataGateway.loadFullServerState` / `AutoBackupService` |
 | **auditEvents** | `id` (`AUD-*`) | — (Append-Only Ledger) | `gmao_audit_events_v1` | `[]` | `AuditService.recordEvent` / `DataGateway.saveAuditEvents` |
 
 ---

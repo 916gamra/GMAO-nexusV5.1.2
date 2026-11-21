@@ -168,9 +168,23 @@ export class ExecutionService {
     const skipStockDeduction = Boolean(validationData?.skipStockDeduction);
     const taskIdStr = String(task?.id || validationData?.taskId || `TASK-${machineCode}`);
 
+    const current = this.getExecutions();
+    // Deduplicate pending/clarification resubmissions by explicit ID or same taskId
+    const existingPendingId = validationData?.replaceExecutionId || task?.last_pending_execution_id;
+    const isMatchedPendingOrClarify = (e: PreventiveExecutionRecord) => {
+      const isPendingOrClarify =
+        e.validation_status === 'PENDING_VALIDATION' || e.validation_status === 'NEEDS_CLARIFICATION';
+      if (!isPendingOrClarify) return false;
+      if (existingPendingId && e.id === existingPendingId) return true;
+      if (isPendingValidation && String(e.taskId || '') === taskIdStr) return true;
+      return false;
+    };
+    const replacedPending = current.find(isMatchedPendingOrClarify);
+
     const execution: PreventiveExecutionRecord = {
       id:
         validationData?.id ||
+        replacedPending?.id ||
         `EXEC-${machineCode}-${Date.now()}-${Math.random().toString(36).slice(2, 6).toUpperCase()}`,
       taskId: taskIdStr,
       taskCode: String(task?.code || validationData?.taskCode || ''),
@@ -236,17 +250,7 @@ export class ExecutionService {
       createdAt: nowIso,
     };
 
-    const current = this.getExecutions();
-    // Deduplicate pending/clarification resubmissions by explicit ID or same taskId
-    const existingPendingId = validationData?.replaceExecutionId || task?.last_pending_execution_id;
-    const filteredCurrent = current.filter((e) => {
-      const isPendingOrClarify =
-        e.validation_status === 'PENDING_VALIDATION' || e.validation_status === 'NEEDS_CLARIFICATION';
-      if (!isPendingOrClarify) return true;
-      if (existingPendingId && e.id === existingPendingId) return false;
-      if (isPendingValidation && String(e.taskId || '') === taskIdStr) return false;
-      return true;
-    });
+    const filteredCurrent = current.filter((e) => !isMatchedPendingOrClarify(e));
 
     const updated = [execution, ...filteredCurrent];
     this.saveExecutions(updated);

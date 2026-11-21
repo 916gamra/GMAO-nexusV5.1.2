@@ -205,37 +205,37 @@ alerte      = stockActuel <= 0 ? 'RUPTURE' : (stockActuel <= seuil ? 'ALERTE' : 
 
 ## 7. طبقة الحماية والتشغيل الشبكي (الخادم والمزامنة)
 
-> **توصيف دقيق لمستوى النضج:** يعمل الخادم المحلي (`server.ts`) كمضيف شبكة محلية (`LAN Host`) يعتمد على ذاكرة متسلسلة وملف حالة ذري (`data/gmao_state.json`) مع سجل تدقيق إلحاقي (`data/gmao_audit.jsonl`). وهو مصمم لتشغيل ومزامنة حواسيب وهواتف المصنع على الشبكة المحلية، وليس نظام قواعد بيانات موزعة متعدد المستأجرين (`Multi-Tenant Cloud ERP`).
+> **توصيف دقيق لمستوى النضج:** يعمل الخادم المحلي (`server.ts` والوحدات المرافقة في `src/server/`) كمضيف شبكة محلية (`LAN Host`) يعتمد على تخزين **SQLite (`WAL`)** أو ملف حالة ذري (`data/gmao_state.json`) مع سجل تدقيق إلحاقي (`data/gmao_audit.jsonl`) وقفل ذري للطفرات (`withMutationLock`). وهو مصمم لتشغيل ومزامنة حواسيب وهواتف المصنع على الشبكة المحلية، وليس نظام قواعد بيانات موزعة متعدد المستأجرين (`Multi-Tenant Cloud ERP`).
 
 ### أ) القائمة البيضاء للكيانات (`ALLOWED_ENTITIES`) وحماية `POST /api/gmao/state`
-- **المرجع البرمجي:** `server.ts` (الأسطر `15–55` و `506–608`).
-- يعرّف الخادم قائمة بيضاء صارمة (`ALLOWED_ENTITIES`) تضم **32 كياناً قياسياً فقط** (`rawStock`, `stock`, `types`, `designations`, `machines`, `families`, `templates`, `blueprints`, `zones`, `machineElementsLedger`, `mouvements`, `preventiveTasks`, `preventiveActions`, `preventiveGuides`, `preventivePlans`, `preventiveExecutions`, `correctiveInterventions`, `correctiveActionsByPanne`, `correctivePanneCategories`, `correctiveTravauxAFaire`, `correctiveIntervenants`, `users`, `technicians`, `operations`, `warehouseItems`, `entrepotComponents`, `compGroups`, `compFamilies`, `compTemplates`, `partTypes`, `partDesignations`, `sortiesExterne`).
+- **المرجع البرمجي:** `src/server/types.ts` و `src/server/routes/stateRoutes.ts` و `src/server/routes/entityRoutes.ts`.
+- يعرّف الخادم قائمة بيضاء صارمة (`ALLOWED_ENTITIES`) تضم **45 كياناً قياسياً** (`rawStock`, `stock`, `types`, `pdrGroups`, `designations`, `machines`, `generalSystemTypes`, `families`, `templates`, `blueprints`, `zones`, `machineElementsLedger`, `mouvements`, `preventiveTasks`, `preventiveActions`, `preventiveGuides`, `preventivePlans`, `preventiveExecutions`, `correctiveInterventions`, `correctiveActionsByPanne`, `correctivePanneCategories`, `correctiveTravauxAFaire`, `correctiveIntervenants`, `users`, `technicians`, `operations`, `authAccounts`, `warehouseItems`, `entrepotComponents`, `compGroups`, `compFamilies`, `compTemplates`, `partGroups`, `partTypes`, `partDesignations`, `sortiesExterne`, `sortieDemands`, `meterReadings`, `cbmManualRules`, `replenishmentOrders`, `workshopOrders`, `needRequests`, `financialBudgets`, `currencyConfig`, `auditEvents`).
 - يفرض حارس المسارات `requireAllowedEntity` الرد `403 Forbidden` على أي طلب CRUD يستهدف كياناً خارج القائمة البيضاء.
 - عند استدعاء `POST /api/gmao/state`، يرفض الخادم أي حمولة ليست كائناً (`400 Bad Request`)، ويتجاهل أي مفاتيح غير مدرجة في `ALLOWED_ENTITIES`، ويتحقق من نوع كل كيان (مصفوفة مقابل قاموس كائن في `OBJECT_ENTITY_SET`).
 
 ### ب) المصادقة بالتوكن (`API Token`) والتحكم بالصلاحيات (`RBAC`)
-- **المراجع البرمجية:** `authenticateApi` في `server.ts` (الأسطر `95–192`)، و `AuthorizationService` في `src/core/security/AuthorizationService.ts`، و `src/services/serverSyncService.ts`.
+- **المراجع البرمجية:** `src/server/middleware/authMiddleware.ts`، و `src/core/security/serverRbacPolicy.ts`، و `src/core/security/AuthorizationService.tsx`، و `src/services/serverSyncService.ts`.
 - **حماية التوكن (`x-gmao-api-token`):**
   - في طلبات التعديل (`POST`, `PUT`, `DELETE`)، يتحقق الخادم من الترويسة `x-gmao-api-token` مقابل المتغير البيئي `GMAO_API_TOKEN`، مع دعم وضع التشديد الصارم `GMAO_STRICT_TOKEN=true`، ويرفض أي توكن خاطئ فوراً بالرد `401 Unauthorized`.
-- **فرض الأدوار (`x-gmao-role`):**
-  - يطبّع الخادم الدور عبر `normalizeServerRole` إلى الأدوار القياسية (`ADMIN`, `RESPONSABLE_MAINTENANCE`, `RESPONSABLE_MAGASIN`, `TECHNICIEN`, `OPERATEUR`, `VIEWER`).
+- **فرض الأدوار (Fail-Closed RBAC):**
+  - يطبّع الخادم الدور عبر `normalizeServerRole` إلى الأدوار القياسية (`ADMIN`, `RESPONSABLE_MAINTENANCE`, `RESPONSABLE_MAGASIN`, `TECHNICIEN`, `OPERATEUR`, `VIEWER`) ويتحقق من هوية الفاعل عبر جلسة الخادم الموقّعة (`serverSession.ts`) وسجل المستخدمين الفعلي.
   - يمنع دور المراقب (`VIEWER`) من أي تعديل على حالة الخادم (`403 Forbidden`)، كما يمنع `serverSyncService.pushToServer` إرسال طلبات الدفع من طرف العميل لدور `VIEWER`.
-  - يحمي الكيانات الإدارية (`ADMIN_ONLY_ENTITIES`: `users`, `technicians`, `operations`, `zones`) بحيث لا يعدلها إلا `ADMIN` أو `RESPONSABLE_MAINTENANCE`.
-  - يمنع أدوار `TECHNICIEN` و `OPERATEUR` من حذف سجلات الكتالوج الأساسي (`CATALOG_PROTECTED_ENTITIES`).
+  - يفرض حدود `STRICT_ADMIN_ONLY_ENTITIES` (`users`, `authAccounts`) لـ `ADMIN` فقط، و `ADMIN_ONLY_ENTITIES` (`users`, `technicians`, `operations`, `zones`, `authAccounts`, `financialBudgets`, `currencyConfig`)، ويدرج `cbmManualRules` ضمن `FIELD_WRITABLE_ENTITIES` جنباً إلى جنب مع `meterReadings`.
+  - يمنع أدوار `TECHNICIEN` و `OPERATEUR` من التلاعب المباشر بدفتر المخزون (`STOCK_LEDGER_ENTITIES`) أو حذف سجلات الكتالوج الأساسي (`CATALOG_PROTECTED_ENTITIES`)، كما يحصر عمليات الاستعادة الحساسة (`POST /api/gmao/storage/backup`, `restore`, `POST /api/gmao/import/excel`) بالأدوار المخولة فقط.
 - **حماية إضافية في `server.ts`:** ترويسات أمان قياسية (`Content-Security-Policy`, `X-Content-Type-Options: nosniff`, `X-XSS-Protection`, `Referrer-Policy`) ومحدد معدل طلبات في الذاكرة (`apiRateLimiter`: `300` طلب/دقيقة لكل عنوان IP مع الرد `429 Too Many Requests`).
 
-### ج) طابور الكتابة المتسلسل الذري (`Serialized Atomic Write Queue`) وسجل التدقيق
-- **المرجع البرمجي:** الدالة `persistState` في `server.ts` (الأسطر `299–346`).
-- تُنفَّذ جميع عمليات الكتابة على القرص عبر سلسلة وعود متسلسلة غير حاجبة (`writeQueue: Promise<void>`) تمنع سباقات الكتابة المتزامنة (`Race Conditions`).
-- تتم الكتابة أولاً في ملف مؤقت `data/gmao_state.json.tmp` عبر `fs.promises.writeFile` ثم يُستبدل الملف الأصلي ذرياً عبر `fs.promises.rename(STATE_TMP_FILE, STATE_FILE)` لضمان عدم تلف ملف JSON عند انقطاع التيار أو تعطل العملية.
-- مع كل عملية حفظ، يُلحق سجل تدقيق غير قابل للتعديل في `data/gmao_audit.jsonl` يتضمن (`id`, `timestamp`, `version`, `actor`, `action`, `entity`, `summary`) ويُعرض عبر `GET /api/gmao/audit`.
+### ج) التسلسل الذري للطفرات والكتابة (`withMutationLock` / `writeQueue`) وسجل التدقيق
+- **المرجع البرمجي:** `src/server/stateStore.ts` و `src/server/sqliteStateStore.ts`.
+- تُنفَّذ جميع طفرات القراءة-التعديل-الكتابة (Read-Modify-Write) تحت قفل تسلسلي ذري (`withMutationLock`) يمنع سباقات الكتابة المتزامنة (`Race Conditions`) وتعارض أرقام الإصدارات.
+- في وضع JSON تتم الكتابة في ملف مؤقت `data/gmao_state.json.tmp` ثم الاستبدال الذري عبر `fs.promises.rename`، وفي وضع SQLite تتم الكتابة ضمن معاملات `WAL` محمية.
+- مع كل عملية حفظ، يُلحق سجل تدقيق غير قابل للتعديل في `data/gmao_audit.jsonl` يتضمن (`id`, `timestamp`, `version`, `actor`, `action`, `entity`, `summary`) ويُعرض عبر `GET /api/gmao/audit` لدور `ADMIN` الموثّق فقط.
 
 ### د) التحكم التفاؤلي بالتزامن (`version` / `409 Conflict`) والبث الفوري (`SSE`) واكتشاف `LAN`
 - **التحكم بالإصدار (`Optimistic Concurrency`):**
   - يحمل `dbState` عداد إصدار متزايد (`version`) وتاريخ تحديث (`updatedAt`) وترويسة `ETag: W/"v<version>"`.
   - يرسل `serverSyncService.pushToServer` رقم الإصدار المتوقع (`expectedVersion`). إذا كان إصدار الخادم أحدث من إصدار العميل (`expectedVersion < dbState.version`) ولم يُطلب الفرض الصريح (`force !== true`)، يرفض الخادم الكتابة الفوقية الصامتة ويرد بـ `409 Conflict` مرفقاً بالحالة الأحدث للخادم، وتطلق الواجهة الحدث `gmao:server_conflict` لمعالجته.
 - **البث الفوري (`Server-Sent Events - SSE`):**
-  - يوفّر الخادم المسار `GET /api/gmao/events` لبث أحداث `STATE_UPDATED` مع رقم الإصدار الجديد لجميع العملاء المتصلين لحظة انتهاء `writeQueue`، ويشترك العميل عبر `networkConfigService.subscribeToRevisionStream`.
+  - يوفّر الخادم المسار `GET /api/gmao/events` لبث أحداث `STATE_UPDATED` مع رقم الإصدار الجديد لجميع العملاء المتصلين لحظة إتمام الحفظ، ويشترك العميل عبر `networkConfigService.subscribeToRevisionStream`.
 - **اكتشاف الشبكة المحلية (`LAN Discovery`) ومصفوفة QR بدون إنترنت:**
   - يفحص المسار `GET /api/network/info` واجهات الشبكة الفعلية عبر `os.networkInterfaces()` ويعطي الأولوية لشبكات LAN الخاصة (`192.168.x.x`, `10.x.x.x`, `172.16-31.x.x`).
   - يدير `src/services/networkConfigService.ts` التبديل بين وضع المضيف (`HOST`) ووضع العميل الشبكي (`LAN_CLIENT`) عبر `resolveApiUrl`، ويولّد مصفوفة QR حتمية بأبعاد `21x21` (`generateDeterministicQrMatrix`) محلياً بالكامل بدون أي اتصال بالإنترنت.
@@ -243,6 +243,9 @@ alerte      = stockActuel <= 0 ? 'RUPTURE' : (stockActuel <= seuil ? 'ALERTE' : 
   - `src/tests/unit/Round4ServerSyncAndConcurrency.test.ts`
   - `src/tests/unit/Round5RbacAndSecurity.test.ts`
   - `src/tests/unit/Round7LanArchitectureAndRefactoring.test.ts`
+  - `src/core/security/__tests__/batch1ServerHardening.test.ts`
+  - `src/tests/unit/Batch1PersistenceAndBackup.test.tsx`
+  - `src/tests/unit/Batch2StockAndCbmHardening.test.ts`
 
 ---
 

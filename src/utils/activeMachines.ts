@@ -13,6 +13,20 @@ export interface MachineLifecycleEvent {
   restored_tasks_count?: number;
 }
 
+export interface MachineLifecycleEventLike {
+  id?: string | number;
+  event_type?: string;
+  from_status?: string;
+  to_status?: string;
+  lifecycle_state?: string;
+  timestamp?: string;
+  date?: string;
+  actor?: string;
+  reason?: string;
+  suspended_tasks_count?: number | string;
+  restored_tasks_count?: number | string;
+}
+
 export interface MachineLifecycleLike {
   id?: string | number;
   id_machine_registered?: string;
@@ -43,7 +57,7 @@ export interface MachineLifecycleLike {
   status_changed_at?: string;
   archived_by?: string;
   updated_by?: string;
-  lifecycle_events?: MachineLifecycleEvent[];
+  lifecycle_events?: MachineLifecycleEventLike[];
 }
 
 export interface PreventiveTaskLifecycleLike {
@@ -166,7 +180,7 @@ export function transitionMachineLifecycle<
     is_active: boolean;
     actif: boolean;
     archived: boolean;
-    lifecycle_events?: MachineLifecycleEvent[];
+    lifecycle_events?: MachineLifecycleEventLike[];
   };
   updatedPreventiveTasks: Array<TTask & { archived_with_machine?: boolean }>;
   suspendedTasksCount: number;
@@ -194,7 +208,7 @@ export function transitionMachineLifecycle<
     .toUpperCase();
 
   const existingEvents: MachineLifecycleEvent[] = Array.isArray(machine?.lifecycle_events)
-    ? [...machine.lifecycle_events]
+    ? ([...machine.lifecycle_events] as MachineLifecycleEvent[])
     : [];
 
   let suspendedTasksCount = 0;
@@ -207,13 +221,14 @@ export function transitionMachineLifecycle<
     is_active: boolean;
     actif: boolean;
     archived: boolean;
-    lifecycle_events?: MachineLifecycleEvent[];
+    lifecycle_events?: MachineLifecycleEventLike[];
   };
   let updatedMachine: TransitionedMachine;
 
   if (targetIsArchive) {
     updatedMachine = {
       ...machine,
+      lifecycle_events: existingEvents,
       status: 'ARCHIVEE',
       statut: 'Archivée',
       lifecycle_state: 'ARCHIVED' as MachineLifecycleState,
@@ -240,6 +255,7 @@ export function transitionMachineLifecycle<
         : true;
     updatedMachine = {
       ...machine,
+      lifecycle_events: existingEvents,
       status: cleanNextStatus,
       statut: cleanNextStatus,
       lifecycle_state: nextLifecycle,

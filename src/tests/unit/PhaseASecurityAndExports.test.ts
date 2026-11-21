@@ -342,7 +342,6 @@ describe('Phase A — RBAC, Segregation of Duties (SoD), Audit Actor & Export Se
         };
 
         const synthesis = FinancialCalculationService.computeFinancialSynthesis({
-          fiscalYear: 2026,
           budget: {
             fiscalYear: 2026,
             allocatedPreventive: 1000,

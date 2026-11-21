@@ -396,7 +396,7 @@ export default function SystemGeneralRoundModal({
         observations,
         usedPDR,
         num_bon_saisi_par_tech: st.numBon || globalBonNumber || '',
-        mode_calcul_recurrence: task.mode_calcul_recurrence || 'FIXE',
+        mode_calcul_recurrence: String(task.mode_calcul_recurrence || 'FIXE'),
         submitForValidation: isTechUser || multiRoleSubmitAsTech,
       });
       completedCount += 1;

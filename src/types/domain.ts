@@ -25,6 +25,7 @@ export interface IGeneralSystemType {
   code: string;
   name: string;
   is_active: boolean;
+  [key: string]: unknown;
 }
 
 export type ProfileType = 'TECHNICIEN' | 'RESPONSABLE' | 'OPERATEUR' | 'CHEF';

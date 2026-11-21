@@ -248,7 +248,7 @@ export default function AppRouter({
                       )}
 
                       {currentTab === 'zones' && (
-                        <ErrorBoundary sectionName="Référentiel Zones & Seteur">
+                        <ErrorBoundary sectionName="Référentiel Zones & Secteurs">
                           <ZonesView {...props.zones} />
                         </ErrorBoundary>
                       )}
@@ -276,7 +276,7 @@ export default function AppRouter({
                       )}
 
                       {currentTab === 'nexus' && (
-                        <ErrorBoundary sectionName="Nexus Assistant IA">
+                        <ErrorBoundary sectionName="Arborescence & BOM Nexus">
                           <NexusView {...props.nexus} />
                         </ErrorBoundary>
                       )}
