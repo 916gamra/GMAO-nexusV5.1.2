@@ -23,7 +23,8 @@ export class RealtimeMetricsService {
   frameCount: number;
   lastFpsCheckTime: number;
   isMonitoring: boolean;
-  lagInterval: any;
+  lagInterval: ReturnType<typeof setInterval> | null;
+  rafId: number | null;
 
   constructor() {
     if (RealtimeMetricsService.instance) {
@@ -46,6 +47,8 @@ export class RealtimeMetricsService {
     this.frameCount = 0;
     this.lastFpsCheckTime = performance.now();
     this.isMonitoring = false;
+    this.lagInterval = null;
+    this.rafId = null;
 
     RealtimeMetricsService.instance = this;
   }
@@ -72,12 +75,12 @@ export class RealtimeMetricsService {
       }
 
       if (typeof requestAnimationFrame === 'function') {
-        requestAnimationFrame(measureFps);
+        this.rafId = requestAnimationFrame(measureFps);
       }
     };
 
     if (typeof requestAnimationFrame === 'function') {
-      requestAnimationFrame(measureFps);
+      this.rafId = requestAnimationFrame(measureFps);
     }
 
     // 2. Event Loop Lag Tracker (Measures main-thread blocking)
@@ -97,8 +100,13 @@ export class RealtimeMetricsService {
    */
   stop() {
     this.isMonitoring = false;
+    if (this.rafId !== null && typeof cancelAnimationFrame === 'function') {
+      cancelAnimationFrame(this.rafId);
+      this.rafId = null;
+    }
     if (this.lagInterval) {
       clearInterval(this.lagInterval);
+      this.lagInterval = null;
     }
   }
 
@@ -143,7 +151,12 @@ export class RealtimeMetricsService {
   subscribe(callback) {
     this.subscribers.add(callback);
     callback(this.currentMetrics);
-    return () => this.subscribers.delete(callback);
+    return () => {
+      this.subscribers.delete(callback);
+      if (this.subscribers.size === 0) {
+        this.stop();
+      }
+    };
   }
 
   /**

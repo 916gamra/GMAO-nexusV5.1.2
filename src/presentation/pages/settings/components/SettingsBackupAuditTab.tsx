@@ -305,15 +305,9 @@ export default function SettingsBackupAuditTab({
                 <span>Actualiser</span>
               </button>
               <button
-                onClick={async () => {
-                  const ok = await confirmAction({
-                    title: 'Vider le journal des connexions',
-                    message:
-                      "Êtes-vous sûr de vouloir effacer l'historique des sessions de connexion des postes ?",
-                    confirmText: 'Vider le journal',
-                    variant: 'danger',
-                  });
-                  if (ok) handleClearAccessLogs?.();
+                type="button"
+                onClick={() => {
+                  void handleClearAccessLogs?.();
                 }}
                 className={SETTINGS_BUTTON_STYLES.dangerSoft}
               >
@@ -437,6 +431,8 @@ export default function SettingsBackupAuditTab({
                   <option value="PREVENTIVE_EXECUTION">Validation Préventif (PREVENTIVE_EXECUTION)</option>
                   <option value="SORTIE_DEMAND">Demandes Sortie PDR (SORTIE_DEMAND)</option>
                   <option value="FINANCIAL_BUDGET">Budgets Financiers (FINANCIAL_BUDGET)</option>
+                  <option value="CURRENCY_CONFIG">Devise &amp; Fiscalité (CURRENCY_CONFIG)</option>
+                  <option value="BACKUP_RESTORE">Restaurations (BACKUP_RESTORE)</option>
                 </select>
               </div>
               <button
@@ -960,12 +956,17 @@ export default function SettingsBackupAuditTab({
             headerRight={
               <div className="flex items-center gap-2">
                 <button
-                  onClick={() => syncQueueService.processQueue()}
+                  type="button"
+                  onClick={async () => {
+                    await syncQueueService.processQueue();
+                    refreshPerformanceMetrics?.();
+                  }}
                   className={SETTINGS_BUTTON_STYLES.secondary}
                 >
                   Rejouer la file
                 </button>
                 <button
+                  type="button"
                   onClick={async () => {
                     const ok = await confirmAction({
                       title: "Vider la file d'attente de synchronisation",
@@ -974,7 +975,10 @@ export default function SettingsBackupAuditTab({
                       confirmText: 'Vider la file',
                       variant: 'danger',
                     });
-                    if (ok) syncQueueService.clearQueue();
+                    if (ok) {
+                      syncQueueService.clearQueue();
+                      refreshPerformanceMetrics?.();
+                    }
                   }}
                   className={SETTINGS_BUTTON_STYLES.dangerSoft}
                 >

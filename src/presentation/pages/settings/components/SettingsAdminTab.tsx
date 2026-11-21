@@ -274,14 +274,14 @@ export default function SettingsAdminTab({
               Dérivation Cryptographique
             </div>
             <div className="font-mono text-[11px] text-sky-800 font-bold mt-0.5 truncate">
-              PBKDF2-SHA256 (600k) • Sel: {licenseRecord?.installSalt?.slice(0, 10) || '—'}…
+              PBKDF2-SHA256 (600k) • {licenseRecord?.installSalt ? 'Sel unique isolé' : 'Non initialisé'}
             </div>
           </div>
         </div>
       </SettingsSectionCard>
 
       {/* 2. Initial Activation + Admin Setup (if not yet activated) */}
-      {!isLicenseActive && !isVaultExists && (
+      {!isLicenseActive && (
         <SettingsSectionCard
           title="Activation Initiale — Code d'Activation Local + Mot de Passe @admin"
           description="Définissez le Code d'Activation Local et un Mot de Passe Administrateur strictement différent."
@@ -476,18 +476,20 @@ export default function SettingsAdminTab({
               </div>
               <div className="grid grid-cols-3 gap-1">
                 <span className="text-slate-500">Sel Installation:</span>
-                <span className="col-span-2 text-sky-800 font-semibold truncate select-all">
-                  {licenseRecord?.installSalt ||
-                    SecurityService.getSecure('gmao_vault_salt_v2')?.substring(0, 24) ||
-                    'Généré aléatoirement...'}
+                <span className="col-span-2 text-sky-800 font-semibold truncate">
+                  {licenseRecord?.installSalt || SecurityService.getSecure('gmao_vault_salt_v2')
+                    ? 'Sel cryptographique unique configuré (masqué)'
+                    : 'Non généré'}
                 </span>
               </div>
               <div className="grid grid-cols-3 gap-1">
-                <span className="text-slate-500">Ciphertext Vault:</span>
-                <span className="col-span-2 text-slate-700 font-semibold truncate select-all">
-                  {SecurityService.getSecure('gmao_vault_cipher_v2')?.substring(0, 32) ||
-                    'Aucun — Vault verrouillé'}
-                  ...
+                <span className="text-slate-500">Coffre-Fort AES-256:</span>
+                <span className="col-span-2 text-slate-700 font-semibold truncate">
+                  {isVaultExists || SecurityService.getSecure('gmao_vault_cipher_v2')
+                    ? isVaultUnlocked
+                      ? 'Chiffré & Déverrouillé en mémoire'
+                      : 'Chiffré (Verrouillé)'
+                    : 'Aucun — Vault non initialisé'}
                 </span>
               </div>
               <div className="grid grid-cols-3 gap-1 pt-1.5 border-t border-slate-200/80">

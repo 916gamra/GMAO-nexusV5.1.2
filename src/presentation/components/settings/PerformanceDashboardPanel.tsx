@@ -70,6 +70,7 @@ export default function PerformanceDashboardPanel({
       unsubMetrics();
       unsubAlerts();
       unsubTrends();
+      realtimeMetricsService.stop();
     };
   }, []);
 

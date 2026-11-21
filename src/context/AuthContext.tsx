@@ -478,8 +478,14 @@ export const AuthProvider = ({ children }) => {
 
   const switchSessionToUser = useCallback(
     async (username, licenseKey) => {
-      if (LicenseGateService.isLicenseActive() && licenseKey) {
-        const isValidLic = await LicenseGateService.verifyLicenseKey(licenseKey, {
+      if (LicenseGateService.isLicenseActive()) {
+        const cleanKey = typeof licenseKey === 'string' ? licenseKey.trim() : '';
+        if (!cleanKey) {
+          throw new Error(
+            "Veuillez saisir le code d'activation local pour autoriser le basculement de session."
+          );
+        }
+        const isValidLic = await LicenseGateService.verifyLicenseKey(cleanKey, {
           touchLastAuth: false,
         });
         if (!isValidLic) {

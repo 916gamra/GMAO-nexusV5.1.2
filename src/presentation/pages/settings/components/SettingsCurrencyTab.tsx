@@ -19,6 +19,8 @@ import {
 import { useTranslation } from '../../../../i18n/I18nContext';
 import { useAuth } from '../../../../context/AuthContext';
 import { AuthorizationService } from '../../../../core/security/AuthorizationService';
+import { useGmaoStore } from '../../../../store/useGmaoStore';
+import { serverSyncService } from '../../../../services/serverSyncService';
 import { SettingsSectionCard, SETTINGS_BUTTON_STYLES, SETTINGS_INPUT_CLASS } from './settingsUi';
 
 const CURRENCY_ORDER: CurrencyCode[] = ['MAD', 'USD', 'EUR'];
@@ -50,7 +52,31 @@ export default function SettingsCurrencyTab({
   } = useCurrency();
   const { language } = useTranslation();
   const { currentUser } = useAuth();
-  const canManageSettings = AuthorizationService.hasPermission(currentUser, 'settings:manage');
+  const canManageSettings = AuthorizationService.hasPermission(currentUser, 'settings.manage');
+
+  const recordCurrencyMutation = (
+    beforeSnapshot: Readonly<Record<string, unknown>>,
+    afterSnapshot: Readonly<Record<string, unknown>>,
+    summary: string
+  ) => {
+    try {
+      useGmaoStore.getState().appendAuditEvent?.({
+        actionType: 'CURRENCY_CONFIG_UPDATED',
+        entityType: 'CURRENCY_CONFIG',
+        entityId: 'FACTORY_CURRENCY',
+        before: beforeSnapshot,
+        after: afterSnapshot,
+        meta: { summary },
+      });
+    } catch {
+      // Non-blocking audit hook
+    }
+    try {
+      serverSyncService.scheduleAutoPush(undefined, 250);
+    } catch {
+      // Non-blocking LAN sync trigger
+    }
+  };
 
   const [vatInput, setVatInput] = useState<string>(String(config.vatRatePercent));
   const [fiscalYearInput, setFiscalYearInput] = useState<string>(String(config.fiscalYear));
@@ -69,7 +95,13 @@ export default function SettingsCurrencyTab({
       showToast?.('Mode lecture seule : Rôle Administrateur requis.', 'error');
       return;
     }
+    const before = { currencyCode, madSymbolVariant: config.madSymbolVariant };
     setCurrency(code);
+    recordCurrencyMutation(
+      before,
+      { currencyCode: code, madSymbolVariant: config.madSymbolVariant },
+      `Devise active modifiée (${currencyCode} ➔ ${code})`
+    );
     const meta = ISO_4217_CURRENCIES[code];
     showToast?.(
       language === 'ar'
@@ -84,7 +116,13 @@ export default function SettingsCurrencyTab({
       showToast?.('Mode lecture seule : Rôle Administrateur requis.', 'error');
       return;
     }
+    const before = { madSymbolVariant: config.madSymbolVariant };
     updateConfig({ madSymbolVariant: variant });
+    recordCurrencyMutation(
+      before,
+      { madSymbolVariant: variant },
+      `Variante symbole MAD modifiée (${config.madSymbolVariant} ➔ ${variant})`
+    );
     showToast?.(
       language === 'ar'
         ? `تم تحديث رمز الدرهم إلى: ${variant}`
@@ -103,7 +141,12 @@ export default function SettingsCurrencyTab({
     const usd = Number(usdRateInput) > 0 ? Number(usdRateInput) : 0.1;
     const eur = Number(eurRateInput) > 0 ? Number(eurRateInput) : 0.092;
 
-    updateConfig({
+    const before = {
+      vatRatePercent: config.vatRatePercent,
+      fiscalYear: config.fiscalYear,
+      exchangeRates: { ...config.exchangeRates },
+    };
+    const nextPatch = {
       vatRatePercent: vat,
       fiscalYear: fy,
       exchangeRates: {
@@ -111,7 +154,13 @@ export default function SettingsCurrencyTab({
         USD: usd,
         EUR: eur,
       },
-    });
+    };
+    updateConfig(nextPatch);
+    recordCurrencyMutation(
+      before,
+      nextPatch,
+      `Fiscalité & taux FX enregistrés (TVA ${vat}%, Exercice ${fy}, USD=${usd}, EUR=${eur})`
+    );
     showToast?.(
       language === 'ar'
         ? 'تم حفظ إعدادات الضرائب وأسعار الصرف بنجاح'
@@ -122,7 +171,19 @@ export default function SettingsCurrencyTab({
 
   const handleReset = () => {
     if (!canManageSettings) return;
+    const before = {
+      currencyCode,
+      madSymbolVariant: config.madSymbolVariant,
+      vatRatePercent: config.vatRatePercent,
+      fiscalYear: config.fiscalYear,
+      applyExchangeRateConversion: config.applyExchangeRateConversion,
+    };
     resetToDefault();
+    recordCurrencyMutation(
+      before,
+      { currencyCode: 'MAD', madSymbolVariant: 'DH', vatRatePercent: 20, applyExchangeRateConversion: false },
+      'Configuration monétaire réinitialisée aux valeurs par défaut (MAD / DH)'
+    );
     showToast?.(
       language === 'ar'
         ? 'تمت استعادة الإعدادات الافتراضية للعملة (MAD / DH)'
@@ -184,8 +245,11 @@ export default function SettingsCurrencyTab({
                   key={code}
                   type="button"
                   data-testid={`currency-card-${code}`}
+                  disabled={!canManageSettings}
                   onClick={() => handleSelectCurrency(code)}
-                  className={`text-left p-4 rounded-xl border transition-all duration-150 cursor-pointer flex items-start justify-between gap-3 ${
+                  className={`text-left p-4 rounded-xl border transition-all duration-150 flex items-start justify-between gap-3 disabled:opacity-60 disabled:cursor-not-allowed ${
+                    canManageSettings ? 'cursor-pointer' : ''
+                  } ${
                     isSelected
                       ? 'border-sky-700/75 bg-white ring-1 ring-sky-700/15 shadow-[0_2px_8px_-2px_rgba(15,23,42,0.08)]'
                       : 'border-slate-200/90 bg-slate-50/70 hover:bg-white hover:border-slate-300 shadow-[0_1px_2px_rgba(15,23,42,0.03)]'
@@ -257,8 +321,11 @@ export default function SettingsCurrencyTab({
                       key={v.id}
                       type="button"
                       data-testid={`mad-symbol-${v.id}`}
+                      disabled={!canManageSettings}
                       onClick={() => handleSelectMadVariant(v.id)}
-                      className={`px-4 py-2.5 rounded-xl border text-left transition-all duration-150 cursor-pointer flex items-center justify-between ${
+                      className={`px-4 py-2.5 rounded-xl border text-left transition-all duration-150 flex items-center justify-between disabled:opacity-60 disabled:cursor-not-allowed ${
+                        canManageSettings ? 'cursor-pointer' : ''
+                      } ${
                         active
                           ? 'bg-white text-slate-950 border-sky-700/75 ring-1 ring-sky-700/15 font-bold shadow-[0_1px_3px_rgba(15,23,42,0.08)]'
                           : 'bg-white/70 text-slate-700 border-slate-200 hover:bg-white hover:border-slate-300'
@@ -318,9 +385,10 @@ export default function SettingsCurrencyTab({
                     type="number"
                     min={2020}
                     max={2099}
+                    disabled={!canManageSettings}
                     value={fiscalYearInput}
                     onChange={(e) => setFiscalYearInput(e.target.value)}
-                    className={`${SETTINGS_INPUT_CLASS} pl-9 font-mono font-bold`}
+                    className={`${SETTINGS_INPUT_CLASS} pl-9 font-mono font-bold disabled:opacity-60 disabled:cursor-not-allowed`}
                   />
                 </div>
               </div>
@@ -336,9 +404,10 @@ export default function SettingsCurrencyTab({
                     min={0}
                     max={100}
                     step={0.5}
+                    disabled={!canManageSettings}
                     value={vatInput}
                     onChange={(e) => setVatInput(e.target.value)}
-                    className={`${SETTINGS_INPUT_CLASS} pl-9 font-mono font-bold`}
+                    className={`${SETTINGS_INPUT_CLASS} pl-9 font-mono font-bold disabled:opacity-60 disabled:cursor-not-allowed`}
                   />
                 </div>
               </div>
@@ -353,9 +422,10 @@ export default function SettingsCurrencyTab({
                   type="number"
                   step="0.001"
                   min="0.0001"
+                  disabled={!canManageSettings}
                   value={usdRateInput}
                   onChange={(e) => setUsdRateInput(e.target.value)}
-                  className={`${SETTINGS_INPUT_CLASS} font-mono font-bold`}
+                  className={`${SETTINGS_INPUT_CLASS} font-mono font-bold disabled:opacity-60 disabled:cursor-not-allowed`}
                 />
               </div>
 
@@ -367,9 +437,10 @@ export default function SettingsCurrencyTab({
                   type="number"
                   step="0.001"
                   min="0.0001"
+                  disabled={!canManageSettings}
                   value={eurRateInput}
                   onChange={(e) => setEurRateInput(e.target.value)}
-                  className={`${SETTINGS_INPUT_CLASS} font-mono font-bold`}
+                  className={`${SETTINGS_INPUT_CLASS} font-mono font-bold disabled:opacity-60 disabled:cursor-not-allowed`}
                 />
               </div>
             </div>
@@ -385,12 +456,20 @@ export default function SettingsCurrencyTab({
               </div>
               <input
                 type="checkbox"
+                disabled={!canManageSettings}
                 checked={config.applyExchangeRateConversion}
                 onChange={(e) => {
                   if (!canManageSettings) return;
-                  updateConfig({ applyExchangeRateConversion: e.target.checked });
+                  const nextVal = e.target.checked;
+                  const before = { applyExchangeRateConversion: config.applyExchangeRateConversion };
+                  updateConfig({ applyExchangeRateConversion: nextVal });
+                  recordCurrencyMutation(
+                    before,
+                    { applyExchangeRateConversion: nextVal },
+                    `Conversion FX automatique ${nextVal ? 'activée' : 'désactivée'}`
+                  );
                 }}
-                className="w-4 h-4 rounded border-slate-300 text-sky-700 focus:ring-sky-600 cursor-pointer shrink-0"
+                className="w-4 h-4 rounded border-slate-300 text-sky-700 focus:ring-sky-600 cursor-pointer shrink-0 disabled:opacity-50 disabled:cursor-not-allowed"
               />
             </div>
           </div>

@@ -317,14 +317,16 @@ describe('Audit Fixes — 5 Core GMAO Blind Spots', () => {
       expect(analysis.recommendation).toContain('À réformer');
     });
 
-    it('generates a deterministic 21x21 offline QR matrix for machine field URLs', () => {
+    it('generates a deterministic ISO/IEC 18004 offline QR matrix for machine field URLs', () => {
       const matrix = networkConfigService.generateQrMatrix('http://192.168.1.100:3000/?machine_qr=PRS-01');
-      expect(matrix).toHaveLength(21);
-      expect(matrix[0]).toHaveLength(21);
+      const n = matrix.length;
+      expect(n).toBeGreaterThanOrEqual(21);
+      expect((n - 17) % 4).toBe(0);
+      expect(matrix[0]).toHaveLength(n);
       // Finder pattern corners are always true
       expect(matrix[0][0]).toBe(true);
-      expect(matrix[0][20]).toBe(true);
-      expect(matrix[20][0]).toBe(true);
+      expect(matrix[0][n - 1]).toBe(true);
+      expect(matrix[n - 1][0]).toBe(true);
     });
   });
 });

@@ -1,3 +1,4 @@
+import QRCode from 'qrcode';
 import { storageService } from '../utils/storageService';
 import { SecurityService } from '../core/security/SecurityService';
 import {
@@ -82,6 +83,7 @@ export interface RevisionEventPayload {
 
 const NODE_MODE_STORAGE_KEY = 'gmao_network_node_mode';
 const CUSTOM_HOST_IP_STORAGE_KEY = 'gmao_custom_lan_host_ip';
+const REMOTE_HOST_URL_STORAGE_KEY = 'gmao_remote_lan_host_url';
 
 export const networkConfigService = {
   /**
@@ -124,14 +126,15 @@ export const networkConfigService = {
   },
 
   /**
-   * Normalizes and stores a remote host URL or IP:port for LAN_CLIENT mode.
+   * Normalizes and stores a remote host URL or IP:port for LAN_CLIENT mode
+   * using a dedicated storage key isolated from the HOST custom broadcast IP.
    */
   setRemoteHostUrl(urlOrHost: string, defaultPort = 3000): string {
     const clean = String(urlOrHost || '')
       .trim()
       .replace(/\/+$/, '');
     if (!clean) {
-      this.setCustomHostIp('');
+      storageService.setItem(REMOTE_HOST_URL_STORAGE_KEY, '');
       return '';
     }
     const withoutProto = clean.replace(/^https?:\/\//i, '');
@@ -143,14 +146,21 @@ export const networkConfigService = {
       : hasPort
       ? `http://${withoutProto}`
       : `http://${withoutProto}:${defaultPort}`;
-    this.setCustomHostIp(normalized);
+    storageService.setItem(REMOTE_HOST_URL_STORAGE_KEY, normalized);
     return normalized;
   },
 
   getRemoteHostUrl(): string {
-    const custom = this.getCustomHostIp();
-    if (!custom) return '';
-    return this.buildShareUrls(custom).desktop;
+    const dedicated = storageService.getItem(REMOTE_HOST_URL_STORAGE_KEY);
+    if (typeof dedicated === 'string' && dedicated.trim()) {
+      return this.buildShareUrls(dedicated.trim()).desktop;
+    }
+    // Backward-compatible read only if legacy key explicitly held an http(s):// URL
+    const legacy = this.getCustomHostIp();
+    if (legacy && /^https?:\/\//i.test(legacy)) {
+      return this.buildShareUrls(legacy).desktop;
+    }
+    return '';
   },
 
   /**
@@ -217,9 +227,11 @@ export const networkConfigService = {
         throw new Error(`HTTP ${response.status}`);
       }
       const data = await response.json();
+      const remoteUrl = this.getRemoteHostUrl();
+      const cleanRemoteIp = remoteUrl.replace(/^https?:\/\//i, '').replace(/:\d+$/, '');
       const cleanCustomIp = customIp.replace(/^https?:\/\//i, '').replace(/:\d+$/, '');
       const effectiveIp =
-        (this.getNodeMode() === 'LAN_CLIENT' && cleanCustomIp) ||
+        (this.getNodeMode() === 'LAN_CLIENT' && cleanRemoteIp) ||
         (data.primaryIp && data.primaryIp !== '127.0.0.1' ? data.primaryIp : '') ||
         cleanCustomIp ||
         data.primaryIp ||
@@ -240,7 +252,9 @@ export const networkConfigService = {
         connectedClients: typeof data.connectedClients === 'number' ? data.connectedClients : 0,
       };
     } catch {
+      const remoteUrl = this.getRemoteHostUrl();
       const fallbackHost =
+        (this.getNodeMode() === 'LAN_CLIENT' && remoteUrl) ||
         customIp ||
         (typeof window !== 'undefined' && window.location?.hostname
           ? window.location.hostname
@@ -434,73 +448,17 @@ export const networkConfigService = {
   },
 
   /**
-   * Generates a deterministic 21x21 QR-like SVG matrix with standard finder patterns,
-   * timing patterns, and encoded payload bits for 100% offline LAN URL display.
+   * Generates a real, scannable ISO/IEC 18004 QR Code matrix (100% offline via `qrcode`)
+   * with standard Reed-Solomon error correction (Level M) for mobile LAN & machine passport scanning.
    */
   generateQrMatrix(payload: string): boolean[][] {
-    const size = 21;
-    const matrix: boolean[][] = Array.from({ length: size }, () => Array(size).fill(false));
-    const reserved: boolean[][] = Array.from({ length: size }, () => Array(size).fill(false));
-
-    const placeFinderPattern = (rowOffset: number, colOffset: number) => {
-      for (let r = -1; r <= 7; r++) {
-        for (let c = -1; c <= 7; c++) {
-          const rr = rowOffset + r;
-          const cc = colOffset + c;
-          if (rr < 0 || rr >= size || cc < 0 || cc >= size) continue;
-          reserved[rr][cc] = true;
-          const inOuter = r >= 0 && r <= 6 && c >= 0 && c <= 6 && (r === 0 || r === 6 || c === 0 || c === 6);
-          const inInner = r >= 2 && r <= 4 && c >= 2 && c <= 4;
-          matrix[rr][cc] = inOuter || inInner;
-        }
-      }
-    };
-
-    placeFinderPattern(0, 0);
-    placeFinderPattern(0, size - 7);
-    placeFinderPattern(size - 7, 0);
-
-    // Timing patterns on row 6 and col 6
-    for (let i = 8; i < size - 8; i++) {
-      reserved[6][i] = true;
-      reserved[i][6] = true;
-      matrix[6][i] = i % 2 === 0;
-      matrix[i][6] = i % 2 === 0;
-    }
-
-    // Dark module
-    reserved[size - 8][8] = true;
-    matrix[size - 8][8] = true;
-
-    // Deterministic bit stream from payload bytes + FNV-1a rolling hash
-    const cleanText = String(payload || 'http://127.0.0.1:3000');
-    const bits: boolean[] = [];
-    let hash = 2166136261;
-    for (let i = 0; i < cleanText.length; i++) {
-      const code = cleanText.charCodeAt(i);
-      hash ^= code;
-      hash = Math.imul(hash, 16777619);
-      for (let b = 7; b >= 0; b--) {
-        bits.push(((code >> b) & 1) === 1);
-      }
-    }
-    for (let extra = 0; extra < 64; extra++) {
-      hash ^= extra + cleanText.length;
-      hash = Math.imul(hash, 16777619);
-      bits.push(((hash >>> (extra % 31)) & 1) === 1);
-    }
-
-    let bitIdx = 0;
-    for (let r = 0; r < size; r++) {
-      for (let c = 0; c < size; c++) {
-        if (reserved[r][c]) continue;
-        const bit = bits[bitIdx % bits.length];
-        // Mask pattern ((r + c) % 2 === 0) to prevent large blank areas
-        matrix[r][c] = (r + c) % 2 === 0 ? !bit : bit;
-        bitIdx++;
-      }
-    }
-
+    const cleanText = String(payload || 'http://127.0.0.1:3000').trim() || 'http://127.0.0.1:3000';
+    const qr = QRCode.create(cleanText, { errorCorrectionLevel: 'M' });
+    const size = qr.modules.size;
+    const data = qr.modules.data;
+    const matrix: boolean[][] = Array.from({ length: size }, (_, r) =>
+      Array.from({ length: size }, (_, c) => Boolean(data[r * size + c]))
+    );
     return matrix;
   },
 

@@ -79,18 +79,34 @@ export class BackupService {
         const raw = localStorage.getItem(targetId);
         if (raw) {
           const imported = AutoBackupService.importFullBackupJSON(raw);
-          if (!imported) {
-            const backupData = JSON.parse(raw);
-            if (backupData?.data) {
-              Object.entries(backupData.data).forEach(([key, items]) => {
-                if (Array.isArray(items)) {
-                  localStorage.setItem(`gmao_${key}`, JSON.stringify(items));
-                }
-              });
+          if (imported) {
+            Logger.debug(`✅ Backup ${targetId} restored successfully via AutoBackupService`);
+            return true;
+          }
+          // Adapt legacy { data: { articles, movements, machines } } payloads to canonical SSOT import
+          const backupData = JSON.parse(raw);
+          const legacyData = backupData?.data;
+          if (legacyData && typeof legacyData === 'object') {
+            const normalizedPayload = {
+              version: '5.1',
+              partition: 'full',
+              exportDate: backupData.timestamp || new Date().toISOString(),
+              data: {
+                ...(Array.isArray(legacyData.articles) ? { raw_stock_v8: legacyData.articles } : {}),
+                ...(Array.isArray(legacyData.movements) ? { mouvements_v2: legacyData.movements } : {}),
+                ...(Array.isArray(legacyData.machines) ? { machines_v2: legacyData.machines } : {}),
+              },
+            };
+            const adaptedImported = AutoBackupService.importFullBackupJSON(
+              JSON.stringify(normalizedPayload)
+            );
+            if (adaptedImported) {
+              Logger.debug(`✅ Legacy backup ${targetId} adapted and restored via SSOT`);
+              return true;
             }
           }
-          Logger.debug(`✅ Backup ${targetId} restored successfully`);
-          return true;
+          Logger.warn(`❌ Backup ${targetId} payload could not be validated by AutoBackupService`);
+          return false;
         }
       }
 

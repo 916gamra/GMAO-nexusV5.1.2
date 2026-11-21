@@ -10,6 +10,7 @@ describe('Round 7 — LAN Host Architecture (P3.1..P3.4) & SettingsView Modular 
     sessionStorage.clear();
     networkConfigService.setNodeMode('HOST');
     networkConfigService.setCustomHostIp('');
+    networkConfigService.setRemoteHostUrl('');
     vi.restoreAllMocks();
   });
 
@@ -74,15 +75,17 @@ describe('Round 7 — LAN Host Architecture (P3.1..P3.4) & SettingsView Modular 
   });
 
   describe('P3.2: LAN Discovery & Offline Deterministic QR Code Matrix Generation', () => {
-    it('generates a deterministic 21x21 QR matrix with intact 7x7 finder patterns', () => {
+    it('generates a deterministic ISO/IEC 18004 QR matrix with intact 7x7 finder patterns', () => {
       const url = 'http://192.168.1.100:3000/#mobile';
       const matrixA = networkConfigService.generateDeterministicQrMatrix(url);
       const matrixB = networkConfigService.generateDeterministicQrMatrix(url);
 
-      expect(matrixA.length).toBe(21);
-      expect(matrixA[0].length).toBe(21);
+      expect(matrixA.length).toBeGreaterThanOrEqual(21);
+      expect((matrixA.length - 17) % 4).toBe(0);
+      expect(matrixA[0].length).toBe(matrixA.length);
       expect(matrixA).toEqual(matrixB);
 
+      const n = matrixA.length;
       // Top-left finder pattern outer corners and center (3,3) should be dark (true)
       expect(matrixA[0][0]).toBe(true);
       expect(matrixA[0][6]).toBe(true);
@@ -91,6 +94,17 @@ describe('Round 7 — LAN Host Architecture (P3.1..P3.4) & SettingsView Modular 
       expect(matrixA[3][3]).toBe(true);
       // Inner white ring at (1,1) should be false
       expect(matrixA[1][1]).toBe(false);
+      // Top-right and bottom-left finder corners should be dark (true)
+      expect(matrixA[0][n - 1]).toBe(true);
+      expect(matrixA[n - 1][0]).toBe(true);
+    });
+
+    it('isolates HOST custom IP from LAN_CLIENT remote host URL', () => {
+      networkConfigService.setCustomHostIp('192.168.1.10');
+      networkConfigService.setRemoteHostUrl('192.168.1.55:3000');
+
+      expect(networkConfigService.getCustomHostIp()).toBe('192.168.1.10');
+      expect(networkConfigService.getRemoteHostUrl()).toBe('http://192.168.1.55:3000');
     });
 
     it('fetches LAN network host info from /api/network/info', async () => {

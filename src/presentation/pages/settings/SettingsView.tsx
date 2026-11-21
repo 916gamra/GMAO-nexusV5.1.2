@@ -304,8 +304,16 @@ export default function SettingsView({
   }, [rawStock, mouvements, machines, families, templates, zones, technicians, operations, types]);
 
   const [allocatedCacheCeilingMB, setAllocatedCacheCeilingMB] = useState(() => {
-    const saved = storageService.getItem(STORAGE_KEYS.CACHE_CEILING_MB);
-    return saved ? Number(saved) : 1024;
+    const canonical = storageService.getItem(STORAGE_KEYS.STORAGE_CEILING_MB);
+    if (canonical) return Number(canonical) || 1024;
+    const legacy = storageService.getItem(STORAGE_KEYS.CACHE_CEILING_MB);
+    if (legacy) {
+      const migrated = Number(legacy) || 1024;
+      storageService.setItem(STORAGE_KEYS.STORAGE_CEILING_MB, migrated);
+      storageService.removeItem(STORAGE_KEYS.CACHE_CEILING_MB);
+      return migrated;
+    }
+    return 1024;
   });
 
   const [idbQuotaInfo, setIdbQuotaInfo] = useState({
@@ -333,7 +341,8 @@ export default function SettingsView({
   const handleCeilingChange = (newCeilingMB: number | string) => {
     const val = Number(newCeilingMB) || 1024;
     setAllocatedCacheCeilingMB(val);
-    storageService.setItem(STORAGE_KEYS.CACHE_CEILING_MB, val);
+    storageService.setItem(STORAGE_KEYS.STORAGE_CEILING_MB, val);
+    storageService.removeItem(STORAGE_KEYS.CACHE_CEILING_MB);
     indexedDBService.requestPersistentStorage();
     showToast?.(
       `Capacité Cache Navigateur (IndexedDB L2) configurée sur ${val >= 1024 ? `${val / 1024} GB` : `${val} MB`}`,
@@ -418,7 +427,10 @@ export default function SettingsView({
     if (canViewSettings) {
       ids.push('performance');
     }
-    ids.push('appearance', 'currency');
+    ids.push('appearance');
+    if (canViewSettings || canManageSettings) {
+      ids.push('currency');
+    }
     return ids;
   }, [canManageSettings, canManageUsers, canBackupSettings, canViewSettings]);
 
@@ -553,6 +565,7 @@ export default function SettingsView({
   const [jsonError, setJsonError] = useState<string | null>(null);
 
   const originalJsonText = useMemo(() => {
+    if (activeTab !== 'json-editor') return '';
     let targetData: unknown[] = [];
     if (jsonTarget === 'rawStock') targetData = rawStock;
     else if (jsonTarget === 'mouvements') targetData = mouvements;
@@ -580,6 +593,7 @@ export default function SettingsView({
       }));
     return JSON.stringify(targetData, null, 2);
   }, [
+    activeTab,
     jsonTarget,
     rawStock,
     mouvements,
@@ -646,7 +660,7 @@ export default function SettingsView({
   };
 
   // Directory details
-  const [fileDetails, setFileDetails] = useState({ size: '1.2 Mo', lastModified: '30/08 10:23' });
+  const [fileDetails, setFileDetails] = useState({ size: '—', lastModified: 'Non lié' });
   useEffect(() => {
     async function fetchFileDetails() {
       if (linkedFileHandle) {
@@ -662,15 +676,21 @@ export default function SettingsView({
         } catch (e) {
           Logger.error('Failed to get linked file details:', e, 'SettingsView');
         }
+      } else {
+        setFileDetails({ size: '—', lastModified: 'Non lié' });
       }
     }
     fetchFileDetails();
   }, [linkedFileHandle]);
 
   const handleSaveSettings = () => {
-    storageService.setItem('gmao_shared_folder_path', sharedFolderPath);
-    storageService.setItem('gmao_auto_write_excel', String(autoWriteExcel));
-    storageService.setItem('gmao_polling_interval', pollingInterval);
+    if (!canManageSettings) {
+      showToast?.('Accès refusé : privilèges Administrateur requis.', 'error');
+      return;
+    }
+    storageService.setItem(STORAGE_KEYS.SHARED_FOLDER_PATH, sharedFolderPath);
+    storageService.setItem(STORAGE_KEYS.AUTO_WRITE_EXCEL, String(autoWriteExcel));
+    storageService.setItem(STORAGE_KEYS.POLLING_INTERVAL, pollingInterval);
     storageService.setItem(STORAGE_KEYS.START_MODE, isDemoMode ? 'demo' : 'empty');
     storageService.setItem(STORAGE_KEYS.DEMO_MODE, isDemoMode);
     if (typeof window !== 'undefined') {
@@ -684,10 +704,10 @@ export default function SettingsView({
   };
 
   // DATA INJECTION HUB HANDLERS
-  const handleResetToZero = async () => {
+  const handleResetToZero = async (): Promise<boolean> => {
     if (!canManageSettings) {
       showToast?.('Accès refusé : privilèges Administrateur requis pour réinitialiser l’usine.', 'error');
-      return;
+      return false;
     }
     if (
       await confirmAction({
@@ -702,14 +722,18 @@ export default function SettingsView({
         await useGmaoStore.getState().handleClearAllForRealFactory();
       }
       setIsDemoMode(false);
+      storageService.setItem(STORAGE_KEYS.DEMO_MODE, false);
+      storageService.setItem(STORAGE_KEYS.START_MODE, 'empty');
       showToast?.('Base de données vidée (Mode Usine Réelle actif) !', 'info');
+      return true;
     }
+    return false;
   };
 
-  const handleInjectGroup = (group: string) => {
+  const handleInjectGroup = async (group: string): Promise<boolean> => {
     if (!canManageSettings) {
       showToast?.('Accès refusé : privilèges Administrateur requis.', 'error');
-      return;
+      return false;
     }
     const labels: Record<string, string> = {
       stock: 'Groupes PDR, Types, Stock & Désignations',
@@ -720,66 +744,89 @@ export default function SettingsView({
       preventive: 'Planning & Référentiel Préventif',
       corrective: 'Interventions Correctives & Catalogue Pannes',
     };
+    const label = labels[group] || group;
+    const confirmed = await confirmAction({
+      title: `Injecter les données Démo (${label})`,
+      message: `Cette action va injecter les données de démonstration dans la section « ${label} » et peut écraser des enregistrements existants. Confirmer ?`,
+      confirmText: 'Injecter',
+      variant: 'warning',
+    });
+    if (!confirmed) return false;
     if (typeof onLoadDemoSection === 'function') {
       onLoadDemoSection(group);
     } else {
       useGmaoStore.getState().handleLoadDemoSection(group);
     }
-    showToast?.(`Données Démo injectées avec succès pour : ${labels[group] || group}.`, 'success');
+    showToast?.(`Données Démo injectées avec succès pour : ${label}.`, 'success');
+    return true;
   };
 
-  const handleClearGroup = (group: string) => {
+  const handleClearGroup = async (group: string): Promise<boolean> => {
     if (!canManageSettings) {
       showToast?.('Accès refusé : privilèges Administrateur requis.', 'error');
-      return;
+      return false;
     }
     if (!group || group === 'all') {
-      handleResetToZero();
-      return;
+      return handleResetToZero();
     }
+    const confirmed = await confirmAction({
+      title: `Vider la section « ${group} »`,
+      message: `Êtes-vous sûr de vouloir supprimer définitivement tous les enregistrements de la section « ${group} » ?`,
+      confirmText: 'Vider la section',
+      variant: 'danger',
+    });
+    if (!confirmed) return false;
     if (typeof onClearDemoSection === 'function') {
       onClearDemoSection(group);
     } else {
       useGmaoStore.getState().handleClearDemoSection(group);
     }
     showToast?.(`La section "${group}" a été vidée avec succès.`, 'info');
+    return true;
   };
 
-  const handleToggleDemoMode = (nextActive: boolean, targetSection = 'all') => {
+  const handleInjectAll = async (): Promise<boolean> => {
     if (!canManageSettings) {
       showToast?.('Accès refusé : privilèges Administrateur requis.', 'error');
-      return;
+      return false;
     }
-    if (targetSection === 'all') {
-      setIsDemoMode(nextActive);
-      storageService.setItem(STORAGE_KEYS.DEMO_MODE, nextActive);
-      storageService.setItem(STORAGE_KEYS.START_MODE, nextActive ? 'demo' : 'empty');
-      if (nextActive) {
-        handleInjectAll();
-      } else {
-        handleResetToZero();
-      }
-    } else {
-      if (nextActive) {
-        handleInjectGroup(targetSection);
-      } else {
-        handleClearGroup(targetSection);
-      }
-    }
-  };
-
-  const handleInjectAll = () => {
-    if (!canManageSettings) {
-      showToast?.('Accès refusé : privilèges Administrateur requis.', 'error');
-      return;
-    }
+    const confirmed = await confirmAction({
+      title: 'Injecter le jeu de données Démo complet',
+      message: "Attention : cette action va charger les données de démonstration dans toute l'usine (Parc, Stock, Mouvements, Préventif, Correctif). Confirmer ?",
+      confirmText: 'Injecter toute la démo',
+      variant: 'warning',
+    });
+    if (!confirmed) return false;
     if (typeof onLoadDemoData === 'function') {
       onLoadDemoData();
     } else {
       useGmaoStore.getState().handleLoadDemoData();
     }
     setIsDemoMode(true);
+    storageService.setItem(STORAGE_KEYS.DEMO_MODE, true);
+    storageService.setItem(STORAGE_KEYS.START_MODE, 'demo');
     showToast?.("Injection globale de toute l'usine (Données Démo SSOT) terminée avec succès.", 'success');
+    return true;
+  };
+
+  const handleToggleDemoMode = async (nextActive: boolean, targetSection = 'all') => {
+    if (!canManageSettings) {
+      showToast?.('Accès refusé : privilèges Administrateur requis.', 'error');
+      return;
+    }
+    if (targetSection === 'all') {
+      if (nextActive) {
+        await handleInjectAll();
+      } else {
+        await handleResetToZero();
+      }
+    } else {
+      if (nextActive) {
+        await handleInjectGroup(targetSection);
+      } else {
+        await handleClearGroup(targetSection);
+      }
+    }
   };
 
   // Orphan calculations & handlers
@@ -944,6 +991,10 @@ export default function SettingsView({
 
   const handleConfirmBulkRelink = (e: React.FormEvent) => {
     e.preventDefault();
+    if (!canManageSettings) {
+      showToast?.('Accès refusé : privilèges Administrateur requis.', 'error');
+      return;
+    }
     const target = bulkRelinkModal.targetMachineId.trim();
     if (!target) return;
     const entityType = bulkRelinkModal.entityType;
@@ -979,6 +1030,10 @@ export default function SettingsView({
   };
 
   const handleRegisterDiscovered = () => {
+    if (!canManageSettings) {
+      showToast?.('Accès refusé : privilèges Administrateur requis.', 'error');
+      return;
+    }
     if (discoveredItems.length === 0) return;
 
     if (auditTarget === 'machines') {
@@ -1025,7 +1080,7 @@ export default function SettingsView({
             nom: name,
             specialite: 'GMAO & Maintenance',
             contact: '',
-            avatar: `https://api.dicebear.com/7.x/bottts/svg?seed=${encodeURIComponent(name)}`,
+            avatar: '',
           });
           regTech++;
         } else if (role === 'CHEF') {
@@ -1044,7 +1099,7 @@ export default function SettingsView({
             nom: name,
             id_zone: zones[0]?.id_zone || '',
             type_profil: 'CHEF',
-            avatar: `https://api.dicebear.com/7.x/bottts/svg?seed=${encodeURIComponent(name)}`,
+            avatar: '',
           });
           regChef++;
         } else {
@@ -1065,7 +1120,7 @@ export default function SettingsView({
             nom: name,
             id_zone: zones[0]?.id_zone || '',
             type_profil: 'OPERATEUR',
-            avatar: `https://api.dicebear.com/7.x/bottts/svg?seed=${encodeURIComponent(name)}`,
+            avatar: '',
           });
           regOp++;
         }
@@ -1103,8 +1158,9 @@ export default function SettingsView({
       });
       if (setRawStock) {
         setRawStock((prev: IStockItem[]) => [...prev, ...newArticles]);
+      } else {
+        useGmaoStore.getState().setRawStock((prev: IStockItem[]) => [...prev, ...newArticles]);
       }
-      storageService.saveArticles([...rawStock, ...newArticles]);
       showToast?.(`${newArticles.length} article(s) de stock enregistrés et calculés avec succès.`, 'success');
     } else {
       showToast?.(
@@ -1115,6 +1171,10 @@ export default function SettingsView({
   };
 
   const handleExecuteRelink = () => {
+    if (!canManageSettings) {
+      showToast?.('Accès refusé : privilèges Administrateur requis.', 'error');
+      return;
+    }
     if (!relinkData.oldKey || !relinkData.targetKey) {
       showToast?.('Veuillez sélectionner un élément cible valide.', 'error');
       return;
@@ -1245,6 +1305,10 @@ export default function SettingsView({
   };
 
   const handleRepairData = async () => {
+    if (!canManageSettings) {
+      showToast?.('Accès refusé : privilèges Administrateur requis pour réparer la base.', 'error');
+      return;
+    }
     if (
       !(await confirmAction({
         title: 'Auto-réparation des anomalies',
@@ -1259,8 +1323,9 @@ export default function SettingsView({
     });
     if (setRawStock) {
       setRawStock(repairedStock as IStockItem[]);
+    } else {
+      useGmaoStore.getState().setRawStock(repairedStock as IStockItem[]);
     }
-    storageService.saveArticles(repairedStock as IStockItem[]);
     runIntegrityCheck();
     showToast?.(
       `${fixedCount} correction(s) et alignement(s) de formules appliqués avec succès.`,
@@ -1364,6 +1429,10 @@ export default function SettingsView({
   }, [activeTab]);
 
   const handleRestoreBackup = async (id: string) => {
+    if (!canManageSettings && !canBackupSettings) {
+      showToast?.('Accès refusé : privilèges Administrateur ou Sauvegarde requis.', 'error');
+      return;
+    }
     if (
       !(await confirmAction({
         title: 'Restaurer une sauvegarde',
@@ -1373,13 +1442,18 @@ export default function SettingsView({
     )
       return;
     try {
-      const data: unknown = await backupService.restoreBackup(id);
-      if (!data) {
+      const beforeSummary = {
+        rawStockCount: rawStock.length,
+        mouvementsCount: mouvements.length,
+        machinesCount: machines.length,
+      };
+      const result: unknown = await backupService.restoreBackup(id);
+      if (!result) {
         showToast?.('Sauvegarde introuvable ou impossible à restaurer.', 'error');
         return;
       }
-      if (typeof data === 'object' && data !== null) {
-        const payload = data as RestoredBackupPayload;
+      if (typeof result === 'object' && result !== null) {
+        const payload = result as RestoredBackupPayload;
         if (payload.Stock_Actuel) setRawStock?.(payload.Stock_Actuel);
         if (payload.Mouvement) setMouvements?.(payload.Mouvement);
         if (payload.Machines_Registered) setMachines?.(payload.Machines_Registered);
@@ -1389,10 +1463,10 @@ export default function SettingsView({
         if (payload.Technicians) setTechnicians?.(payload.Technicians);
         if (payload.Operations) setOperations?.(payload.Operations);
       }
-      // Rebuild stock index & recalculate stock invariant across the restored SSOT store
+      // Read freshly hydrated SSOT store and rebuild incremental stock index cleanly
       const store = useGmaoStore.getState();
-      const restoredStock: IStockItem[] = Array.isArray(store.rawStock) ? store.rawStock : rawStock;
-      const restoredMvts: IMouvement[] = Array.isArray(store.mouvements) ? store.mouvements : mouvements;
+      const restoredStock: IStockItem[] = Array.isArray(store.rawStock) ? store.rawStock : [];
+      const restoredMvts: IMouvement[] = Array.isArray(store.mouvements) ? store.mouvements : [];
       const calcMap = new Map(
         StockCalculationService.calculateAllStocks(restoredStock, restoredMvts).map((c) => [
           String(c.ref || '').trim().toUpperCase(),
@@ -1416,8 +1490,24 @@ export default function SettingsView({
         if (art?.ref) initMap.set(String(art.ref).trim().toUpperCase(), Number(art.stockInitial) || 0);
       });
       stockIndex.rebuild(restoredMvts, initMap);
-      if (setRawStock) setRawStock(recalculatedStock);
-      storageService.saveArticles(recalculatedStock);
+      if (setRawStock) {
+        setRawStock(recalculatedStock);
+      } else {
+        store.setRawStock(recalculatedStock);
+      }
+      store.appendAuditEvent?.({
+        actionType: 'BACKUP_RESTORED',
+        entityType: 'BACKUP_RESTORE',
+        entityId: id,
+        before: beforeSummary,
+        after: {
+          rawStockCount: recalculatedStock.length,
+          mouvementsCount: restoredMvts.length,
+          machinesCount: Array.isArray(store.machines) ? store.machines.length : 0,
+        },
+        meta: { summary: `Restauration du point de sauvegarde ${id}` },
+      });
+      await loadBackups();
 
       showToast?.('Restauration complète (SSOT + Stock recalculé) réussie !', 'success');
       logger.info('Backup restored manually', { backupId: id });
@@ -1471,31 +1561,35 @@ export default function SettingsView({
           </div>
         </div>
         <div className="flex items-center gap-2.5 shrink-0 relative">
-          <Action3DButton
-            variant="circle"
-            color="sky"
-            icon={Download}
-            onClick={() => {
-              const ok = AutoBackupService.exportFullBackupJSON();
-              showToast?.(
-                ok ? 'Snapshot JSON opérationnel téléchargé.' : "Erreur lors de l'export Snapshot.",
-                ok ? 'success' : 'error'
-              );
-            }}
-            title="Exporter Snapshot JSON complet"
-            ariaLabel="Exporter Snapshot JSON complet"
-            className="shadow-[0_8px_20px_-4px_rgba(15,23,42,0.14),0_3px_8px_-2px_rgba(15,23,42,0.08),inset_0_1px_1px_rgba(255,255,255,0.95)]"
-          />
-          <Action3DButton
-            variant="circle"
-            color="slate"
-            icon={Database}
-            onClick={() => setShowBackupManagerModal(true)}
-            title="Gestionnaire des sauvegardes et restauration"
-            ariaLabel="Gestionnaire des sauvegardes et restauration"
-            className="shadow-[0_8px_20px_-4px_rgba(15,23,42,0.14),0_3px_8px_-2px_rgba(15,23,42,0.08),inset_0_1px_1px_rgba(255,255,255,0.95)]"
-          />
-          {onExportExcel && (
+          {(canBackupSettings || canManageSettings) && (
+            <>
+              <Action3DButton
+                variant="circle"
+                color="sky"
+                icon={Download}
+                onClick={() => {
+                  const ok = AutoBackupService.exportFullBackupJSON();
+                  showToast?.(
+                    ok ? 'Snapshot JSON opérationnel téléchargé.' : "Erreur lors de l'export Snapshot.",
+                    ok ? 'success' : 'error'
+                  );
+                }}
+                title="Exporter Snapshot JSON complet"
+                ariaLabel="Exporter Snapshot JSON complet"
+                className="shadow-[0_8px_20px_-4px_rgba(15,23,42,0.14),0_3px_8px_-2px_rgba(15,23,42,0.08),inset_0_1px_1px_rgba(255,255,255,0.95)]"
+              />
+              <Action3DButton
+                variant="circle"
+                color="slate"
+                icon={Database}
+                onClick={() => setShowBackupManagerModal(true)}
+                title="Gestionnaire des sauvegardes et restauration"
+                ariaLabel="Gestionnaire des sauvegardes et restauration"
+                className="shadow-[0_8px_20px_-4px_rgba(15,23,42,0.14),0_3px_8px_-2px_rgba(15,23,42,0.08),inset_0_1px_1px_rgba(255,255,255,0.95)]"
+              />
+            </>
+          )}
+          {onExportExcel && (canViewSettings || canBackupSettings || canManageSettings) && (
             <Action3DButton
               variant="circle"
               color="emerald"
@@ -1641,6 +1735,7 @@ export default function SettingsView({
             rawAuditDisplayedData={rawAuditDisplayedData}
             auditTotalPages={auditTotalPages}
             auditCurrentPage={auditCurrentPage}
+            canManageSettings={canManageSettings}
           />
         )}
 
@@ -1742,7 +1837,9 @@ export default function SettingsView({
 
         {activeTab === 'appearance' && <AppearanceLayoutSelector showToast={showToast} />}
 
-        {activeTab === 'currency' && <SettingsCurrencyTab showToast={showToast} />}
+        {activeTab === 'currency' && allowedTabIds.includes('currency') && (
+          <SettingsCurrencyTab showToast={showToast} />
+        )}
           </motion.div>
         </AnimatePresence>
       </div>

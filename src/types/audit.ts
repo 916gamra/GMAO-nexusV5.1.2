@@ -10,7 +10,9 @@ export type AuditEntityType =
   | 'PREVENTIVE_EXECUTION'
   | 'SORTIE_DEMAND'
   | 'REPLENISHMENT_ORDER'
-  | 'FINANCIAL_BUDGET';
+  | 'FINANCIAL_BUDGET'
+  | 'CURRENCY_CONFIG'
+  | 'BACKUP_RESTORE';
 
 export type AuditActionType =
   | 'STOCK_INITIAL_CHANGED'
@@ -28,6 +30,8 @@ export type AuditActionType =
   | 'PO_RECEIVED'
   | 'PO_CANCELLED'
   | 'BUDGET_UPDATED'
+  | 'CURRENCY_CONFIG_UPDATED'
+  | 'BACKUP_RESTORED'
   | string;
 
 /** Immutable snapshot stored on audit ledger entries (object map or null when entity did not exist). */

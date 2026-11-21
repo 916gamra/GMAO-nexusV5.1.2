@@ -413,9 +413,7 @@ export function AuditUserModal({
                   nom: auditUserForm.nom.trim(),
                   specialite: auditUserForm.specialite.trim() || 'Générale',
                   contact: '',
-                  avatar: `https://api.dicebear.com/7.x/bottts/svg?seed=${encodeURIComponent(
-                    auditUserForm.nom.trim()
-                  )}`,
+                  avatar: '',
                 };
                 setTechnicians((prev) => [...prev, newTech]);
               } else {
@@ -424,9 +422,7 @@ export function AuditUserModal({
                   nom: auditUserForm.nom.trim(),
                   id_zone: auditUserForm.id_zone || zones[0]?.id_zone || 'ZONE-DET',
                   type_profil: type,
-                  avatar: `https://api.dicebear.com/7.x/bottts/svg?seed=${encodeURIComponent(
-                    auditUserForm.nom.trim()
-                  )}`,
+                  avatar: '',
                 };
                 setOperations((prev) => [...prev, newOp]);
               }
@@ -654,8 +650,7 @@ export function AuditArticleModal({
               };
               if (setRawStock) {
                 setRawStock((prev) => [...prev, newArticle]);
-              }
-              if (storageService) {
+              } else if (storageService) {
                 storageService.saveArticles([...rawStock, newArticle]);
               }
               showToast?.(

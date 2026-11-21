@@ -44,7 +44,35 @@ export default function SettingsMatchingTab({
   rawAuditDisplayedData = [],
   auditTotalPages = 1,
   auditCurrentPage = 1,
+  canManageSettings = true,
 }: any) {
+  const proposedUserIds = (() => {
+    if (auditTarget !== 'utilisateurs') return new Map<string, string>();
+    const map = new Map<string, string>();
+    const roleOffsets = new Map<string, number>();
+    const formatSequentialId = (baseId: string, offset: number): string => {
+      if (offset === 0) return baseId;
+      const match = String(baseId || '').match(/^([A-Z]+-)(\d+)$/i);
+      if (!match) return `${baseId}-${offset}`;
+      const prefix = match[1];
+      const num = parseInt(match[2], 10) + offset;
+      const width = Math.max(2, match[2].length);
+      return `${prefix}${String(num).padStart(width, '0')}`;
+    };
+    const sourceItems =
+      Array.isArray(discoveredItems) && discoveredItems.length > 0
+        ? discoveredItems
+        : auditDisplayedItems;
+    sourceItems.forEach((item: any) => {
+      const role = item?.inferredRole || 'TECHNICIEN';
+      const offset = roleOffsets.get(role) || 0;
+      const baseId = getNextUserId ? getNextUserId(role) : '';
+      map.set(item.code, formatSequentialId(baseId, offset));
+      roleOffsets.set(role, offset + 1);
+    });
+    return map;
+  })();
+
   return (
     <SettingsSectionCard
       title="Audit & Vérification des Données (Appairage)"
@@ -67,11 +95,13 @@ export default function SettingsMatchingTab({
             </select>
             <ChevronDown className="w-4 h-4 text-slate-400 absolute right-3 top-2.5 pointer-events-none" />
           </div>
-          {(auditTarget === 'machines' ||
-            auditTarget === 'articles' ||
-            auditTarget === 'utilisateurs') &&
+          {canManageSettings &&
+            (auditTarget === 'machines' ||
+              auditTarget === 'articles' ||
+              auditTarget === 'utilisateurs') &&
             discoveredItems.length > 0 && (
               <button
+                type="button"
                 onClick={handleRegisterDiscovered}
                 className={SETTINGS_BUTTON_STYLES.primary}
               >
@@ -129,7 +159,7 @@ export default function SettingsMatchingTab({
                     const rowIndex = auditStartIndex + index + 1;
                     const proposedId =
                       auditTarget === 'utilisateurs'
-                        ? getNextUserId(dm.inferredRole || 'TECHNICIEN')
+                        ? proposedUserIds.get(dm.code) || getNextUserId(dm.inferredRole || 'TECHNICIEN')
                         : null;
 
                     return (
@@ -186,7 +216,13 @@ export default function SettingsMatchingTab({
                         <td className="px-3.5 py-2.5 text-right">
                           <div className="flex items-center justify-end gap-2">
                             <button
+                              type="button"
+                              disabled={!canManageSettings}
                               onClick={() => {
+                                if (!canManageSettings) {
+                                  showToast?.('Accès refusé : privilèges Administrateur requis.', 'error');
+                                  return;
+                                }
                                 setRelinkData({
                                   entityType:
                                     dm.entityType ||
@@ -210,7 +246,13 @@ export default function SettingsMatchingTab({
                               <span>Rattacher</span>
                             </button>
                             <button
+                              type="button"
+                              disabled={!canManageSettings}
                               onClick={() => {
+                                if (!canManageSettings) {
+                                  showToast?.('Accès refusé : privilèges Administrateur requis.', 'error');
+                                  return;
+                                }
                                 if (
                                   auditTarget === 'machines' ||
                                   auditTarget === 'correctif' ||

@@ -16,6 +16,7 @@ import {
   Activity,
 } from 'lucide-react';
 import { AutoBackupService } from '../../../core/backup/AutoBackupService';
+import { useGmaoStore } from '../../../store/useGmaoStore';
 import { usePermission } from '../common/PermissionGate';
 import Action3DButton from '../common/Action3DButton';
 
@@ -38,6 +39,19 @@ export default function BackupManagerModal({ isOpen, onClose, onDataRestored }) 
 
   const canBackup = usePermission('settings.backup');
   const canRestore = usePermission('settings.restore');
+  const machinesCount = useGmaoStore((s) => (Array.isArray(s.machines) ? s.machines.length : 0));
+  const zonesCount = useGmaoStore((s) => (Array.isArray(s.zones) ? s.zones.length : 0));
+  const correctiveCatalogCount = useGmaoStore((s) =>
+    Array.isArray(s.correctiveInterventions) ? s.correctiveInterventions.length : 0
+  );
+  const preventiveTasksCount = useGmaoStore((s) =>
+    Array.isArray(s.preventiveTasks) ? s.preventiveTasks.length : 0
+  );
+  const personnelCount = useGmaoStore(
+    (s) =>
+      (Array.isArray(s.technicians) ? s.technicians.length : 0) +
+      (Array.isArray(s.operations) ? s.operations.length : 0)
+  );
 
   const refreshList = () => {
     setSnapshots(AutoBackupService.listSnapshots());
@@ -478,7 +492,10 @@ export default function BackupManagerModal({ isOpen, onClose, onDataRestored }) 
                       Partition 1 : Référentiel Master Usine (Master Referential)
                     </h3>
                     <p className="text-[11px] text-slate-500">
-                      412 Machines • 19 Zones • 282 Pannes • 114 Tâches Standard • Utilisateurs
+                      {machinesCount} Machine{machinesCount > 1 ? 's' : ''} • {zonesCount} Zone
+                      {zonesCount > 1 ? 's' : ''} • {preventiveTasksCount} Tâche
+                      {preventiveTasksCount > 1 ? 's' : ''} Prév. • {correctiveCatalogCount} BT
+                      Correctifs • {personnelCount} Intervenant{personnelCount > 1 ? 's' : ''}
                     </p>
                   </div>
                 </div>

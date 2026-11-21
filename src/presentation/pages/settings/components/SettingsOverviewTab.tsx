@@ -28,6 +28,8 @@ const STORAGE_CEILING_KEY = STORAGE_KEYS.STORAGE_CEILING_MB;
 export default function SettingsOverviewTab({
   storageUsage,
   localStorageSizeKB,
+  allocatedCacheCeilingMB,
+  handleCeilingChange: onParentCeilingChange,
   rawStockCount,
   rawStock,
   mouvementsCount,
@@ -56,10 +58,23 @@ export default function SettingsOverviewTab({
   const effectivePreventiveCount =
     preventiveCount ?? (Array.isArray(preventiveTasks) ? preventiveTasks.length : 0);
 
-  const [ceilingMB, setCeilingMB] = useState(() => {
-    const saved = storageService.getItem(STORAGE_CEILING_KEY);
-    return saved ? Number(saved) : 1024;
+  const [localCeilingMB, setLocalCeilingMB] = useState(() => {
+    const canonical = storageService.getItem(STORAGE_CEILING_KEY);
+    if (canonical) return Number(canonical) || 1024;
+    const legacy = storageService.getItem(STORAGE_KEYS.CACHE_CEILING_MB);
+    if (legacy) {
+      const migrated = Number(legacy) || 1024;
+      storageService.setItem(STORAGE_CEILING_KEY, migrated);
+      storageService.removeItem(STORAGE_KEYS.CACHE_CEILING_MB);
+      return migrated;
+    }
+    return 1024;
   });
+
+  const ceilingMB =
+    typeof allocatedCacheCeilingMB === 'number' && allocatedCacheCeilingMB > 0
+      ? allocatedCacheCeilingMB
+      : localCeilingMB;
 
   const [idbInfo, setIdbInfo] = useState({
     activeTier: 'IndexedDB',
@@ -94,13 +109,18 @@ export default function SettingsOverviewTab({
   }, [effectiveRawStockCount, effectiveMouvementsCount]);
 
   const handleCeilingChange = async (newCeiling: number) => {
-    setCeilingMB(newCeiling);
-    storageService.setItem(STORAGE_CEILING_KEY, newCeiling);
+    setLocalCeilingMB(newCeiling);
+    if (typeof onParentCeilingChange === 'function') {
+      onParentCeilingChange(newCeiling);
+    } else {
+      storageService.setItem(STORAGE_CEILING_KEY, newCeiling);
+      storageService.removeItem(STORAGE_KEYS.CACHE_CEILING_MB);
+    }
     setRequestingPersist(true);
     try {
       const granted = await indexedDBService.requestPersistentStorage();
       setIdbInfo((prev) => ({ ...prev, isPersisted: granted }));
-      if (showToast) {
+      if (!onParentCeilingChange && showToast) {
         showToast(
           `Capacité cible configurée à ${newCeiling >= 1024 ? `${newCeiling / 1024} Go` : `${newCeiling} Mo`} (IndexedDB L2 Actif)`,
           'success'
