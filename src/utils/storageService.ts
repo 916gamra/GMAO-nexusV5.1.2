@@ -593,14 +593,14 @@ export const storageService = {
   /**
    * Hydrate a key from IndexedDB if not found or evicted in localStorage.
    * Implements guarded L3 -> L2 -> L1 healing flow:
-   * - Never overwrites an explicit empty factory state (START_MODE === 'empty' or DEMO_MODE === false).
+   * - Never overwrites an explicit empty factory state (START_MODE === 'empty').
+   * - Allows Real Factory Mode (START_MODE === 'custom' with DEMO_MODE === false) to self-heal from IndexedDB.
    * - Never overwrites a key that already has an authoritative array/object in localStorage.
    */
   async hydrateFromIndexedDB<T = any>(key: string, fallback: T = null as T): Promise<T> {
     try {
       const startMode = this.getItem(STORAGE_KEYS.START_MODE);
-      const demoFlag = this.getItem(STORAGE_KEYS.DEMO_MODE);
-      if (startMode === 'empty' || demoFlag === false || demoFlag === 'false') {
+      if (startMode === 'empty') {
         const current = this.getItem(key, undefined);
         if (current !== undefined && current !== null) {
           return current;

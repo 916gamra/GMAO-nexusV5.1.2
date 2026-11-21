@@ -172,7 +172,7 @@ export default function AuthenticatedApp() {
   } = gmaoState;
 
   // Auto Backup and Performance Monitor Initialization
-  const backupDataRef = useRef<Record<string, any>>({});
+  const currentUserNameRef = useRef<string>('system');
   const [scannedQrMachine, setScannedQrMachine] = useState<any | null>(null);
 
   // Detect ?machine_qr=<CODE> on LAN scan to open Fiche Terrain Mobile automatically
@@ -203,66 +203,14 @@ export default function AuthenticatedApp() {
   }, [machines]);
 
   useEffect(() => {
-    backupDataRef.current = {
-      currentUser,
-      rawStock,
-      mouvements,
-      machines,
-      warehouseItems,
-      families,
-      templates,
-      zones,
-      designations,
-      types,
-      technicians,
-      operations,
-      preventiveTasks,
-      preventiveActions,
-      preventiveGuides,
-      preventivePlans,
-      preventiveExecutions,
-      sortiesExterne,
-    };
-  }, [
-    currentUser,
-    rawStock,
-    mouvements,
-    machines,
-    warehouseItems,
-    families,
-    templates,
-    zones,
-    designations,
-    types,
-    technicians,
-    operations,
-    preventiveTasks,
-    preventiveActions,
-    preventiveGuides,
-    preventivePlans,
-    preventiveExecutions,
-    sortiesExterne,
-  ]);
+    currentUserNameRef.current = currentUser?.name || currentUser?.nom || 'system';
+  }, [currentUser]);
 
   useEffect(() => {
     Logger.info('Authenticated GMAO workspace started');
     monitor.measure('App_Init', () => {
-      backupService.startAutoBackup(() => {
-        const d = backupDataRef.current || {};
-        return {
-          Stock_Actuel: d.rawStock,
-          Mouvement: d.mouvements,
-          Machines_Registered: d.machines,
-          Warehouse_Items: d.warehouseItems,
-          Families: d.families,
-          Templates: d.templates,
-          Zones: d.zones,
-          Diagnostics: d.designations,
-          Types: d.types,
-          Technicians: d.technicians,
-          Operations: d.operations,
-        };
-      }, backupDataRef.current?.currentUser?.name || backupDataRef.current?.currentUser?.nom || 'system');
+      // Delegates to AutoBackupService.createSnapshot across all canonical STORAGE_KEYS
+      backupService.startAutoBackup(null, currentUserNameRef.current);
     });
 
     return () => {

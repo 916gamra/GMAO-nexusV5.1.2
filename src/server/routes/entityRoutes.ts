@@ -117,6 +117,19 @@ export function mountEntityAndStateRoutes(
     return role === 'ADMIN' || role === 'RESPONSABLE_MAINTENANCE';
   };
 
+  // Serializes the full read-validate-mutate-persist-rollback critical section across all
+  // mutating routes so concurrent HTTP writes can never interleave in-memory mutations or
+  // wipe out a sibling request during rollback on persistence failure.
+  let stateMutationQueue: Promise<void> = Promise.resolve();
+  const withStateMutationLock = <T>(fn: () => Promise<T>): Promise<T> => {
+    const task = stateMutationQueue.then(fn, fn);
+    stateMutationQueue = task.then(
+      () => undefined,
+      () => undefined
+    );
+    return task;
+  };
+
   // Bounded O(1) tail read of server-side audit log (indexed SQLite table or bounded JSONL tail)
   app.get('/api/gmao/audit', async (req, res) => {
     try {
@@ -138,22 +151,31 @@ export function mountEntityAndStateRoutes(
     const gmaoReq = req as GmaoApiRequest;
     res.setHeader('ETag', `W/"v${dbState.version}"`);
     const sessionVerified = Boolean(gmaoReq.resolvedServerActor?.sessionVerified);
+    const callerRole = sessionVerified
+      ? normalizeServerRole(gmaoReq.resolvedServerActor?.effectiveRole)
+      : 'VIEWER';
     const registryReady = isRegistryInitialized(
       getArraySlice(dbState, 'users'),
       getArraySlice(dbState, 'technicians'),
       getArraySlice(dbState, 'authAccounts')
     );
+    const isBootstrapOpen = !registryReady;
     res.json({
       success: true,
       version: dbState.version,
       updatedAt: dbState.updatedAt,
       data: sanitizeStateSnapshotForTransport(dbState, {
-        includeProtectedCollections: sessionVerified || !registryReady,
+        includeAuthAccounts: isBootstrapOpen || (sessionVerified && callerRole === 'ADMIN'),
+        includeAuditEvents:
+          isBootstrapOpen ||
+          (sessionVerified && (callerRole === 'ADMIN' || callerRole === 'RESPONSABLE_MAINTENANCE')),
+        includeUsers: isBootstrapOpen || sessionVerified,
       }),
     });
   });
 
-  app.post('/api/gmao/state', async (req, res) => {
+  app.post('/api/gmao/state', (req, res) =>
+    withStateMutationLock(async () => {
     const gmaoReq = req as GmaoApiRequest;
     try {
       const incomingState: unknown = req.body;
@@ -224,7 +246,9 @@ export function mountEntityAndStateRoutes(
           version: dbState.version,
           updatedAt: dbState.updatedAt,
           data: sanitizeStateSnapshotForTransport(dbState, {
-            includeProtectedCollections: canForceOverwrite,
+            includeAuthAccounts: isBootstrapAuthorized || callerRole === 'ADMIN',
+            includeAuditEvents: canForceOverwrite,
+            includeUsers: true,
           }),
         });
       }
@@ -360,7 +384,9 @@ export function mountEntityAndStateRoutes(
         data:
           isSmartMergeRequest || preserveServerOnlyItems
             ? sanitizeStateSnapshotForTransport(dbState, {
-                includeProtectedCollections: canForceOverwrite,
+                includeAuthAccounts: isBootstrapAuthorized || callerRole === 'ADMIN',
+                includeAuditEvents: canForceOverwrite,
+                includeUsers: true,
               })
             : undefined,
       });
@@ -371,7 +397,7 @@ export function mountEntityAndStateRoutes(
         message: toErrorMessage(error, 'Failed to synchronize state'),
       });
     }
-  });
+  }));
 
   app.get('/api/gmao/:entity', requireAllowedEntity, (req, res) => {
     const entity = String(req.params.entity);
@@ -417,7 +443,8 @@ export function mountEntityAndStateRoutes(
     });
   });
 
-  app.post('/api/gmao/:entity', requireAllowedEntity, async (req, res) => {
+  app.post('/api/gmao/:entity', requireAllowedEntity, (req, res) =>
+    withStateMutationLock(async () => {
     const gmaoReq = req as GmaoApiRequest;
     const entity = String(req.params.entity);
     const rawItem: unknown = req.body;
@@ -513,9 +540,10 @@ export function mountEntityAndStateRoutes(
         message: toErrorMessage(error, `Failed to create item in '${entity}'`),
       });
     }
-  });
+  }));
 
-  app.put('/api/gmao/:entity', requireAllowedEntity, async (req, res) => {
+  app.put('/api/gmao/:entity', requireAllowedEntity, (req, res) =>
+    withStateMutationLock(async () => {
     const gmaoReq = req as GmaoApiRequest;
     const entity = String(req.params.entity);
     const payload: unknown = req.body;
@@ -640,9 +668,10 @@ export function mountEntityAndStateRoutes(
         message: toErrorMessage(error, `Failed to update collection '${entity}'`),
       });
     }
-  });
+  }));
 
-  app.put('/api/gmao/:entity/:id', requireAllowedEntity, async (req, res) => {
+  app.put('/api/gmao/:entity/:id', requireAllowedEntity, (req, res) =>
+    withStateMutationLock(async () => {
     const gmaoReq = req as GmaoApiRequest;
     const entity = String(req.params.entity);
     const id = String(req.params.id);
@@ -737,7 +766,7 @@ export function mountEntityAndStateRoutes(
         message: toErrorMessage(error, `Failed to update item '${id}' in '${entity}'`),
       });
     }
-  });
+  }));
 
   app.delete('/api/gmao/:entity', requireAllowedEntity, (_req, res) => {
     return res.status(400).json({
@@ -747,7 +776,8 @@ export function mountEntityAndStateRoutes(
     });
   });
 
-  app.delete('/api/gmao/:entity/:id', requireAllowedEntity, async (req, res) => {
+  app.delete('/api/gmao/:entity/:id', requireAllowedEntity, (req, res) =>
+    withStateMutationLock(async () => {
     const gmaoReq = req as GmaoApiRequest;
     const entity = String(req.params.entity);
     const id = String(req.params.id);
@@ -833,5 +863,5 @@ export function mountEntityAndStateRoutes(
         message: toErrorMessage(error, `Failed to delete item '${id}' from '${entity}'`),
       });
     }
-  });
+  }));
 }

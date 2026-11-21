@@ -18,15 +18,21 @@ export function useGmaoPersistence({
   onStateChange,
 }) {
   const hydratedFromIdb = useRef(false);
+  const settersRef = useRef(setters);
+
+  useEffect(() => {
+    settersRef.current = setters;
+  });
 
   // 0. L2 -> L1 Self-Healing Hydration from IndexedDB & Server-Authoritative Sync on initial mount
   useEffect(() => {
     if (hydratedFromIdb.current) return;
     hydratedFromIdb.current = true;
 
-    const demoFlag = storageService.getItem(STORAGE_KEYS.DEMO_MODE);
     const startMode = storageService.getItem(STORAGE_KEYS.START_MODE);
-    if (startMode === 'empty' || demoFlag === false || demoFlag === 'false') {
+    // Block auto-hydration ONLY when factory was explicitly cleared to empty mode.
+    // Real Factory Mode has DEMO_MODE === false and START_MODE === 'custom' (or unset) and MUST sync cleanly.
+    if (startMode === 'empty') {
       return;
     }
 
@@ -44,7 +50,7 @@ export function useGmaoPersistence({
 
           // If never synced on this browser OR server state is newer than local modifications, pull cleanly
           if (!lastSyncAt || serverTime >= localTime) {
-            await serverSyncService.pullFromServer({ force: true, setters });
+            await serverSyncService.pullFromServer({ force: true, setters: settersRef.current });
             return;
           }
         }
@@ -52,7 +58,7 @@ export function useGmaoPersistence({
         const idbSnap = await indexedDBService.getItem(STORAGE_KEYS.FULL_STATE_SNAPSHOT);
         if (!idbSnap || typeof idbSnap !== 'object') return;
 
-        const patch = {};
+        const patch: Record<string, unknown> = {};
         const arrayFields = [
           'pdrGroups',
           'types',
@@ -62,7 +68,9 @@ export function useGmaoPersistence({
           'templates',
           'blueprints',
           'machines',
+          'generalSystemTypes',
           'zones',
+          'machineElementsLedger',
           'warehouseItems',
           'entrepotComponents',
           'compGroups',
@@ -75,15 +83,21 @@ export function useGmaoPersistence({
           'technicians',
           'operations',
           'mouvements',
+          'sortieDemands',
+          'replenishmentOrders',
           'preventiveTasks',
           'preventiveActions',
           'preventiveGuides',
           'preventivePlans',
           'preventiveExecutions',
+          'meterReadings',
+          'auditEvents',
           'sortiesExterne',
           'correctiveInterventions',
           'correctiveTravauxAFaire',
           'correctiveIntervenants',
+          'workshopOrders',
+          'needRequests',
         ];
 
         for (const field of arrayFields) {
@@ -94,8 +108,8 @@ export function useGmaoPersistence({
           }
         }
 
-        if (Object.keys(patch).length > 0 && setters?.applyRemoteStateUpdate) {
-          setters.applyRemoteStateUpdate(patch);
+        if (Object.keys(patch).length > 0 && settersRef.current?.applyRemoteStateUpdate) {
+          settersRef.current.applyRemoteStateUpdate(patch);
         }
       } catch {
         // Ignore IndexedDB or network read errors in restricted environments
@@ -107,13 +121,13 @@ export function useGmaoPersistence({
   useEffect(() => {
     if (typeof window === 'undefined') return;
     const handleTasksUpdated = (e: any) => {
-      if (e?.detail && Array.isArray(e.detail) && typeof setters?.setPreventiveTasks === 'function') {
-        setters.setPreventiveTasks(e.detail);
+      if (e?.detail && Array.isArray(e.detail) && typeof settersRef.current?.setPreventiveTasks === 'function') {
+        settersRef.current.setPreventiveTasks(e.detail);
       }
     };
     const handleExecutionsUpdated = (e: any) => {
-      if (e?.detail && Array.isArray(e.detail) && typeof setters?.setPreventiveExecutions === 'function') {
-        setters.setPreventiveExecutions(e.detail);
+      if (e?.detail && Array.isArray(e.detail) && typeof settersRef.current?.setPreventiveExecutions === 'function') {
+        settersRef.current.setPreventiveExecutions(e.detail);
       }
     };
     window.addEventListener('preventive_tasks_updated', handleTasksUpdated);
@@ -122,7 +136,7 @@ export function useGmaoPersistence({
       window.removeEventListener('preventive_tasks_updated', handleTasksUpdated);
       window.removeEventListener('preventive_executions_updated', handleExecutionsUpdated);
     };
-  }, [setters]);
+  }, []);
 
   // 0.5 Periodic Network Polling controlled by SettingsDirectoryTab (gmao_polling_interval: 'off' | '5s' | '10s' | '30s')
   useEffect(() => {
@@ -156,7 +170,7 @@ export function useGmaoPersistence({
           const serverVersion = Number(check.state.version || 0);
           const localVersion = Number(serverSyncService.getLastServerVersion() || 0);
           if (serverVersion > 0 && serverVersion > localVersion) {
-            await serverSyncService.pullFromServer({ force: false, setters });
+            await serverSyncService.pullFromServer({ force: false, setters: settersRef.current });
           }
         } catch {
           // Silent background check
@@ -170,7 +184,7 @@ export function useGmaoPersistence({
       if (intervalId) clearInterval(intervalId);
       window.removeEventListener('gmao:sync_settings_updated', setupPolling);
     };
-  }, [setters]);
+  }, []);
 
   // 1. Debounced auto-save to LocalStorage and IndexedDB batch writes
   const { saveAllState } = useAutoSave(state, 1000, onStateChange);

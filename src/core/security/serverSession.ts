@@ -456,17 +456,34 @@ export function sanitizeIncomingStateCredentials(state: Record<string, any>): Re
 
 /**
  * Produces a shallow transport-safe copy of `dbState` with all credential hashes stripped.
- * If `includeProtectedCollections` is false (unauthenticated read), `authAccounts`, `users`,
- * and `auditEvents` are redacted to empty arrays.
+ * Supports both coarse `includeProtectedCollections` and fine-grained per-collection flags
+ * (`includeAuthAccounts`, `includeAuditEvents`, `includeUsers`) so `GET /api/gmao/state`
+ * enforces exact parity with endpoint-level RBAC rules.
  */
 export function sanitizeStateSnapshotForTransport(
   state: Record<string, any>,
-  options: { includeProtectedCollections?: boolean } = {}
+  options: {
+    includeProtectedCollections?: boolean;
+    includeAuthAccounts?: boolean;
+    includeAuditEvents?: boolean;
+    includeUsers?: boolean;
+  } = {}
 ): Record<string, any> {
   const includeProtected = options.includeProtectedCollections !== false;
+  const includeAuthAccounts = options.includeAuthAccounts ?? includeProtected;
+  const includeAuditEvents = options.includeAuditEvents ?? includeProtected;
+  const includeUsers = options.includeUsers ?? includeProtected;
   const out: Record<string, any> = {};
   for (const [key, value] of Object.entries(state || {})) {
-    if (!includeProtected && (key === 'authAccounts' || key === 'users' || key === 'auditEvents')) {
+    if (key === 'authAccounts' && !includeAuthAccounts) {
+      out[key] = [];
+      continue;
+    }
+    if (key === 'auditEvents' && !includeAuditEvents) {
+      out[key] = [];
+      continue;
+    }
+    if (key === 'users' && !includeUsers) {
       out[key] = [];
       continue;
     }

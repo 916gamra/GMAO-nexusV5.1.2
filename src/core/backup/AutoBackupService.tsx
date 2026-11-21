@@ -26,6 +26,7 @@ export const MASTER_REFERENTIAL_KEYS = [
   STORAGE_KEYS.COMP_GROUPS,
   STORAGE_KEYS.COMP_FAMILIES,
   STORAGE_KEYS.COMP_TEMPLATES,
+  STORAGE_KEYS.PART_GROUPS,
   STORAGE_KEYS.PART_TYPES,
   STORAGE_KEYS.PART_DESIGNATIONS,
   STORAGE_KEYS.PREVENTIVE_ACTIONS,
@@ -34,6 +35,8 @@ export const MASTER_REFERENTIAL_KEYS = [
   STORAGE_KEYS.RAW_STOCK,
   STORAGE_KEYS.WAREHOUSE_ITEMS,
   STORAGE_KEYS.ENTREPOT_COMPONENTS,
+  STORAGE_KEYS.FINANCIAL_BUDGETS,
+  STORAGE_KEYS.CURRENCY_CONFIG,
 ];
 
 export const OPERATIONS_HISTORY_KEYS = [
@@ -42,6 +45,8 @@ export const OPERATIONS_HISTORY_KEYS = [
   STORAGE_KEYS.CORRECTIVE_PANNE_CATEGORIES,
   STORAGE_KEYS.CORRECTIVE_TRAVAUX,
   STORAGE_KEYS.CORRECTIVE_INTERVENANTS,
+  STORAGE_KEYS.WORKSHOP_ORDERS,
+  STORAGE_KEYS.NEED_REQUESTS,
   STORAGE_KEYS.MOUVEMENTS,
   STORAGE_KEYS.SORTIE_DEMANDS,
   STORAGE_KEYS.REPLENISHMENT_ORDERS,
@@ -76,6 +81,7 @@ const CANONICAL_PROP_TO_STORAGE_KEY: Record<string, string> = {
   compGroups: STORAGE_KEYS.COMP_GROUPS,
   compFamilies: STORAGE_KEYS.COMP_FAMILIES,
   compTemplates: STORAGE_KEYS.COMP_TEMPLATES,
+  partGroups: STORAGE_KEYS.PART_GROUPS,
   partTypes: STORAGE_KEYS.PART_TYPES,
   partDesignations: STORAGE_KEYS.PART_DESIGNATIONS,
   preventiveActions: STORAGE_KEYS.PREVENTIVE_ACTIONS,
@@ -84,11 +90,15 @@ const CANONICAL_PROP_TO_STORAGE_KEY: Record<string, string> = {
   rawStock: STORAGE_KEYS.RAW_STOCK,
   warehouseItems: STORAGE_KEYS.WAREHOUSE_ITEMS,
   entrepotComponents: STORAGE_KEYS.ENTREPOT_COMPONENTS,
+  financialBudgets: STORAGE_KEYS.FINANCIAL_BUDGETS,
+  currencyConfig: STORAGE_KEYS.CURRENCY_CONFIG,
   correctiveInterventions: STORAGE_KEYS.CORRECTIVE_INTERVENTIONS,
   correctiveActionsByPanne: STORAGE_KEYS.CORRECTIVE_ACTIONS_BY_PANNE,
   correctivePanneCategories: STORAGE_KEYS.CORRECTIVE_PANNE_CATEGORIES,
   correctiveTravauxAFaire: STORAGE_KEYS.CORRECTIVE_TRAVAUX,
   correctiveIntervenants: STORAGE_KEYS.CORRECTIVE_INTERVENANTS,
+  workshopOrders: STORAGE_KEYS.WORKSHOP_ORDERS,
+  needRequests: STORAGE_KEYS.NEED_REQUESTS,
   mouvements: STORAGE_KEYS.MOUVEMENTS,
   sortieDemands: STORAGE_KEYS.SORTIE_DEMANDS,
   replenishmentOrders: STORAGE_KEYS.REPLENISHMENT_ORDERS,
@@ -149,6 +159,7 @@ function hydrateStoreFromStorageMap(storageMap: Record<string, any>) {
     const store = useGmaoStore.getState();
     DataGateway.loadFullServerState(serverState, {
       applyRemoteStateUpdate: store.applyRemoteStateUpdate,
+      setPdrGroups: store.setPdrGroups,
       setTypes: store.setTypes,
       setDesignations: store.setDesignations,
       setRawStock: store.setRawStock,
@@ -164,6 +175,7 @@ function hydrateStoreFromStorageMap(storageMap: Record<string, any>) {
       setCompGroups: store.setCompGroups,
       setCompFamilies: store.setCompFamilies,
       setCompTemplates: store.setCompTemplates,
+      setPartGroups: store.setPartGroups,
       setPartTypes: store.setPartTypes,
       setPartDesignations: store.setPartDesignations,
       setUsers: store.setUsers,
@@ -178,12 +190,15 @@ function hydrateStoreFromStorageMap(storageMap: Record<string, any>) {
       setPreventivePlans: store.setPreventivePlans,
       setPreventiveExecutions: store.setPreventiveExecutions,
       setMeterReadings: store.setMeterReadings,
+      setAuditEvents: store.setAuditEvents,
       setSortiesExterne: store.setSortiesExterne,
       setCorrectiveInterventions: store.setCorrectiveInterventions,
       setCorrectiveActionsByPanne: store.setCorrectiveActionsByPanne,
       setCorrectivePanneCategories: store.setCorrectivePanneCategories,
       setCorrectiveTravauxAFaire: store.setCorrectiveTravauxAFaire,
       setCorrectiveIntervenants: store.setCorrectiveIntervenants,
+      setWorkshopOrders: store.setWorkshopOrders,
+      setNeedRequests: store.setNeedRequests,
     });
   } catch (err) {
     Logger.warn('[AutoBackupService] Store hydration warning on restore', err);
