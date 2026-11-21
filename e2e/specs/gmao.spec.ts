@@ -16,7 +16,7 @@ async function advancePastBootScreens(page: Page): Promise<void> {
   }
 }
 
-test.describe('CIOB GMAO Nexus v5.0.2 - Core E2E & SSOT Verification (E2E-P2)', () => {
+test.describe('CIOB GMAO Nexus v5.1.2 - Core E2E & SSOT Verification (E2E-P2)', () => {
   test('1) Loads application shell and verifies API health & Swagger docs endpoint', async ({
     page,
     request,

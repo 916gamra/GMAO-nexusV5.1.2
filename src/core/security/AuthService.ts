@@ -850,7 +850,7 @@ export class AuthService {
       });
       if (matchesLicense) {
         throw new Error(
-          "Séparation des secrets obligatoire : le mot de passe d'un compte ne peut pas être identique à la clé de licence commerciale."
+          "Séparation des secrets obligatoire : le mot de passe d'un compte ne peut pas être identique au code d'activation local."
         );
       }
     }
@@ -1015,7 +1015,7 @@ export class AuthService {
 
     if (cleanLicenseKey.toLowerCase() === cleanAdminPass.toLowerCase()) {
       throw new Error(
-        'Séparation des secrets obligatoire : la clé de licence commerciale et le mot de passe Administrateur doivent être strictement différents.'
+        "Séparation des secrets obligatoire : le code d'activation local et le mot de passe Administrateur doivent être strictement différents."
       );
     }
 
@@ -1085,13 +1085,13 @@ export class AuthService {
 
     if (!cleanCurrentKey || !cleanAdminPass) {
       throw new Error(
-        'Veuillez saisir la clé de licence actuelle ainsi que le mot de passe Administrateur pour autoriser la rotation.'
+        "Veuillez saisir le code d'activation local actuel ainsi que le mot de passe Administrateur pour autoriser la rotation."
       );
     }
 
     if (cleanNewKey.toLowerCase() === cleanAdminPass.toLowerCase()) {
       throw new Error(
-        'Séparation des secrets obligatoire : la nouvelle clé de licence ne peut pas être identique au mot de passe Administrateur.'
+        "Séparation des secrets obligatoire : le nouveau code d'activation local ne peut pas être identique au mot de passe Administrateur."
       );
     }
 
@@ -1118,7 +1118,7 @@ export class AuthService {
         const collides = await SecurityService.comparePassword(cleanNewKey, h);
         if (collides) {
           throw new Error(
-            `Séparation des secrets obligatoire : la nouvelle clé de licence ne peut pas être identique au mot de passe du compte "${u.username}".`
+            `Séparation des secrets obligatoire : le nouveau code d'activation local ne peut pas être identique au mot de passe du compte "${u.username}".`
           );
         }
       }
@@ -1166,7 +1166,7 @@ export class AuthService {
    */
   async loginWithPin(_pin?: string): Promise<never> {
     throw new Error(
-      "Authentification à clé unique désactivée (LOGIN-LICENSE-P0) : la connexion nécessite obligatoirement la clé de licence commerciale ET le mot de passe du compte (logique AND)."
+      "Authentification à clé unique désactivée (LOGIN-LICENSE-P0) : la connexion nécessite obligatoirement le code d'activation local ET le mot de passe du compte (logique AND)."
     );
   }
 
@@ -1207,17 +1207,17 @@ export class AuthService {
       );
     }
 
-    // 3. Require an ACTIVE commercial license on this installation
+    // 3. Require an ACTIVE local activation record on this installation
     if (!LicenseGateService.isLicenseActive()) {
       throw new Error(
-        "Licence système non activée. Veuillez compléter l'activation initiale (Clé de licence commerciale + Mot de passe Administrateur)."
+        "Licence système non activée. Veuillez compléter l'activation initiale (Code d'activation local + Mot de passe Administrateur)."
       );
     }
 
-    // 4. Require the second key (Clé de licence commerciale) — zero password-only or PIN-only path
+    // 4. Require the second key (Code d'activation local) — zero password-only or PIN-only path
     if (!cleanLicenseKey) {
       throw new Error(
-        'Authentification à double clé requise (AND) : la clé de licence commerciale ET le mot de passe du compte sont obligatoires.'
+        "Authentification à double clé requise (AND) : le code d'activation local ET le mot de passe du compte sont obligatoires."
       );
     }
 
@@ -1235,7 +1235,7 @@ export class AuthService {
 
     if (!user) {
       throw new Error(
-        "Échec d'authentification : clé de licence, identifiant ou mot de passe incorrect."
+        "Échec d'authentification : code d'activation local, identifiant ou mot de passe incorrect."
       );
     }
 

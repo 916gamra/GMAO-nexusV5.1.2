@@ -318,13 +318,13 @@ export default function LoginScreen() {
         if (parsed.organizationLabel) {
           setSetupOrganization(parsed.organizationLabel);
         }
-        setSuccessMsg(`Fichier de licence "${file.name}" chargé avec succès.`);
+        setSuccessMsg(`Fichier d'activation "${file.name}" chargé avec succès.`);
       } else {
         setLicenseKey(parsed.licenseKey);
-        setSuccessMsg(`Clé de licence importée depuis "${file.name}".`);
+        setSuccessMsg(`Code d'activation local importé depuis "${file.name}".`);
       }
     } catch (err: any) {
-      setErrorMsg(err?.message || 'Fichier de licence invalide.');
+      setErrorMsg(err?.message || "Fichier d'activation invalide.");
     }
   };
 
@@ -340,7 +340,7 @@ export default function LoginScreen() {
     const cleanAdminConfirm = setupAdminConfirm.trim();
 
     if (cleanLic !== cleanLicConfirm) {
-      setErrorMsg('La confirmation de la clé de licence commerciale ne correspond pas.');
+      setErrorMsg("La confirmation du code d'activation local ne correspond pas.");
       return;
     }
     if (cleanAdminPass !== cleanAdminConfirm) {
@@ -364,7 +364,7 @@ export default function LoginScreen() {
       setSetupAdminPassword('');
       setSetupAdminConfirm('');
       setSuccessMsg(
-        'Licence commerciale activée et compte Administrateur (@admin) initialisé avec deux secrets distincts. Connectez-vous maintenant.'
+        "Code d'activation local configuré et compte Administrateur (@admin) initialisé avec deux secrets distincts. Connectez-vous maintenant."
       );
     } catch (err: any) {
       setErrorMsg(err?.message || "Échec de l'activation initiale.");
@@ -385,7 +385,7 @@ export default function LoginScreen() {
 
     if (!cleanLic) {
       setErrorMsg(
-        'Authentification à double clé (AND) : veuillez saisir la clé de licence commerciale.'
+        "Authentification à double clé (AND) : veuillez saisir le code d'activation local."
       );
       return;
     }
@@ -475,20 +475,20 @@ export default function LoginScreen() {
               <span className="text-[10px] font-mono font-bold text-white">
                 {isSystemActivated && licenseRecord?.licenseKeyId
                   ? `Double Clé (AND) • ${licenseRecord.licenseKeyId}`
-                  : 'Activation Licence & Sécurité (AND)'}
+                  : 'Activation Poste & Sécurité (AND)'}
               </span>
             </div>
           </div>
 
           <h2 className="text-xl sm:text-2xl font-black tracking-tight text-white mt-2">
             {isSystemActivated
-              ? 'Portail à Double Clé (Licence + Compte)'
-              : 'Activation Initiale de la Licence & Administrateur'}
+              ? "Portail à Double Clé (Code Local + Compte)"
+              : "Activation Initiale du Poste & Administrateur"}
           </h2>
           <p className="text-xs text-emerald-100 font-medium mt-0.5 max-w-md mx-auto">
             {isSystemActivated
-              ? 'Exige conjointement la Clé de Licence Commerciale ET le Mot de Passe du compte actif (Logique AND)'
-              : 'Séparation stricte : définissez votre Clé de Licence Commerciale et un Mot de Passe Administrateur distinct'}
+              ? "Exige conjointement le Code d'Activation Local ET le Mot de Passe du compte actif (Logique AND)"
+              : "Séparation stricte : définissez votre Code d'Activation Local et un Mot de Passe Administrateur distinct"}
           </p>
         </div>
 
@@ -570,7 +570,7 @@ export default function LoginScreen() {
 
           {!isSystemActivated ? (
             /* =====================================================================
-             * FIRST-RUN ACTIVATION WIZARD (Clé de licence commerciale + Mot de passe @admin)
+             * FIRST-RUN ACTIVATION WIZARD (Code d'activation local + Mot de passe @admin)
              * ===================================================================== */
             <form onSubmit={handleFirstRunActivation} className="space-y-4">
               <div className="bg-emerald-50/80 border border-emerald-200 rounded-2xl p-4 space-y-1.5">
@@ -584,10 +584,10 @@ export default function LoginScreen() {
                   </span>
                 </div>
                 <p className="text-[11px] text-emerald-800 leading-relaxed">
-                  Pour activer ce poste GMAO, renseignez votre{' '}
-                  <b>Clé de Licence Commerciale</b> (ou code licence 6+ chiffres) ainsi qu&apos;un{' '}
-                  <b>Mot de passe Administrateur (@admin)</b> strictement distinct. Aucun des deux
-                  secrets ne peut remplacer l&apos;autre.
+                  Pour activer ce poste GMAO, définissez votre{' '}
+                  <b>Code d&apos;Activation Local</b> (verrou d&apos;installation 6+ caractères) ainsi
+                  qu&apos;un <b>Mot de passe Administrateur (@admin)</b> strictement distinct. Aucun
+                  des deux secrets ne peut remplacer l&apos;autre.
                 </p>
               </div>
 
@@ -603,7 +603,7 @@ export default function LoginScreen() {
               {/* Organization Label */}
               <div>
                 <label className="block text-[11px] font-bold text-slate-600 uppercase tracking-wider font-mono mb-1">
-                  Atelier / Organisation (Licence)
+                  Atelier / Organisation (Poste)
                 </label>
                 <div className="relative">
                   <Building2 className="w-4 h-4 text-slate-400 absolute left-3.5 top-2.5" />
@@ -618,12 +618,12 @@ export default function LoginScreen() {
                 </div>
               </div>
 
-              {/* Secret 1: Commercial License Key */}
+              {/* Secret 1: Local Activation Code */}
               <div className="p-3.5 rounded-2xl border border-slate-200 bg-slate-50/60 space-y-3">
                 <div className="flex items-center justify-between gap-2">
                   <span className="text-[11px] font-bold text-slate-800 uppercase font-mono flex items-center gap-1.5">
                     <KeyRound className="w-3.5 h-3.5 text-emerald-700" />
-                    <span>Secret 1 : Clé de Licence Commerciale</span>
+                    <span>Secret 1 : Code d&apos;Activation Local</span>
                   </span>
                   <button
                     type="button"
@@ -645,7 +645,7 @@ export default function LoginScreen() {
                         setSetupLicenseKey(e.target.value);
                         if (errorMsg) setErrorMsg(null);
                       }}
-                      placeholder="Clé licence (ex: CIOB-2026-9981 ou 6+ chiffres)"
+                      placeholder="Code d'activation (ex: CIOB-2026-9981 ou 6+ chiffres)"
                       className="w-full bg-white border border-slate-300 rounded-xl pl-3.5 pr-9 py-2 text-xs font-mono text-slate-900 focus:outline-none focus:border-emerald-600"
                     />
                     <button
@@ -667,7 +667,7 @@ export default function LoginScreen() {
                         setSetupLicenseConfirm(e.target.value);
                         if (errorMsg) setErrorMsg(null);
                       }}
-                      placeholder="Confirmer la clé de licence..."
+                      placeholder="Confirmer le code d'activation local..."
                       className="w-full bg-white border border-slate-300 rounded-xl px-3.5 py-2 text-xs font-mono text-slate-900 focus:outline-none focus:border-emerald-600"
                     />
                   </div>
@@ -740,7 +740,7 @@ export default function LoginScreen() {
                         : 'text-slate-500'
                     }
                   >
-                    Clé de licence commerciale valide et confirmée (PBKDF2 600k + sel d&apos;installation)
+                    Code d&apos;activation local valide et confirmé (PBKDF2 600k + sel d&apos;installation)
                   </span>
                 </div>
                 <div className="flex items-center gap-2">
@@ -772,7 +772,7 @@ export default function LoginScreen() {
                         : 'text-slate-500'
                     }
                   >
-                    Séparation stricte : la Clé de Licence est différente du Mot de Passe @admin
+                    Séparation stricte : le Code d&apos;Activation Local est différent du Mot de Passe @admin
                   </span>
                 </div>
               </div>
@@ -786,9 +786,9 @@ export default function LoginScreen() {
                   className="mt-0.5 rounded border-slate-300 text-emerald-700 focus:ring-emerald-600"
                 />
                 <span>
-                  Mémoriser la clé de licence sur ce poste d&apos;atelier (option de confort — réduit
-                  la sécurité physique en cas d&apos;accès direct au navigateur ; le mot de passe du
-                  compte reste toujours requis).
+                  Mémoriser le code d&apos;activation local sur ce poste d&apos;atelier (option de
+                  confort — réduit la sécurité physique en cas d&apos;accès direct au navigateur ;
+                  le mot de passe du compte reste toujours requis).
                 </span>
               </label>
 
@@ -801,7 +801,7 @@ export default function LoginScreen() {
                 <span>
                   {isLoading
                     ? 'Activation cryptographique en cours...'
-                    : 'Activer la Licence & Initialiser @admin'}
+                    : 'Activer le Poste & Initialiser @admin'}
                 </span>
                 <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
               </button>
@@ -828,7 +828,7 @@ export default function LoginScreen() {
                     className="text-[11px] font-bold text-emerald-950 uppercase tracking-wider font-mono flex items-center gap-1.5"
                   >
                     <KeyRound className="w-3.5 h-3.5 text-emerald-700" />
-                    <span>1. Clé de Licence Commerciale (Clé 1 / 2)</span>
+                    <span>1. Code d&apos;Activation Local (Clé 1 / 2)</span>
                   </label>
 
                   <div className="flex items-center gap-2">
@@ -858,7 +858,7 @@ export default function LoginScreen() {
                       setLicenseKey(e.target.value);
                       if (errorMsg) setErrorMsg(null);
                     }}
-                    placeholder="Saisir la clé de licence commerciale (obligatoire)..."
+                    placeholder="Saisir le code d'activation local (obligatoire)..."
                     className="w-full bg-white border border-emerald-300 rounded-xl pl-10 pr-10 py-2.5 text-xs font-mono text-slate-900 tracking-wider focus:outline-none focus:border-emerald-600 focus:ring-2 focus:ring-emerald-500/20 transition"
                   />
                   <button
@@ -1070,7 +1070,7 @@ export default function LoginScreen() {
                     3. Mot de Passe du Compte (Clé 2 / 2)
                   </label>
                   <span className="text-[10px] font-mono text-emerald-700 font-bold">
-                    Requis avec la Clé de Licence (AND)
+                    Requis avec le Code d&apos;Activation Local (AND)
                   </span>
                 </div>
 
@@ -1107,7 +1107,7 @@ export default function LoginScreen() {
               >
                 <span>
                   {isLoading
-                    ? 'Vérification Licence + Mot de passe...'
+                    ? "Vérification Code Local + Mot de passe..."
                     : selectedAccount
                       ? `Vérifier les 2 Clés & Connecter (${selectedAccount.name})`
                       : 'Vérifier les 2 Clés & Connecter'}
@@ -1121,7 +1121,7 @@ export default function LoginScreen() {
         {/* Footer info */}
         <div className="p-3 bg-slate-50 border-t border-slate-200 flex flex-col gap-2">
           <div className="text-center text-[11px] text-slate-500 font-mono">
-            CIOB GMAO Nexus • Portail à Double Clé (Licence Commerciale AND Compte)
+            CIOB GMAO Nexus • Portail à Double Clé (Code d&apos;Activation Local AND Compte)
           </div>
 
           <button

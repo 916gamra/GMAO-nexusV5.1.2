@@ -115,9 +115,9 @@ export default function SettingsAdminTab({
       if (parsed.organizationLabel) {
         setOrganizationLabel(parsed.organizationLabel);
       }
-      showToast?.(`Nouvelle clé de licence chargée depuis "${file.name}".`, 'success');
+      showToast?.(`Nouveau code d'activation local chargé depuis "${file.name}".`, 'success');
     } catch (err: any) {
-      showToast?.(err?.message || 'Fichier de licence invalide.', 'error');
+      showToast?.(err?.message || "Fichier d'activation invalide.", 'error');
     }
   };
 
@@ -125,7 +125,7 @@ export default function SettingsAdminTab({
     e.preventDefault();
     const licenseKeyInput = vaultModal.masterPin.trim();
     if (!licenseKeyInput) {
-      showToast?.('Veuillez saisir la clé de licence commerciale.', 'error');
+      showToast?.("Veuillez saisir le code d'activation local.", 'error');
       return;
     }
 
@@ -144,7 +144,7 @@ export default function SettingsAdminTab({
         if (updateUserPassword) {
           await updateUserPassword(vaultModal.targetUsername, newPass, licenseKeyInput);
           showToast?.(
-            `Mot de passe de @${vaultModal.targetUsername} mis à jour (séparé de la clé de licence) !`,
+            `Mot de passe de @${vaultModal.targetUsername} mis à jour (séparé du code d'activation local) !`,
             'success'
           );
           if (getAvailableAccounts) setAccountsList(getAvailableAccounts(true));
@@ -153,7 +153,7 @@ export default function SettingsAdminTab({
         if (switchSessionToUser) {
           await switchSessionToUser(vaultModal.targetUsername, licenseKeyInput);
           showToast?.(
-            `Session basculée vers ${vaultModal.targetDisplayName || `@${vaultModal.targetUsername}`} (Clé de licence vérifiée)`,
+            `Session basculée vers ${vaultModal.targetDisplayName || `@${vaultModal.targetUsername}`} (Code d'activation local vérifié)`,
             'success'
           );
         }
@@ -200,17 +200,17 @@ export default function SettingsAdminTab({
 
   return (
     <div className="space-y-6 max-w-full overflow-hidden">
-      {/* 1. Header Card - Commercial License Status & Dual-Key Gate Summary */}
+      {/* 1. Header Card - Local Activation Code Status & Dual-Key Gate Summary */}
       <SettingsSectionCard
         title={
           <span className="flex items-center gap-2 flex-wrap">
-            <span>Licence Commerciale &amp; Sécurité à Double Clé (LOGIN-LICENSE-P0)</span>
+            <span>Code d&apos;Activation Local &amp; Sécurité à Double Clé (LOGIN-LICENSE-P0)</span>
             <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase bg-emerald-50 text-emerald-700 border border-emerald-200">
-              {isLicenseActive ? 'LICENCE ACTIVE (AND)' : 'ACTIVATION REQUISE'}
+              {isLicenseActive ? 'POSTE ACTIVÉ (AND)' : 'ACTIVATION REQUISE'}
             </span>
           </span>
         }
-        description="Séparation stricte des secrets : Clé de Licence Commerciale (installSalt + PBKDF2-SHA256) ≠ Mot de passe opérationnel des comptes."
+        description="Séparation stricte des secrets locaux : Code d'Activation Local (installSalt + PBKDF2-SHA256) ≠ Mot de passe opérationnel des comptes."
         icon={<ShieldCheck />}
         headerRight={
           <div className="bg-slate-50/80 px-3.5 py-2 rounded-2xl border border-slate-200/90 flex items-center gap-3 shrink-0">
@@ -229,7 +229,7 @@ export default function SettingsAdminTab({
                   isLicenseActive ? 'text-emerald-700' : 'text-amber-700'
                 }`}
               >
-                {licenseRecord?.licenseKeyId || 'Non activée'}
+                {licenseRecord?.licenseKeyId || 'Non activé'}
               </div>
             </div>
           </div>
@@ -238,10 +238,10 @@ export default function SettingsAdminTab({
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 text-xs">
           <div className="p-3 rounded-xl bg-slate-50/80 border border-slate-200/80">
             <div className="text-[10px] uppercase font-bold text-slate-400 font-mono">
-              Empreinte Licence (ID Public)
+              Empreinte d&apos;Activation (ID Public)
             </div>
             <div className="font-mono font-extrabold text-emerald-800 mt-0.5 truncate">
-              {licenseRecord?.licenseKeyId || 'Aucune licence active'}
+              {licenseRecord?.licenseKeyId || 'Aucun code actif'}
             </div>
           </div>
           <div className="p-3 rounded-xl bg-slate-50/80 border border-slate-200/80">
@@ -280,11 +280,11 @@ export default function SettingsAdminTab({
         </div>
       </SettingsSectionCard>
 
-      {/* 2. Initial License + Admin Setup (if not yet activated) */}
+      {/* 2. Initial Activation + Admin Setup (if not yet activated) */}
       {!isLicenseActive && !isVaultExists && (
         <SettingsSectionCard
-          title="Activation Initiale — Clé de Licence Commerciale + Mot de Passe @admin"
-          description="Définissez la Clé de Licence Commerciale et un Mot de Passe Administrateur strictement différent."
+          title="Activation Initiale — Code d'Activation Local + Mot de Passe @admin"
+          description="Définissez le Code d'Activation Local et un Mot de Passe Administrateur strictement différent."
           icon={<ShieldAlert />}
           tone="warning"
         >
@@ -300,7 +300,7 @@ export default function SettingsAdminTab({
               type="password"
               value={initLicenseKey}
               onChange={(e) => setInitLicenseKey(e.target.value)}
-              placeholder="Clé de Licence Commerciale (6+ car.)"
+              placeholder="Code d'Activation Local (6+ car.)"
               className={`${SETTINGS_INPUT_CLASS} font-mono font-bold bg-white`}
             />
             <input
@@ -323,7 +323,7 @@ export default function SettingsAdminTab({
                       organizationLabel: initOrgLabel,
                     });
                     showToast?.(
-                      'Licence commerciale activée et mot de passe Administrateur initialisé !',
+                      "Code d'activation local configuré et mot de passe Administrateur initialisé !",
                       'success'
                     );
                     setInitLicenseKey('');
@@ -336,7 +336,7 @@ export default function SettingsAdminTab({
               }}
               className={SETTINGS_BUTTON_STYLES.primary}
             >
-              Activer Licence &amp; Compte @admin
+              Activer le Poste &amp; Compte @admin
             </button>
           </div>
         </SettingsSectionCard>
@@ -344,10 +344,10 @@ export default function SettingsAdminTab({
 
       {/* 3. System Accounts Grid */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Box A: Commercial License Rotation (Independent of Account Passwords) */}
+        {/* Box A: Local Activation Code Rotation (Independent of Account Passwords) */}
         <SettingsSectionCard
-          title="Rotation / Réactivation de la Clé de Licence Commerciale"
-          description="Modifie uniquement la Clé de Licence Commerciale (Clé 1 / 2) et re-chiffre le coffre AES-256-GCM sans modifier les mots de passe des comptes."
+          title="Rotation / Réactivation du Code d'Activation Local"
+          description="Modifie uniquement le Code d'Activation Local (Clé 1 / 2) et re-chiffre le coffre AES-256-GCM sans modifier les mots de passe des comptes."
           icon={<KeyRound />}
           headerRight={
             <>
@@ -373,13 +373,13 @@ export default function SettingsAdminTab({
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div>
                 <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
-                  Clé de Licence Actuelle
+                  Code d&apos;Activation Actuel
                 </label>
                 <input
                   type="password"
                   value={currentMasterPin}
                   onChange={(e) => setCurrentMasterPin(e.target.value)}
-                  placeholder="Clé de licence actuelle..."
+                  placeholder="Code d'activation actuel..."
                   className={`${SETTINGS_INPUT_CLASS} font-mono font-bold`}
                 />
               </div>
@@ -401,26 +401,26 @@ export default function SettingsAdminTab({
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div>
                 <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
-                  Nouvelle Clé de Licence
+                  Nouveau Code d&apos;Activation
                 </label>
                 <input
                   type="password"
                   value={tempPin}
                   onChange={(e) => setTempPin(e.target.value)}
-                  placeholder="Nouvelle clé (6+ chiffres ou code)"
+                  placeholder="Nouveau code (6+ chiffres ou code)"
                   className={`${SETTINGS_INPUT_CLASS} font-mono font-bold`}
                 />
               </div>
 
               <div>
                 <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
-                  Confirmer la Nouvelle Clé
+                  Confirmer le Nouveau Code
                 </label>
                 <input
                   type="password"
                   value={confirmNewLicenseKey}
                   onChange={(e) => setConfirmNewLicenseKey(e.target.value)}
-                  placeholder="Confirmer la nouvelle clé..."
+                  placeholder="Confirmer le nouveau code..."
                   className={`${SETTINGS_INPUT_CLASS} font-mono font-bold`}
                 />
               </div>
@@ -462,14 +462,14 @@ export default function SettingsAdminTab({
               <div className="flex items-center justify-between text-slate-800 border-b border-slate-200/80 pb-2 font-bold">
                 <span className="flex items-center gap-1.5">
                   <span className="w-2 h-2 rounded-full bg-emerald-500" />
-                  GATE DOUBLE CLÉ — LICENCE AND COMPTE
+                  GATE DOUBLE CLÉ — CODE LOCAL AND COMPTE
                 </span>
                 <span className="text-[10px] bg-emerald-50 px-2.5 py-0.5 rounded-full text-emerald-700 border border-emerald-200">
                   PBKDF2 600k + AES-256-GCM
                 </span>
               </div>
               <div className="grid grid-cols-3 gap-1">
-                <span className="text-slate-500">Empreinte Licence:</span>
+                <span className="text-slate-500">Empreinte Code Local:</span>
                 <span className="col-span-2 text-emerald-800 font-bold truncate select-all">
                   {licenseRecord?.licenseKeyId || 'Non configurée'}
                 </span>
@@ -491,15 +491,15 @@ export default function SettingsAdminTab({
                 </span>
               </div>
               <div className="grid grid-cols-3 gap-1 pt-1.5 border-t border-slate-200/80">
-                <span className="text-slate-500 font-bold">Statut Licence:</span>
+                <span className="text-slate-500 font-bold">Statut Activation:</span>
                 <span
                   className={`col-span-2 font-bold ${
                     isLicenseActive && isVaultUnlocked ? 'text-emerald-700' : 'text-amber-700'
                   }`}
                 >
                   {isLicenseActive
-                    ? 'ACTIVE — Aucun secret en clair stocké'
-                    : 'INACTIVE — Activation initiale requise'}
+                    ? 'ACTIF — Aucun secret en clair stocké'
+                    : 'INACTIF — Activation initiale requise'}
                 </span>
               </div>
             </div>
@@ -509,7 +509,7 @@ export default function SettingsAdminTab({
               onClick={async () => {
                 try {
                   if (!currentMasterPin.trim()) {
-                    showToast?.('Veuillez saisir la clé de licence actuelle.', 'error');
+                    showToast?.("Veuillez saisir le code d'activation local actuel.", 'error');
                     return;
                   }
                   if (!adminPasswordForRotation.trim()) {
@@ -520,12 +520,12 @@ export default function SettingsAdminTab({
                     return;
                   }
                   if (!tempPin.trim()) {
-                    showToast?.('Veuillez saisir la nouvelle clé de licence.', 'error');
+                    showToast?.("Veuillez saisir le nouveau code d'activation local.", 'error');
                     return;
                   }
                   if (tempPin.trim() !== confirmNewLicenseKey.trim()) {
                     showToast?.(
-                      'La confirmation de la nouvelle clé de licence ne correspond pas.',
+                      "La confirmation du nouveau code d'activation local ne correspond pas.",
                       'error'
                     );
                     return;
@@ -542,7 +542,7 @@ export default function SettingsAdminTab({
                       storageService.setItem('gmao_admin_role', tempRole.trim());
                     }
                     showToast?.(
-                      `Clé de licence commerciale renouvelée (${rotated.licenseKeyId}) — les mots de passe des comptes restent inchangés !`,
+                      `Code d'activation local renouvelé (${rotated.licenseKeyId}) — les mots de passe des comptes restent inchangés !`,
                       'success'
                     );
                     setCurrentMasterPin('');
@@ -551,13 +551,16 @@ export default function SettingsAdminTab({
                     setConfirmNewLicenseKey('');
                   }
                 } catch (err: any) {
-                  showToast?.(err.message || 'Échec de la rotation de licence.', 'error');
+                  showToast?.(
+                    err.message || "Échec de la rotation du code d'activation local.",
+                    'error'
+                  );
                 }
               }}
               className={`w-full py-2.5 ${SETTINGS_BUTTON_STYLES.primary}`}
             >
               <Save className="w-4 h-4" />
-              <span>Effectuer la Rotation de la Clé de Licence</span>
+              <span>Effectuer la Rotation du Code d&apos;Activation Local</span>
             </button>
           </div>
         </SettingsSectionCard>
@@ -565,7 +568,7 @@ export default function SettingsAdminTab({
         {/* Box B: Comptes Portail Système — Mots de Passe Indépendants */}
         <SettingsSectionCard
           title={`Comptes Portail Système (${systemAccounts.length})`}
-          description="Mots de passe opérationnels (Clé 2 / 2) indépendants de la Clé de Licence Commerciale"
+          description="Mots de passe opérationnels (Clé 2 / 2) indépendants du Code d'Activation Local"
           icon={<Users />}
           headerRight={
             <button
@@ -610,7 +613,7 @@ export default function SettingsAdminTab({
                         </span>
                       </div>
                       <div className="text-[10px] text-slate-400 font-mono mt-0.5 truncate">
-                        Mot de passe : •••••••• (PBKDF2-SHA256 distinct de la licence) — ID :{' '}
+                        Mot de passe : •••••••• (PBKDF2-SHA256 distinct du code local) — ID :{' '}
                         {(userAcc.id || 'ID-001').substring(0, 12)}
                       </div>
                     </div>
@@ -779,7 +782,7 @@ export default function SettingsAdminTab({
                         })
                       }
                       className={SETTINGS_BUTTON_STYLES.secondary}
-                      title="Tester la vue de ce technicien (Validation par Clé de Licence)"
+                      title="Tester la vue de ce technicien (Validation par Code d'Activation Local)"
                     >
                       Basculer
                     </button>
@@ -833,16 +836,16 @@ export default function SettingsAdminTab({
                     {vaultModal.mode === 'change_password' &&
                       `Modifier le mot de passe (@${vaultModal.targetUsername})`}
                     {vaultModal.mode === 'switch_session' &&
-                      'Basculement de Session Sécurisé (2FA Licence)'}
+                      "Basculement de Session Sécurisé (Code Local)"}
                     {vaultModal.mode === 'reset_vault' &&
-                      'Réinitialiser le Coffre-Fort & la Licence'}
+                      "Réinitialiser le Coffre-Fort & le Code d'Activation"}
                   </h4>
                   <p
                     className={`text-[11px] ${
                       vaultModal.mode === 'reset_vault' ? 'text-rose-700' : 'text-slate-500'
                     }`}
                   >
-                    Autorisation par Clé de Licence Commerciale (PBKDF2-SHA256)
+                    Autorisation par Code d&apos;Activation Local (PBKDF2-SHA256)
                   </p>
                 </div>
               </div>
@@ -894,7 +897,7 @@ export default function SettingsAdminTab({
 
               <div>
                 <label className="block text-xs font-bold text-slate-700 mb-1">
-                  Clé de Licence Commerciale requise pour autoriser l&apos;opération
+                  Code d&apos;Activation Local requis pour autoriser l&apos;opération
                 </label>
                 <input
                   type="password"
@@ -907,7 +910,7 @@ export default function SettingsAdminTab({
                       masterPin: e.target.value,
                     }))
                   }
-                  placeholder="Saisir la clé de licence commerciale actuelle..."
+                  placeholder="Saisir le code d'activation local actuel..."
                   className={`${SETTINGS_INPUT_CLASS} font-mono font-bold`}
                 />
               </div>

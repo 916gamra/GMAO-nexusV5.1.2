@@ -1,7 +1,7 @@
-# 🏭 CIOB GMAO Nexus v5.0.2 (`ciobGMAO-nexusV5.0.2`) — Industrial Maintenance, Asset & Inventory Platform
+# 🏭 CIOB GMAO Nexus v5.1.2 (`GMAO-nexusV5.1.2`) — Industrial Maintenance, Asset & Inventory Platform
 
-[![Version](https://img.shields.io/badge/version-5.0.2-047857.svg)](./CHANGELOG.md)
-[![Release](https://img.shields.io/badge/release-ciobGMAO--nexusV5.0.2-0f766e.svg)](./CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-5.1.2-047857.svg)](./CHANGELOG.md)
+[![Release](https://img.shields.io/badge/release-GMAO--nexusV5.1.2-0f766e.svg)](./CHANGELOG.md)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](./LICENSE)
 [![Contributor Covenant](https://img.shields.io/badge/Contributor%20Covenant-2.1-4baaaa.svg)](./CODE_OF_CONDUCT.md)
 [![Security Policy](https://img.shields.io/badge/Security-LAN%20Fail--Closed-b91c1c.svg)](./SECURITY.md)
@@ -19,7 +19,7 @@
 | **[`CAPABILITIES_AND_STRENGTHS.md`](./CAPABILITIES_AND_STRENGTHS.md)** | سجل القدرات الهندسية الـ 17 المنفذة بالكود والاختبارات الآلية (`Vitest`). |
 | **[`docs/DATA_SSOT.md`](./docs/DATA_SSOT.md)** | جدول مفاتيح التخزين القياسية (`STORAGE_KEYS` — 36+ كياناً) والعلاقات المرجعية (`FK`). |
 | **[`DOCS_INDEX.md`](./DOCS_INDEX.md)** | الفهرس الكامل لوثائق المشروع ومواصفات الشاشات (`docs/*_VIEW.md`). |
-| **[`CHANGELOG.md`](./CHANGELOG.md)** | سجل الإصدارات والترقيات (`5.0.2` / `ciobGMAO-nexusV5.0.2` ← `4.2.0` ← `4.0.0`). |
+| **[`CHANGELOG.md`](./CHANGELOG.md)** | سجل الإصدارات والترقيات (`5.1.2` / `GMAO-nexusV5.1.2` ← `5.0.2` ← `4.2.0` ← `4.0.0`). |
 | **[`CONTRIBUTING.md`](./CONTRIBUTING.md)** | دليل المساهمة القياسي، نظام الوسوم (`Git Tags/Releases`)، ومعايير الدمج والاختبار. |
 | **[`SECURITY.md`](./SECURITY.md)** | سياسة الأمان، الإبلاغ المسؤول عن الثغرات، وضوابط خادم `LAN` والمصادقة. |
 | **[`CODE_OF_CONDUCT.md`](./CODE_OF_CONDUCT.md)** | ميثاق السلوك المهني للمساهمين (`Contributor Covenant v2.1`). |
@@ -29,7 +29,7 @@
 
 ## 🏛️ الفلسفة الصناعية الثلاثية للأصول والمخطط المعرفي (`3-Tier Asset & Cognitive Blueprint Philosophy`)
 
-ينفرِد **CIOB GMAO Nexus (v5.0.2)** بفصل هندسي صارم يمنع الخلط بين التصنيف النظري، الواقع الفيزيائي في الورشة، والذاكرة المعرفية المتراكمة:
+ينفرِد **CIOB GMAO Nexus (v5.1.2)** بفصل هندسي صارم يمنع الخلط بين التصنيف النظري، الواقع الفيزيائي في الورشة، والذاكرة المعرفية المتراكمة:
 
 1. **المستوى الأول — العائلة والقالب (`Family & Template`):**
    - التصنيف الهندسي العام (`Family`) وبطاقة المواصفات القياسية للطراز (`Template`: القدرة، السرعة، الصانع، الموديل).
@@ -87,8 +87,8 @@ npm run build
 
 ## 🏷️ توحيد الإصدار وإصدارات Git (`Versioning & Release Tagging`)
 
-- **الإصدار المعتمد:** `5.0.2` (وفق معيار **SemVer 2.0.0**)
-- **معرّف الإصدار الرسمي:** `ciobGMAO-nexusV5.0.2`
+- **الإصدار المعتمد:** `5.1.2` (وفق معيار **SemVer 2.0.0**)
+- **معرّف الإصدار الرسمي:** `GMAO-nexusV5.1.2`
 - **اسم الحزمة في `package.json`:** `ciobgmao-nexus`
-- **أتمتة الإطلاق:** دفع أي وسم يطابق `ciobGMAO-nexusV*` أو `v*.*.*` يشغّل تلقائياً خط أنابيب [`.github/workflows/release.yml`](./.github/workflows/release.yml) للتحقق من المطابقة والاختبارات وإنشاء GitHub Release وحزم البناء.
+- **أتمتة الإطلاق:** دفع أي وسم يطابق `GMAO-nexusV*` أو `ciobGMAO-nexusV*` أو `v*.*.*` يشغّل تلقائياً خط أنابيب [`.github/workflows/release.yml`](./.github/workflows/release.yml) للتحقق من المطابقة والاختبارات وإنشاء GitHub Release وحزم البناء.
 

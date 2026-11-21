@@ -51,10 +51,10 @@ export interface MachineLifecycleLike {
   archived?: boolean;
   isArchived?: boolean;
   asset_class?: string;
-  date_archivage?: string;
-  archived_at?: string;
-  reactivated_at?: string;
-  status_changed_at?: string;
+  date_archivage?: string | null;
+  archived_at?: string | null;
+  reactivated_at?: string | null;
+  status_changed_at?: string | null;
   archived_by?: string;
   updated_by?: string;
   lifecycle_events?: MachineLifecycleEventLike[];

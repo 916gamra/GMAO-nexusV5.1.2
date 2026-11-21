@@ -25,12 +25,12 @@ export class SparePartApplicationService {
     return entities.map((e: any) => this.mapper.toResponse(e));
   }
 
-  async updateSparePart(id, request) {
+  async updateSparePart(id: any, request: any) {
     const entity = await this.domainService.updateSparePart(id, request);
     return this.mapper.toResponse(entity);
   }
 
-  async deleteSparePart(id) {
+  async deleteSparePart(id: any) {
     await this.domainService.deleteSparePart(id);
   }
 }

@@ -694,7 +694,7 @@ export default function UtilisateursView({
             });
             if (matchesLicense) {
               throw new Error(
-                'Le mot de passe utilisateur doit être différent de la clé de licence commerciale.'
+                "Le mot de passe utilisateur doit être différent du code d'activation local."
               );
             }
           }

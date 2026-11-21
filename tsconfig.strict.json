@@ -17,6 +17,7 @@
     "src/core/security/serverSession.ts",
     "src/core/security/serverSessionStore.ts",
     "src/application/repositories/**/*.ts",
+    "src/application/services/**/*.ts",
     "src/domain/**/*.ts"
   ],
   "exclude": [
@@ -25,6 +26,8 @@
     "**/__tests__/**",
     "**/*.test.ts",
     "**/*.test.tsx",
-    "src/domain/pdr/services/StockCalculationService.ts"
+    "src/application/services/PreventiveService.ts",
+    "src/application/services/preventive/PlanService.ts",
+    "src/application/services/preventive/TaskService.ts"
   ]
 }

@@ -13,6 +13,7 @@ import { useGmaoStore } from '../../../../store/useGmaoStore';
 import { useAuth } from '../../../../context/AuthContext';
 import { usePermission } from '../../../components/common/PermissionGate';
 import { IReplenishmentOrder } from '../../../../types/replenishment';
+import { APP_VERSION } from '../../../../config/appVersion';
 
 interface StockReplenishmentModalProps {
   onClose: () => void;
@@ -607,7 +608,7 @@ export default function StockReplenishmentModal({
         {/* Modal Footer */}
         <div className="px-6 py-3.5 bg-slate-50 border-t border-slate-200 flex items-center justify-between shrink-0">
           <span className="text-[11px] text-slate-400 font-mono">
-            Module Réapprovisionnement & Commandes PDR • CIOB GMAO Nexus v5.0.2
+            Module Réapprovisionnement &amp; Commandes PDR • CIOB GMAO Nexus v{APP_VERSION}
           </span>
           <button
             type="button"

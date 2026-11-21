@@ -35,9 +35,9 @@ const LoginSchema = z.object({
     .string()
     .min(
       1,
-      'Authentification à double clé requise (AND) : la clé de licence commerciale est obligatoire'
+      "Authentification à double clé requise (AND) : le code d'activation local est obligatoire"
     )
-    .max(128, 'La clé de licence est trop longue'),
+    .max(128, "Le code d'activation local est trop long"),
 });
 
 function getStoredAttempts() {
@@ -252,7 +252,7 @@ export const AuthProvider = ({ children }) => {
     async (licenseKeyOrPin: string, adminPassword?: string, organizationLabel?: string) => {
       if (!adminPassword) {
         throw new Error(
-          'Initialisation à clé unique interdite (LOGIN-LICENSE-P0) : veuillez fournir à la fois la clé de licence commerciale ET un mot de passe Administrateur distinct.'
+          "Initialisation à clé unique interdite (LOGIN-LICENSE-P0) : veuillez fournir à la fois le code d'activation local ET un mot de passe Administrateur distinct."
         );
       }
       await activateLicenseAndAdmin({
@@ -265,16 +265,16 @@ export const AuthProvider = ({ children }) => {
     [activateLicenseAndAdmin]
   );
 
-  // Déchiffrement du coffre-fort avec la clé de licence
+  // Déchiffrement du coffre-fort avec le code d'activation local
   const unlockVault = useCallback(
     async (licenseKey) => {
       const cleanKey = (licenseKey || '').trim();
-      if (!cleanKey) throw new Error('Veuillez saisir la clé de licence commerciale.');
+      if (!cleanKey) throw new Error("Veuillez saisir le code d'activation local.");
       const isValidLic = await LicenseGateService.verifyLicenseKey(cleanKey, {
         touchLastAuth: false,
       });
       if (!isValidLic) {
-        throw new Error('Clé de licence commerciale incorrecte.');
+        throw new Error("Code d'activation local incorrect.");
       }
       if (vaultService.isVaultExists()) {
         try {
@@ -445,14 +445,14 @@ export const AuthProvider = ({ children }) => {
       if (LicenseGateService.isLicenseActive()) {
         if (!licenseKey || !String(licenseKey).trim()) {
           throw new Error(
-            'Veuillez saisir la clé de licence commerciale pour autoriser la modification du mot de passe.'
+            "Veuillez saisir le code d'activation local pour autoriser la modification du mot de passe."
           );
         }
         const isValidLic = await LicenseGateService.verifyLicenseKey(licenseKey, {
           touchLastAuth: false,
         });
         if (!isValidLic) {
-          throw new Error('Clé de licence commerciale incorrecte.');
+          throw new Error("Code d'activation local incorrect.");
         }
       }
 
@@ -483,7 +483,7 @@ export const AuthProvider = ({ children }) => {
           touchLastAuth: false,
         });
         if (!isValidLic) {
-          throw new Error('Clé de licence commerciale incorrecte.');
+          throw new Error("Code d'activation local incorrect.");
         }
       }
       // Clear any higher-privilege server session token when switching profiles locally
@@ -501,14 +501,14 @@ export const AuthProvider = ({ children }) => {
       if (LicenseGateService.isLicenseActive()) {
         if (!licenseKey) {
           throw new Error(
-            'Veuillez saisir la clé de licence commerciale pour autoriser la réinitialisation.'
+            "Veuillez saisir le code d'activation local pour autoriser la réinitialisation."
           );
         }
         const isValidLic = await LicenseGateService.verifyLicenseKey(licenseKey, {
           touchLastAuth: false,
         });
         if (!isValidLic) {
-          throw new Error('Clé de licence commerciale incorrecte.');
+          throw new Error("Code d'activation local incorrect.");
         }
       }
       vaultService.clearMasterPin?.();

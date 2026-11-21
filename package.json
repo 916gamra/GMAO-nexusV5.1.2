@@ -1,7 +1,7 @@
 {
   "name": "ciobgmao-nexus",
   "private": true,
-  "version": "5.0.2",
+  "version": "5.1.2",
   "type": "module",
   "scripts": {
     "dev": "tsx server.ts",

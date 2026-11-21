@@ -15,6 +15,7 @@ import {
   Package
 } from 'lucide-react';
 import { sanitizeHtml, sanitizeString, sanitizeFilename } from '../../../utils/sanitize';
+import { APP_VERSION } from '../../../config/appVersion';
 
 /**
  * MovementVoucherModal
@@ -369,7 +370,7 @@ export default function MovementVoucherModal({
 
             {/* Footer Notice */}
             <div className="pt-2 text-center text-[9.5px] text-slate-400 font-mono">
-              CIOB GMAO Nexus v5.0.2 • Document généré automatiquement pour traçabilité ISO 9001 / GMAO Excel Twin
+              CIOB GMAO Nexus v{APP_VERSION} • Document généré automatiquement pour traçabilité ISO 9001 / GMAO Excel Twin
             </div>
           </div>
         </div>

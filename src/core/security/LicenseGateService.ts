@@ -80,24 +80,24 @@ export function looksLikeStoredVerifierOrHash(candidate: unknown): boolean {
 export function validateLicenseKeyPolicy(rawKey: unknown): string {
   const clean = String(rawKey ?? '').trim();
   if (!clean) {
-    throw new Error('Veuillez saisir la clé de licence commerciale.');
+    throw new Error("Veuillez saisir le code d'activation local.");
   }
 
   if (looksLikeStoredVerifierOrHash(clean)) {
     throw new Error(
-      'Format de clé de licence invalide : les empreintes cryptographiques stockées ne peuvent pas être utilisées comme clé.'
+      "Format de code d'activation local invalide : les empreintes cryptographiques stockées ne peuvent pas être utilisées comme code."
     );
   }
 
   if (PROHIBITED_WEAK_LICENSE_KEYS.has(clean.toLowerCase())) {
     throw new Error(
-      'Clé de licence trop faible ou interdite (ex: 123456, 000000, admin). Choisissez une clé de licence commerciale robuste.'
+      "Code d'activation local trop faible ou interdit (ex: 123456, 000000, admin). Choisissez un code d'activation robuste."
     );
   }
 
   if (/^(.)\1+$/.test(clean)) {
     throw new Error(
-      'Clé de licence invalide : les séquences composées d’un seul caractère répété sont interdites.'
+      "Code d'activation local invalide : les séquences composées d’un seul caractère répété sont interdites."
     );
   }
 
@@ -105,7 +105,7 @@ export function validateLicenseKeyPolicy(rawKey: unknown): string {
   if (isNumericOnly) {
     if (clean.length < 6 || clean.length > 16) {
       throw new Error(
-        'Un code clé de licence numérique doit comporter entre 6 et 16 chiffres.'
+        "Un code d'activation local numérique doit comporter entre 6 et 16 chiffres."
       );
     }
     return clean;
@@ -113,7 +113,7 @@ export function validateLicenseKeyPolicy(rawKey: unknown): string {
 
   if (clean.length < 6 || clean.length > 64) {
     throw new Error(
-      'La clé de licence commerciale doit comporter entre 6 et 64 caractères.'
+      "Le code d'activation local doit comporter entre 6 et 64 caractères."
     );
   }
 
@@ -280,14 +280,14 @@ class LicenseGateServiceClass {
   }): Promise<ILicenseRecord> {
     const currentRecord = this.getLicenseRecord();
     if (!currentRecord || currentRecord.licenseStatus !== 'ACTIVE') {
-      throw new Error("Aucune licence active n'est configurée sur ce système.");
+      throw new Error("Aucun code d'activation local actif n'est configuré sur ce système.");
     }
 
     const isCurrentValid = await this.verifyLicenseKey(params.currentLicenseKey, {
       touchLastAuth: false,
     });
     if (!isCurrentValid) {
-      throw new Error('La clé de licence actuelle est incorrecte.');
+      throw new Error("Le code d'activation local actuel est incorrect.");
     }
 
     const cleanNewKey = validateLicenseKeyPolicy(params.newLicenseKey);
@@ -326,7 +326,7 @@ class LicenseGateServiceClass {
   parseLicenseFilePayload(rawContent: string): ILicenseFilePayload {
     const trimmed = String(rawContent ?? '').trim();
     if (!trimmed) {
-      throw new Error('Le fichier de licence sélectionné est vide.');
+      throw new Error("Le fichier d'activation sélectionné est vide.");
     }
 
     if (trimmed.startsWith('{')) {
@@ -350,10 +350,11 @@ class LicenseGateServiceClass {
               : undefined,
         };
       } catch (err: any) {
+        const msg = String(err?.message || '');
         throw new Error(
-          err?.message?.includes('clé de licence')
-            ? err.message
-            : 'Fichier de licence JSON invalide.'
+          msg.includes("code d'activation") || msg.includes('clé de licence')
+            ? msg
+            : "Fichier d'activation JSON invalide."
         );
       }
     }

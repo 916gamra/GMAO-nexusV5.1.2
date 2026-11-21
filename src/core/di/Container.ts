@@ -1,8 +1,14 @@
-export class Container {
-  static instance = null;
-  static bindings = new Map();
+interface ContainerBinding {
+  factory: () => any;
+  singleton: boolean;
+  instance: any;
+}
 
-  static getInstance() {
+export class Container {
+  static instance: Container | null = null;
+  static bindings = new Map<string, ContainerBinding>();
+
+  static getInstance(): Container {
     if (!Container.instance) {
       Container.instance = new Container();
     }
@@ -12,19 +18,19 @@ export class Container {
   /**
    * Register binding
    */
-  static register(key, factory, singleton = true) {
+  static register(key: string, factory: any, singleton = true): void {
     const factoryFn = typeof factory === 'function' ? factory : () => factory;
     Container.bindings.set(key, {
       factory: factoryFn,
       singleton,
-      instance: null
+      instance: null,
     });
   }
 
   /**
    * Resolve dependency
    */
-  static resolve(key) {
+  static resolve(key: string): any {
     const binding = Container.bindings.get(key);
 
     if (!binding) {

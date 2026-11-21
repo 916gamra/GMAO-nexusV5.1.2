@@ -1,15 +1,14 @@
 /**
- * Service Worker Enterprise Optimisé pour PWA - CIOB GMAO Nexus v5.0.2 (ciobGMAO-nexusV5.0.2)
+ * Service Worker Enterprise Optimisé pour PWA - CIOB GMAO Nexus v5.1.2 (GMAO-nexusV5.1.2)
  * Supporte :
- * - Stratégies multi-niveaux (Cache-First pour assets, Network-First pour API & Navigation)
- * - Background Sync ('sync-gmao-data')
+ * - Stratégies multi-niveaux (Cache-First pour assets statiques, Network-Only pour /api/gmao/* & Network-First pour Navigation)
+ * - Isolation stricte des endpoints API authentifiés (zéro mise en cache partagée des données métier)
  * - Push Notifications (VAPID / Web Push)
  * - Nettoyage automatique de la taille du cache (LRU / Max Entries)
  * - Isolation des requêtes de développement Vite
  */
-const CACHE_NAME = 'gmao-nexus-v5.0.4';
-const DATA_CACHE_NAME = 'gmao-nexus-data-v5.0.4';
-const ASSET_CACHE_NAME = 'gmao-nexus-assets-v5.0.4';
+const CACHE_NAME = 'gmao-nexus-v5.1.2';
+const ASSET_CACHE_NAME = 'gmao-nexus-assets-v5.1.2';
 
 const PRECACHE_ASSETS = [
   '/offline.html',
@@ -21,9 +20,8 @@ const PRECACHE_ASSETS = [
   '/pwa-maskable-512x512.png',
 ];
 
-const API_ENDPOINTS = ['/api/gmao', '/api/health'];
+const NETWORK_ONLY_API_PREFIXES = ['/api/gmao', '/api/health', '/api/network', '/api/docs'];
 const MAX_ASSET_CACHE_SIZE = 100;
-const MAX_DATA_CACHE_SIZE = 50;
 
 // 1. Installation du Service Worker
 self.addEventListener('install', (event) => {
@@ -37,9 +35,9 @@ self.addEventListener('install', (event) => {
   self.skipWaiting();
 });
 
-// 2. Activation et nettoyage des anciens caches
+// 2. Activation et nettoyage des anciens caches (purge aussi tout ancien cache API partagé)
 self.addEventListener('activate', (event) => {
-  const validCaches = new Set([CACHE_NAME, DATA_CACHE_NAME, ASSET_CACHE_NAME]);
+  const validCaches = new Set([CACHE_NAME, ASSET_CACHE_NAME]);
   event.waitUntil(
     caches.keys().then((cacheNames) => {
       return Promise.all(
@@ -84,9 +82,11 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // A. Requêtes API : Network-First avec Cache-Fallback
-  if (API_ENDPOINTS.some((endpoint) => url.pathname.startsWith(endpoint))) {
-    event.respondWith(networkFirstWithCacheFallback(request, DATA_CACHE_NAME));
+  // A. Requêtes API : Network-Only strict (zéro cache partagé entre rôles/utilisateurs sur poste atelier)
+  if (NETWORK_ONLY_API_PREFIXES.some((endpoint) => url.pathname.startsWith(endpoint))) {
+    event.respondWith(
+      fetch(request, { cache: 'no-store' }).catch(() => createOfflineResponse())
+    );
     return;
   }
 
@@ -110,21 +110,6 @@ self.addEventListener('fetch', (event) => {
     })
   );
 });
-
-async function networkFirstWithCacheFallback(request, cacheName) {
-  const cache = await caches.open(cacheName);
-  try {
-    const networkResponse = await fetch(request.clone());
-    if (networkResponse && networkResponse.status === 200) {
-      await cache.put(request, networkResponse.clone());
-      cleanupCache(cacheName, MAX_DATA_CACHE_SIZE);
-    }
-    return networkResponse;
-  } catch {
-    const cachedResponse = await cache.match(request);
-    return cachedResponse || createOfflineResponse();
-  }
-}
 
 function isValidStaticAssetResponse(request, response) {
   if (!response || response.status !== 200) return false;
@@ -191,19 +176,12 @@ self.addEventListener('sync', (event) => {
 
 async function syncGmaoData() {
   try {
-    const cache = await caches.open(DATA_CACHE_NAME);
-    const keys = await cache.keys();
-
-    for (const key of keys) {
-      const request = new Request(key.url, { method: 'GET' });
-      const response = await fetch(request);
-      if (response && response.status === 200) {
-        await cache.put(key, response.clone());
-      }
-    }
-
+    // Notify active authenticated clients so they trigger their own RBAC-authenticated sync.
+    // Never fetch /api/gmao/* anonymously from the Service Worker or cache responses across users.
     const clients = await self.clients.matchAll();
-    clients.forEach((client) => client.postMessage({ type: 'SYNC_COMPLETE', timestamp: new Date().toISOString() }));
+    clients.forEach((client) =>
+      client.postMessage({ type: 'SYNC_REQUESTED', timestamp: new Date().toISOString() })
+    );
   } catch {
     // Replanifier silencieusement si hors-ligne
   }

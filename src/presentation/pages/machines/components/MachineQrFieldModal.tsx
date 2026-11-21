@@ -23,6 +23,7 @@ import { networkConfigService } from '../../../../services/networkConfigService'
 import { useGmaoStore } from '../../../../store/useGmaoStore';
 import { useAuth } from '../../../../context/AuthContext';
 import { isTechnicianRole, getTechnicianDisplayName } from '../../../../core/security/technicianScope';
+import { APP_VERSION } from '../../../../config/appVersion';
 import { getMachineAssetClass } from '../../../../utils/activeMachines';
 import {
   computeMachineHealthPassport,
@@ -420,7 +421,7 @@ export default function MachineQrFieldModal({
               <div className="flex items-center justify-between pb-3 border-b-2 border-slate-900">
                 <div>
                   <span className="text-[10px] font-black uppercase tracking-widest text-slate-500 block">
-                    CIOB GMAO Nexus v5.0.2 • IDENTIFICATION ACTIF
+                    CIOB GMAO Nexus v{APP_VERSION} • IDENTIFICATION ACTIF
                   </span>
                   <span className="text-xl font-black font-mono text-slate-950 tracking-tight">
                     {machineCode}

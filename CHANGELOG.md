@@ -5,22 +5,29 @@ All notable changes to **CIOB GMAO Nexus** are documented in this file.
 The format is based on [Keep a Changelog v1.1.0](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning 2.0.0](https://semver.org/spec/v2.0.0.html).
 
-Official Git release tag convention: `ciobGMAO-nexusV{MAJOR}.{MINOR}.{PATCH}` (with standard SemVer alias `v{MAJOR}.{MINOR}.{PATCH}`).
+Official Git release tag convention: `GMAO-nexusV{MAJOR}.{MINOR}.{PATCH}` (with legacy `ciobGMAO-nexusV*` and SemVer `v{MAJOR}.{MINOR}.{PATCH}` aliases).
 
 ---
 
 ## [Unreleased]
 
+---
+
+## [5.1.2] — `GMAO-nexusV5.1.2` (2026-11-21)
+
 ### Security & Concurrency
-- Enforced server-side RBAC on backup/restore/Excel import routes (`storageRoutes.ts`, `excelRoutes.ts`), added `STRICT_ADMIN_ONLY_ENTITIES`, and serialized read-modify-write state mutations via `withMutationLock` (`stateStore.ts`, `sqliteStateStore.ts`).
+- **Server RBAC & Atomic Locks:** Enforced server-side RBAC on backup/restore/Excel import routes (`storageRoutes.ts`, `excelRoutes.ts`), added `STRICT_ADMIN_ONLY_ENTITIES`, and serialized read-modify-write state mutations via `withMutationLock` (`stateStore.ts`, `sqliteStateStore.ts`).
+- **PWA / Service Worker Shared-Device Hardening:** Switched `/api/gmao/*` to strict `NetworkOnly` in both `vite.config.ts` (Workbox) and `public/service-worker.js` (purging legacy shared `gmao-nexus-data-*` caches on activation) to prevent cross-user RBAC cache leakage on shared shopfloor tablets; removed unused external CDN cache rules.
+- **Honest Local Activation Code (`Code d'activation local`):** Renamed user-facing UI labels, prompts, and `docs/SECURITY_LICENSE_GATE.md` from `"Clé de licence commerciale"` to `"Code d'activation local"` to accurately reflect its local workstation double-key (`AND`) security posture without claiming server-signed DRM.
 
 ### Fixed
 - **Persistence & Real Factory Hydration:** Expanded `useAutoSave` across all 40 persisted store collections, aligned `AutoBackupService` restore keys, prevented silent hydration regressions in Real Factory Mode (`START_MODE === 'empty'`), and stabilized LAN polling lifecycle.
 - **Stock & Preventive Logic:** Fixed `"Stock disponible:"` wording and `isAchatUnique` parity in `StockCalculationService.calculateAllStocks`, switched numeric alias lookups to nullish coalescing (`??`), and preserved original pending execution IDs during resubmission deduplication in `ExecutionService.recordExecution`.
 - **CBM Manual Rules Lifecycle:** Integrated `STORAGE_KEYS.CBM_MANUAL_RULES` (`cbmManualRules`) end-to-end across `ALLOWED_ENTITIES`, `FIELD_WRITABLE_ENTITIES`, `serverSyncService`, `DataGateway`, `AutoBackupService`, and `CbmIoTSensorPanel` without corrupting engineering units (`mm/s`).
-- **Type Safety:** Eliminated all 38 `typecheck` errors and all 63 `typecheck:strict` errors (`0` errors across `typecheck`, `typecheck:strict`, and `typecheck:server`).
+- **Type Safety & Strict Gate Expansion:** Eliminated all 38 `typecheck` errors and all 63 `typecheck:strict` errors (`0` errors across `typecheck`, `typecheck:strict`, and `typecheck:server`) and expanded `tsconfig.strict.json` to include `StockCalculationService.ts`, `Container.ts`, and 15 core services under `src/application/services/**` (excluding only 3 legacy `DataGateway`-coupled preventive facades).
 
-### Chore
+### Chore & Release Engineering
+- **Unified Release Identity (`5.1.2` / `GMAO-nexusV5.1.2`):** Synchronized `appVersion.ts`, `package.json`, `package-lock.json`, `public/service-worker.js`, modals, Excel exports, and documentation; upgraded `.github/workflows/release.yml` to Node 22, `npm ci`, full 3-tier typecheck, and blocking `npm audit --audit-level=high`.
 - Removed unused temporary chat/log attachments under `public/assets/aistudio/`.
 - Corrected `AppRouter` ErrorBoundary section labels (`"Arborescence & BOM Nexus"`, `"Référentiel Zones & Secteurs"`) and synced `docs/DATA_SSOT.md` and `CAPABILITIES_AND_STRENGTHS.md`.
 

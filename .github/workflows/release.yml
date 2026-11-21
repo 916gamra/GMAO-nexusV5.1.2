@@ -3,6 +3,7 @@ name: Release & GitHub Tag Pipeline
 on:
   push:
     tags:
+      - 'GMAO-nexusV*'
       - 'ciobGMAO-nexusV*'
       - 'v*.*.*'
 
@@ -22,7 +23,8 @@ jobs:
         shell: bash
         run: |
           TAG_NAME="${GITHUB_REF_NAME}"
-          TAG_VERSION="${TAG_NAME#ciobGMAO-nexusV}"
+          TAG_VERSION="${TAG_NAME#GMAO-nexusV}"
+          TAG_VERSION="${TAG_VERSION#ciobGMAO-nexusV}"
           TAG_VERSION="${TAG_VERSION#v}"
           PKG_VERSION=$(node -e "console.log(require('./package.json').version)")
           echo "Git tag: ${TAG_NAME} (extracted version: ${TAG_VERSION})"
@@ -32,17 +34,23 @@ jobs:
             exit 1
           fi
 
-      - name: Setup Node.js 20
+      - name: Setup Node.js 22
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '22'
           cache: 'npm'
 
       - name: Install Dependencies
-        run: npm ci --legacy-peer-deps
+        run: npm ci
 
-      - name: TypeScript Typecheck
-        run: npm run typecheck
+      - name: Security Audit (High / Critical Gate)
+        run: npm audit --audit-level=high
+
+      - name: TypeScript Typecheck (Client, Server & Strict Gate)
+        run: |
+          npm run typecheck
+          npm run typecheck:server
+          npm run typecheck:strict
 
       - name: ESLint Verification
         run: npm run lint

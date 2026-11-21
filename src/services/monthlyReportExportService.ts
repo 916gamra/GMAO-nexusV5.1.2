@@ -12,6 +12,7 @@ import {
   type MonthOverMonthComparison,
   type ShiftOrWeeklyReportData,
 } from '../application/services/MonthlyReportCalculationService';
+import { APP_VERSION } from '../config/appVersion';
 
 export interface MonthlyExportRawData {
   mouvements?: any[];
@@ -58,7 +59,7 @@ export class MonthlyReportExportService {
 
     // 1. Sheet: Synthese_Direction
     const syntheseRows = sanitizeSpreadsheetRows([
-      ['RAPPORT MENSUEL EXÉCUTIF DIRECTION — CIOB GMAO Nexus v5.0.2'],
+      [`RAPPORT MENSUEL EXÉCUTIF DIRECTION — CIOB GMAO Nexus v${APP_VERSION}`],
       [
         'Période du Rapport',
         currentMonth,
@@ -390,7 +391,7 @@ export class MonthlyReportExportService {
 
     // 1. Sheet: Synthese_Exploitation
     const syntheseRows = sanitizeSpreadsheetRows([
-      ['RAPPORT OPÉRATIONNEL DE VACATION & HEBDOMADAIRE — CIOB GMAO Nexus v5.0.2'],
+      [`RAPPORT OPÉRATIONNEL DE VACATION & HEBDOMADAIRE — CIOB GMAO Nexus v${APP_VERSION}`],
       ['Période Début', report.fromYMD, 'Période Fin', report.toYMD, `${report.daysCount} jour(s) • Devise ISO: ${isoCode}`],
       ['Périmètre Actifs', report.assetClassFilter, 'Machines Production Actives', report.productionMachinesCount, ''],
       [],
