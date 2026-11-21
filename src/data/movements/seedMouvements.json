@@ -1,0 +1,362 @@
+[
+  {
+    "id": 1,
+    "date": "2026-01-05",
+    "type": "Entrée",
+    "ref": "RLM-6205",
+    "quantite": 4,
+    "machine": "-",
+    "intervenant": "Magasinier",
+    "motif": "Réapprovisionnement roulements standards"
+  },
+  {
+    "id": 2,
+    "date": "2026-01-08",
+    "type": "Sortie",
+    "ref": "RLM-6205",
+    "quantite": 2,
+    "machine": "DET-05",
+    "intervenant": "Bilal",
+    "motif": "Remplacement roulements arbre principal"
+  },
+  {
+    "id": 3,
+    "date": "2026-01-10",
+    "type": "Sortie",
+    "ref": "RLM-6206",
+    "quantite": 2,
+    "machine": "DET-06",
+    "intervenant": "Yacine",
+    "motif": "Maintenance préventive broche"
+  },
+  {
+    "id": 4,
+    "date": "2026-01-12",
+    "type": "Sortie",
+    "ref": "RLM-22210",
+    "quantite": 4,
+    "machine": "DET-08",
+    "intervenant": "kamel",
+    "motif": "Remplacement roulements rouleau entraîneur"
+  },
+  {
+    "id": 5,
+    "date": "2026-01-14",
+    "type": "Entrée",
+    "ref": "RLM-30206",
+    "quantite": 2,
+    "machine": "-",
+    "intervenant": "Magasinier",
+    "motif": "Réception commande fournisseur"
+  },
+  {
+    "id": 6,
+    "date": "2026-01-15",
+    "type": "Sortie",
+    "ref": "paliers01",
+    "quantite": 1,
+    "machine": "PCE-02",
+    "intervenant": "kamel",
+    "motif": "Remplacement palier tapis d'avance"
+  },
+  {
+    "id": 7,
+    "date": "2026-01-16",
+    "type": "Entrée",
+    "ref": "JNT-NBR-20",
+    "quantite": 20,
+    "machine": "-",
+    "intervenant": "Magasinier",
+    "motif": "Entrée lot joints toriques NBR"
+  },
+  {
+    "id": 8,
+    "date": "2026-01-18",
+    "type": "Sortie",
+    "ref": "JNT-NBR-20",
+    "quantite": 5,
+    "machine": "FRL-02",
+    "intervenant": "Bilal",
+    "motif": "Étanchéité circuit pneumatique"
+  },
+  {
+    "id": 9,
+    "date": "2026-01-20",
+    "type": "Sortie",
+    "ref": "JNT-NBR-50",
+    "quantite": 4,
+    "machine": "FRL-03",
+    "intervenant": "Tarek",
+    "motif": "Remplacement joints vérin serrage"
+  },
+  {
+    "id": 10,
+    "date": "2026-01-21",
+    "type": "Entrée",
+    "ref": "JNT-SPI-40",
+    "quantite": 5,
+    "machine": "-",
+    "intervenant": "Magasinier",
+    "motif": "Réapprovisionnement joints SPI"
+  },
+  {
+    "id": 11,
+    "date": "2026-01-22",
+    "type": "Sortie",
+    "ref": "JNT-SPI-40",
+    "quantite": 2,
+    "machine": "POA-01",
+    "intervenant": "Yacine",
+    "motif": "Étanchéité réducteur"
+  },
+  {
+    "id": 12,
+    "date": "2026-01-24",
+    "type": "Sortie",
+    "ref": "teflon01",
+    "quantite": 4,
+    "machine": "POA-08",
+    "intervenant": "Tarek",
+    "motif": "Dotation atelier pneumatique"
+  },
+  {
+    "id": 13,
+    "date": "2026-01-25",
+    "type": "Sortie",
+    "ref": "Courroie21",
+    "quantite": 2,
+    "machine": "SAT-01",
+    "intervenant": "Bilal",
+    "motif": "Remplacement courroie transmission"
+  },
+  {
+    "id": 14,
+    "date": "2026-01-26",
+    "type": "Sortie",
+    "ref": "Courroie28",
+    "quantite": 1,
+    "machine": "SAT-16",
+    "intervenant": "Bilal",
+    "motif": "Intervention corrective courroie"
+  },
+  {
+    "id": 15,
+    "date": "2026-01-27",
+    "type": "Sortie",
+    "ref": "Courroie32",
+    "quantite": 1,
+    "machine": "PRH-01",
+    "intervenant": "Yacine",
+    "motif": "Remplacement courroie synchrone"
+  },
+  {
+    "id": 16,
+    "date": "2026-01-28",
+    "type": "Entrée",
+    "ref": "CRT-A50",
+    "quantite": 6,
+    "machine": "-",
+    "intervenant": "Magasinier",
+    "motif": "Entrée stock courroies A50"
+  },
+  {
+    "id": 17,
+    "date": "2026-01-29",
+    "type": "Sortie",
+    "ref": "CRT-A50",
+    "quantite": 3,
+    "machine": "RIV-01",
+    "intervenant": "kamel",
+    "motif": "Remplacement jeu de courroies"
+  },
+  {
+    "id": 18,
+    "date": "2026-02-01",
+    "type": "Entrée",
+    "ref": "CHN-08B1",
+    "quantite": 2,
+    "machine": "-",
+    "intervenant": "Magasinier",
+    "motif": "Réception chaînes 08B-1"
+  },
+  {
+    "id": 19,
+    "date": "2026-02-02",
+    "type": "Sortie",
+    "ref": "CHN-08B1",
+    "quantite": 1,
+    "machine": "REP-01",
+    "intervenant": "kamel",
+    "motif": "Remplacement chaîne entraînement"
+  },
+  {
+    "id": 20,
+    "date": "2026-02-03",
+    "type": "Sortie",
+    "ref": "ACCP-HRC110",
+    "quantite": 1,
+    "machine": "FEMB1-01",
+    "intervenant": "Bilal",
+    "motif": "Changement étoile accouplement moteur"
+  },
+  {
+    "id": 21,
+    "date": "2026-02-04",
+    "type": "Sortie",
+    "ref": "Raccord01",
+    "quantite": 4,
+    "machine": "DET-01",
+    "intervenant": "Bilal",
+    "motif": "Réparation fuite air comprimé"
+  },
+  {
+    "id": 22,
+    "date": "2026-02-05",
+    "type": "Sortie",
+    "ref": "Raccord03",
+    "quantite": 3,
+    "machine": "DET-05",
+    "intervenant": "Yacine",
+    "motif": "Remplacement raccords coudés"
+  },
+  {
+    "id": 23,
+    "date": "2026-02-06",
+    "type": "Sortie",
+    "ref": "Distributeur05",
+    "quantite": 4,
+    "machine": "DET-06",
+    "intervenant": "Yacine",
+    "motif": "Remplacement bloc distributeurs 24V"
+  },
+  {
+    "id": 24,
+    "date": "2026-02-07",
+    "type": "Sortie",
+    "ref": "Vontouses03",
+    "quantite": 4,
+    "machine": "DET-08",
+    "intervenant": "Tarek",
+    "motif": "Remplacement ventouses usées"
+  },
+  {
+    "id": 25,
+    "date": "2026-02-08",
+    "type": "Entrée",
+    "ref": "FLT-HYD-10M",
+    "quantite": 4,
+    "machine": "-",
+    "intervenant": "Magasinier",
+    "motif": "Arrivage filtres hydrauliques"
+  },
+  {
+    "id": 26,
+    "date": "2026-02-09",
+    "type": "Sortie",
+    "ref": "FLT-HYD-10M",
+    "quantite": 2,
+    "machine": "PCE-02",
+    "intervenant": "Tarek",
+    "motif": "Entretien périodique groupe hydraulique"
+  },
+  {
+    "id": 27,
+    "date": "2026-02-10",
+    "type": "Sortie",
+    "ref": "Fin de course01",
+    "quantite": 2,
+    "machine": "FRL-01",
+    "intervenant": "Bilal",
+    "motif": "Remplacement fin de course sécurité"
+  },
+  {
+    "id": 28,
+    "date": "2026-02-11",
+    "type": "Entrée",
+    "ref": "CAP-LJ12A3",
+    "quantite": 6,
+    "machine": "-",
+    "intervenant": "Magasinier",
+    "motif": "Réception détecteurs inductifs M12"
+  },
+  {
+    "id": 29,
+    "date": "2026-02-12",
+    "type": "Sortie",
+    "ref": "CAP-LJ12A3",
+    "quantite": 3,
+    "machine": "FRL-03",
+    "intervenant": "Yacine",
+    "motif": "Remplacement capteurs présence panneau"
+  },
+  {
+    "id": 30,
+    "date": "2026-02-13",
+    "type": "Sortie",
+    "ref": "Alimentation01",
+    "quantite": 1,
+    "machine": "FRL-04",
+    "intervenant": "Yacine",
+    "motif": "Remplacement alimentation 24V DC"
+  },
+  {
+    "id": 31,
+    "date": "2026-02-14",
+    "type": "Sortie",
+    "ref": "Radiateur01",
+    "quantite": 1,
+    "machine": "POA-01",
+    "intervenant": "Yacine",
+    "motif": "Remplacement ventilateur armoire électrique"
+  },
+  {
+    "id": 32,
+    "date": "2026-02-15",
+    "type": "Entrée",
+    "ref": "VIS-CHC-M8",
+    "quantite": 5,
+    "machine": "-",
+    "intervenant": "Magasinier",
+    "motif": "Entrée boîtes vis CHC M8x30"
+  },
+  {
+    "id": 33,
+    "date": "2026-02-16",
+    "type": "Sortie",
+    "ref": "VIS-CHC-M8",
+    "quantite": 2,
+    "machine": "SAT-01",
+    "intervenant": "kamel",
+    "motif": "Montage carters de protection"
+  },
+  {
+    "id": 34,
+    "date": "2026-02-17",
+    "type": "Sortie",
+    "ref": "Cheville01",
+    "quantite": 8,
+    "machine": "SAT-16",
+    "intervenant": "Tarek",
+    "motif": "Ancrage bâti machine au sol"
+  },
+  {
+    "id": 35,
+    "date": "2026-02-18",
+    "type": "Sortie",
+    "ref": "Pastille01",
+    "quantite": 14,
+    "machine": "PRH-01",
+    "intervenant": "Tarek",
+    "motif": "Remplacement plaquettes porte-outils"
+  },
+  {
+    "id": 36,
+    "date": "2026-02-19",
+    "type": "Sortie",
+    "ref": "Foret01",
+    "quantite": 3,
+    "machine": "FRA-01",
+    "intervenant": "Bilal",
+    "motif": "Remplacement forets usés Ø8.5"
+  }
+]

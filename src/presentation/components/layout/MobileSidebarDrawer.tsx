@@ -1,0 +1,1248 @@
+import { useState, useEffect } from 'react';
+import { storageService } from '../../../utils/storageService';
+import SortieEntreeIcon from '../common/SortieEntreeIcon';
+import PWAInstallButton from '../common/PWAInstallButton';
+import {
+  LayoutDashboard,
+  FileBarChart2,
+  Package,
+  Tag,
+  BadgeCheck,
+  MapPin,
+  Users,
+  GitBranch,
+  BookOpen,
+  Database,
+  Factory,
+  Warehouse,
+  Lightbulb,
+  Settings,
+  Settings2,
+  Sun,
+  Moon,
+  LogOut,
+  FingerprintPattern,
+  Boxes,
+  Calendar,
+  Wrench,
+  Download,
+  Upload,
+  Landmark,
+  ShieldAlert,
+  ShieldCheck,
+  Clock,
+  PanelLeftClose,
+} from 'lucide-react';
+import { HubIcon } from '../common/icons/HubIcon';
+import { CategoryIcon } from '../common/icons/CategoryIcon';
+import PartInfoIcon from '../common/icons/PartInfoIcon';
+import { SpokeIcon } from '../common/icons/SpokeIcon';
+import { CubeIcon } from '../common/icons/CubeIcon';
+import { LayersIcon } from '../common/icons/LayersIcon';
+import { AuthorizationService } from '../../../core/security/AuthorizationService';
+import { isTechnicianRole } from '../../../core/security/technicianScope';
+import { useTranslation } from '../../../i18n/I18nContext';
+
+export default function MobileSidebarDrawer({
+  isFixedDesktop = false,
+  desktopSidebarCollapsed = false,
+  onToggleDesktopSidebar,
+  currentTab,
+  setCurrentTab,
+  mobileMenuOpen,
+  setMobileMenuOpen,
+  counts = {} as Record<string, any>,
+  currentUser,
+  fileInputRef,
+  _handleImportFile,
+  handleImportFile: _unusedHandleImportFile,
+  handleExportExcel,
+  onLogout,
+}: any) {
+  const { t } = useTranslation();
+  // Sidebar Dark / Light Theme state (persisted in storageService — NH-5 unified default 'light')
+  const [sidebarTheme, setSidebarTheme] = useState(() => {
+    return (
+      storageService.getItem('gmao_sidebar_theme') ||
+      storageService.getItem('gmao_theme') ||
+      'light'
+    );
+  });
+
+  const canAccess = (tabId) => !currentUser || AuthorizationService.canAccessTab(currentUser, tabId);
+  const canExportData =
+    !currentUser ||
+    AuthorizationService.hasPermission(currentUser, 'stock.export') ||
+    AuthorizationService.hasPermission(currentUser, 'report.export');
+  const canImportData =
+    !currentUser ||
+    AuthorizationService.hasPermission(currentUser, 'settings.restore') ||
+    AuthorizationService.hasPermission(currentUser, 'settings.manage');
+  const isTechUser = isTechnicianRole(currentUser);
+  const pendingSortieDemands = !isTechUser ? Number(counts.pendingSortieDemands || 0) : 0;
+  const pendingPreventiveVal = !isTechUser ? Number(counts.pendingPreventiveValidation || 0) : 0;
+  const pendingCorrectiveVal = !isTechUser ? Number(counts.pendingCorrectiveValidation || 0) : 0;
+
+  useEffect(() => {
+    const handleAppearanceChanged = (e) => {
+      if (e?.detail?.theme) {
+        setSidebarTheme(e.detail.theme);
+      }
+    };
+    window.addEventListener('gmao_appearance_changed', handleAppearanceChanged);
+    return () => window.removeEventListener('gmao_appearance_changed', handleAppearanceChanged);
+  }, []);
+
+  useEffect(() => {
+    storageService.setItem('gmao_sidebar_theme', sidebarTheme);
+  }, [sidebarTheme]);
+
+  // Accessibility: Close mobile drawer on Escape key
+  useEffect(() => {
+    if (!mobileMenuOpen) return;
+    const handleKeyDown = (e) => {
+      if (e.key === 'Escape') {
+        setMobileMenuOpen(false);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [mobileMenuOpen, setMobileMenuOpen]);
+
+  // NH-5: Broadcast theme change so FloatingSidebar and AppearanceLayoutSelector stay in sync
+  const toggleSidebarTheme = () => {
+    setSidebarTheme((prev) => {
+      const next = prev === 'dark' ? 'light' : 'dark';
+      storageService.setItem('gmao_sidebar_theme', next);
+      storageService.setItem('gmao_theme', next);
+      window.dispatchEvent(
+        new CustomEvent('gmao_appearance_changed', {
+          detail: { theme: next },
+        })
+      );
+      return next;
+    });
+  };
+
+  const navTo = (tab) => {
+    setCurrentTab(tab);
+    setMobileMenuOpen(false);
+  };
+
+  const isDark = sidebarTheme === 'dark';
+
+  const isTabRouteActive = (tabName) => {
+    if (currentTab === tabName) return true;
+    if (tabName === 'designations' && currentTab === 'diagnostics') return true;
+    if (
+      tabName === 'corrective' &&
+      String(currentTab || '').startsWith('corrective_') &&
+      currentTab !== 'corrective_referentiel'
+    ) {
+      return true;
+    }
+    return false;
+  };
+
+  // Dynamic styling based on sidebarTheme
+  const getTabClass = (tabName, isSubItem = false) => {
+    const isActive = isTabRouteActive(tabName);
+    const basePadding = isSubItem ? 'pl-6 pr-3 py-2' : 'px-3 py-2.5';
+
+    if (isDark) {
+      if (isActive) {
+        return `w-full flex items-center justify-between ${basePadding} rounded-xl text-[13px] font-bold bg-white text-slate-900 shadow-sm transition-all duration-150 cursor-pointer`;
+      }
+      return `w-full flex items-center justify-between ${basePadding} rounded-xl text-[13px] ${
+        isSubItem ? 'font-normal text-slate-300' : 'font-semibold text-slate-100'
+      } hover:text-white hover:bg-slate-800/80 transition-all duration-150 cursor-pointer`;
+    } else {
+      if (isActive) {
+        return `w-full flex items-center justify-between ${basePadding} rounded-xl text-[13px] font-bold bg-slate-900 text-white shadow-sm transition-all duration-150 cursor-pointer`;
+      }
+      return `w-full flex items-center justify-between ${basePadding} rounded-xl text-[13px] ${
+        isSubItem ? 'font-normal text-slate-600' : 'font-semibold text-slate-800'
+      } hover:text-slate-900 hover:bg-slate-100 transition-all duration-150 cursor-pointer`;
+    }
+  };
+
+  // Badge styling
+  const getBadgeClass = (tabName) => {
+    const isActive = isTabRouteActive(tabName);
+    if (isDark) {
+      if (isActive) {
+        return 'text-[11px] px-2 py-0.5 rounded-full font-mono bg-slate-900 text-white font-bold';
+      }
+      return 'text-[11px] px-2 py-0.5 rounded-full font-mono bg-slate-800 text-slate-400 font-medium group-hover:bg-slate-700 group-hover:text-slate-200';
+    } else {
+      if (isActive) {
+        return 'text-[11px] px-2 py-0.5 rounded-full font-mono bg-slate-800 text-slate-100 font-bold';
+      }
+      return 'text-[11px] px-2 py-0.5 rounded-full font-mono bg-slate-100 text-slate-500 font-medium group-hover:bg-slate-200';
+    }
+  };
+
+  return (
+    <>
+      {/* Mobile Backdrop */}
+      {mobileMenuOpen && (
+        <div
+          className="fixed inset-0 z-40 bg-black/60 backdrop-blur-xs lg:hidden"
+          onClick={() => setMobileMenuOpen(false)}
+        />
+      )}
+
+      {/* Sidebar Container - Exact Rich Original Design (Fixed/Collapsible on Desktop if isFixedDesktop, Drawer on Mobile) */}
+      <aside
+        role={isFixedDesktop ? 'navigation' : 'dialog'}
+        aria-modal={isFixedDesktop ? undefined : 'true'}
+        aria-label="Menu principal de navigation"
+        className={`fixed top-0 bottom-0 left-0 z-40 w-[270px] flex flex-col transition-all duration-200 ease-in-out select-none ${
+          isFixedDesktop
+            ? desktopSidebarCollapsed
+              ? (mobileMenuOpen ? 'translate-x-0' : '-translate-x-full')
+              : (mobileMenuOpen ? 'translate-x-0' : 'max-lg:-translate-x-full lg:translate-x-0')
+            : (mobileMenuOpen ? 'translate-x-0' : '-translate-x-full lg:hidden')
+        } ${
+          isDark
+            ? 'bg-slate-900 text-white border-r border-slate-800 shadow-xl'
+            : 'bg-white text-slate-800 border-r border-slate-200 shadow-xs'
+        }`}
+      >
+
+        {/* Brand Header with Dedicated Offline SVG Excel GMAO Icon */}
+        <div
+          id="sidebar-header-brand"
+          className={`h-16 px-4 flex items-center justify-between border-b shrink-0 ${
+            isDark ? 'border-slate-800 bg-slate-950/60' : 'border-zinc-200/90 bg-white'
+          }`}
+        >
+          <div className="flex items-center gap-3">
+            {/* Custom Modern Excel Icon: 3D-styled green workbook with iconic X and grid */}
+            <div
+              id="excel-brand-logo"
+              className="relative w-10 h-10 rounded-xl bg-gradient-to-br from-emerald-500 to-emerald-700 flex items-center justify-center text-white shadow-md shrink-0 ring-2 ring-emerald-500/30 overflow-hidden"
+            >
+              {/* Excel Grid Texture Behind */}
+              <div className="absolute inset-0 opacity-20 bg-[linear-gradient(to_right,#ffffff_1px,transparent_1px),linear-gradient(to_bottom,#ffffff_1px,transparent_1px)] bg-[size:5px_5px]" />
+
+              {/* Excel Badge & Symbol */}
+              <svg
+                id="excel-svg-icon"
+                className="w-6 h-6 text-white relative z-10 drop-shadow-xs"
+                viewBox="0 0 24 24"
+                fill="none"
+                xmlns="http://www.w3.org/2000/svg"
+              >
+                {/* Excel Workbook Sheet */}
+                <rect
+                  x="3"
+                  y="3"
+                  width="18"
+                  height="18"
+                  rx="3.5"
+                  fill="currentColor"
+                  fillOpacity="0.15"
+                  stroke="currentColor"
+                  strokeWidth="1.75"
+                />
+                {/* Spreadsheet inner division */}
+                <line
+                  x1="9.5"
+                  y1="3"
+                  x2="9.5"
+                  y2="21"
+                  stroke="currentColor"
+                  strokeWidth="1.2"
+                  strokeOpacity="0.6"
+                  strokeDasharray="1.5 1.5"
+                />
+                <line
+                  x1="3"
+                  y1="9.5"
+                  x2="21"
+                  y2="9.5"
+                  stroke="currentColor"
+                  strokeWidth="1.2"
+                  strokeOpacity="0.6"
+                  strokeDasharray="1.5 1.5"
+                />
+                <line
+                  x1="3"
+                  y1="15.5"
+                  x2="21"
+                  y2="15.5"
+                  stroke="currentColor"
+                  strokeWidth="1.2"
+                  strokeOpacity="0.6"
+                  strokeDasharray="1.5 1.5"
+                />
+                {/* The Classic Excel 'X' Symbol in left panel */}
+                <path
+                  d="M12.5 7.5L18 16.5M18 7.5L12.5 16.5"
+                  stroke="currentColor"
+                  strokeWidth="2.25"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+                {/* Left Mini Data Bars */}
+                <rect x="5" y="6" width="3" height="1.8" rx="0.5" fill="currentColor" />
+                <rect x="5" y="11" width="3" height="1.8" rx="0.5" fill="currentColor" />
+                <rect x="5" y="16" width="3" height="1.8" rx="0.5" fill="currentColor" />
+              </svg>
+            </div>
+            <div>
+              <div
+                id="brand-title-text"
+                className={`font-bold text-[15px] tracking-tight leading-tight flex items-center gap-1.5 ${isDark ? 'text-white' : 'text-slate-900'}`}
+              >
+                <span>Ciob PDR</span>
+                <span className="text-[10px] font-extrabold uppercase px-1.5 py-0.5 rounded-md bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
+                  XLS
+                </span>
+              </div>
+              <div
+                className={`text-[11px] font-semibold tracking-tight ${isDark ? 'text-emerald-400' : 'text-emerald-700'}`}
+              >
+                {t('app.subtitle', 'Pièces de Rechange & GMAO')}
+              </div>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => {
+              if (mobileMenuOpen) {
+                setMobileMenuOpen(false);
+              } else if (isFixedDesktop && onToggleDesktopSidebar) {
+                onToggleDesktopSidebar();
+              }
+            }}
+            className={`${
+              isFixedDesktop && onToggleDesktopSidebar ? 'flex' : 'flex lg:hidden'
+            } group w-8 h-8 rounded-full border items-center justify-center transition-all duration-200 cursor-pointer shrink-0 focus-visible:ring-2 focus-visible:ring-emerald-500 focus-visible:outline-hidden ${
+              isDark
+                ? 'bg-slate-800/80 hover:bg-slate-700/90 border-slate-700/90 hover:border-slate-600 text-slate-300 hover:text-white shadow-2xs'
+                : 'bg-slate-50/95 hover:bg-slate-100 border-slate-200/90 hover:border-slate-300 text-slate-500 hover:text-slate-900 shadow-2xs hover:shadow-xs'
+            }`}
+            title={
+              isFixedDesktop
+                ? t('nav.collapse_sidebar', 'Réduire le menu latéral')
+                : t('common.close', 'Fermer le menu')
+            }
+            aria-label={
+              isFixedDesktop
+                ? t('nav.collapse_sidebar', 'Réduire le menu latéral')
+                : t('common.close', 'Fermer le menu')
+            }
+          >
+            <PanelLeftClose className="w-4 h-4 transition-transform duration-200 group-hover:-translate-x-0.5" />
+          </button>
+        </div>
+
+        {/* Navigation Links */}
+        <div className="flex-1 overflow-y-auto px-3 py-3.5 space-y-4 text-xs">
+          {/* Main Global Navigation */}
+          <div className="space-y-1">
+            {/* Dashboard Tab */}
+            {canAccess('dashboard') && (
+              <button onClick={() => navTo('dashboard')} className={getTabClass('dashboard')}>
+                <span className="flex items-center gap-2.5">
+                  <LayoutDashboard
+                    className={`w-4 h-4 shrink-0 ${isDark ? 'text-blue-400' : 'text-blue-600'}`}
+                  />
+                  <span>{t('nav.dashboard', 'Dashboard')}</span>
+                </span>
+                <span className={getBadgeClass('dashboard')}>KPI</span>
+              </button>
+            )}
+
+            {/* Centre de Validation Centralisé (L2 — Neutral icon matching ValidationCenterView header) */}
+            {!isTechUser && canAccess('validation_center') && (
+              <button
+                data-testid="sidebar-validation-center-btn"
+                onClick={() => navTo('validation_center')}
+                className={getTabClass('validation_center', true)}
+              >
+                <span className="flex items-center gap-2">
+                  <ShieldCheck
+                    className={`w-3.5 h-3.5 shrink-0 sidebar-l2-icon ${
+                      isTabRouteActive('validation_center')
+                        ? isDark
+                          ? 'text-slate-900'
+                          : 'text-white'
+                        : isDark
+                          ? 'text-slate-400'
+                          : 'text-slate-500'
+                    }`}
+                  />
+                  <span>{t('nav.subtabs.validation_center_short', 'Centre de Validation')}</span>
+                </span>
+                {pendingSortieDemands + pendingPreventiveVal + pendingCorrectiveVal > 0 ? (
+                  <span
+                    className="text-[10px] px-1.5 py-0.5 rounded-full font-mono bg-rose-600 text-white font-black shadow-2xs"
+                    title="Total en attente de validation (Maker-Checker)"
+                  >
+                    {pendingSortieDemands + pendingPreventiveVal + pendingCorrectiveVal} {t('nav.groups.to_validate', 'À valider')}
+                  </span>
+                ) : (
+                  <span className={getBadgeClass('validation_center')}>{t('nav.groups.up_to_date', 'À jour')}</span>
+                )}
+              </button>
+            )}
+
+            {/* Rapport de Vacation / Hebdo (L2 — Clock icon matching ShiftWeeklyReportView header) */}
+            {!isTechUser && canAccess('shift_weekly_report') && (
+              <button
+                onClick={() => navTo('shift_weekly_report')}
+                className={getTabClass('shift_weekly_report', true)}
+              >
+                <span className="flex items-center gap-2">
+                  <Clock
+                    className={`w-3.5 h-3.5 shrink-0 sidebar-l2-icon ${
+                      isTabRouteActive('shift_weekly_report')
+                        ? isDark
+                          ? 'text-slate-900'
+                          : 'text-white'
+                        : isDark
+                          ? 'text-slate-400'
+                          : 'text-slate-500'
+                    }`}
+                  />
+                  <span>{t('nav.subtabs.shift_weekly_report', 'Rapport Vacation / Hebdo')}</span>
+                </span>
+                <span className={getBadgeClass('shift_weekly_report')}>Exploit.</span>
+              </button>
+            )}
+
+            {/* Rapport Mensuel Exécutif (L2 — Neutral icon matching MonthlyExecutiveReportView header) */}
+            {canAccess('executive_report') && (
+              <button
+                onClick={() => navTo('executive_report')}
+                className={getTabClass('executive_report', true)}
+              >
+                <span className="flex items-center gap-2">
+                  <FileBarChart2
+                    className={`w-3.5 h-3.5 shrink-0 sidebar-l2-icon ${
+                      isTabRouteActive('executive_report')
+                        ? isDark
+                          ? 'text-slate-900'
+                          : 'text-white'
+                        : isDark
+                          ? 'text-slate-400'
+                          : 'text-slate-500'
+                    }`}
+                  />
+                  <span>{t('nav.subtabs.executive_report', 'Rapport Mensuel Exécutif')}</span>
+                </span>
+                <span className={getBadgeClass('executive_report')}>Direction</span>
+              </button>
+            )}
+
+            {/* Pilotage des Coûts & Budgets Maintenance (Special Level-1 Page kept in place) */}
+            {canAccess('finance') && (
+              <button
+                onClick={() => navTo('finance')}
+                className={getTabClass('finance', true)}
+              >
+                <span className="flex items-center gap-2">
+                  <Landmark
+                    className={`w-4 h-4 shrink-0 ${isDark ? 'text-emerald-400' : 'text-emerald-600'}`}
+                  />
+                  <span>{t('nav.finance', 'Pilotage Coûts & Budgets')}</span>
+                </span>
+                <span className="text-[10px] px-1.5 py-0.5 rounded-full font-mono bg-emerald-100 text-emerald-800 font-bold">
+                  ISO 4217
+                </span>
+              </button>
+            )}
+
+          </div>
+
+          {/* GROUPE 1: STOCK & ARTICLES */}
+          {(canAccess('stock') ||
+            canAccess('sortie') ||
+            canAccess('pdr_groups') ||
+            canAccess('types') ||
+            canAccess('designations')) && (
+            <div>
+              <div className="px-3 mb-1.5 text-[10px] font-bold tracking-[0.08em] text-slate-400 uppercase">
+                <span>{t('nav.groups.stock_articles', 'Stock & Articles')}</span>
+              </div>
+              <div className="space-y-1">
+                {/* L1: Stock (Articles) */}
+                {canAccess('stock') && (
+                  <button onClick={() => navTo('stock')} className={getTabClass('stock')}>
+                    <span className="flex items-center gap-2.5">
+                      <Package
+                        className={`w-4 h-4 shrink-0 ${isDark ? 'text-cyan-400' : 'text-cyan-600'}`}
+                      />
+                      <span>{t('nav.subtabs.stock', 'Stock (Articles)')}</span>
+                    </span>
+                    <span className={getBadgeClass('stock')}>{counts.stock || 0}</span>
+                  </button>
+                )}
+
+                {/* L2: Sortie & Entrée Rapide */}
+                {canAccess('sortie') && (
+                  <button onClick={() => navTo('sortie')} className={getTabClass('sortie', true)}>
+                    <span className="flex items-center gap-2">
+                      <SortieEntreeIcon
+                        className="w-3.5 h-3.5 shrink-0 sidebar-l2-icon"
+                        downColor={
+                          isTabRouteActive('sortie')
+                            ? isDark
+                              ? 'text-slate-900'
+                              : 'text-white'
+                            : isDark
+                              ? 'text-slate-400'
+                              : 'text-slate-500'
+                        }
+                        upColor={
+                          isTabRouteActive('sortie')
+                            ? isDark
+                              ? 'text-slate-900'
+                              : 'text-white'
+                            : isDark
+                              ? 'text-slate-400'
+                              : 'text-slate-500'
+                        }
+                      />
+                      <span>{t('nav.subtabs.sortie', 'Sortie & Entrée Rapide')}</span>
+                    </span>
+                    <span className="flex items-center gap-1">
+                      {pendingSortieDemands > 0 && (
+                        <span
+                          className="text-[10px] px-1.5 py-0.5 rounded-full font-mono bg-rose-600 text-white font-black shadow-2xs"
+                          title={`${pendingSortieDemands} demande(s) de sortie à valider`}
+                        >
+                          {pendingSortieDemands} {t('nav.groups.to_validate', 'À valider')}
+                        </span>
+                      )}
+                      <span className={getBadgeClass('sortie')}>Mvt</span>
+                    </span>
+                  </button>
+                )}
+
+                {/* L2: Groupes PDR */}
+                {canAccess('pdr_groups') && (
+                  <button
+                    onClick={() => navTo('pdr_groups')}
+                    className={getTabClass('pdr_groups', true)}
+                  >
+                    <span className="flex items-center gap-2">
+                      <Boxes
+                        className={`w-3.5 h-3.5 shrink-0 sidebar-l2-icon ${
+                          isTabRouteActive('pdr_groups')
+                            ? isDark
+                              ? 'text-slate-900'
+                              : 'text-white'
+                            : isDark
+                              ? 'text-slate-400'
+                              : 'text-slate-500'
+                        }`}
+                      />
+                      <span>{t('nav.subtabs.pdr_groups', 'Groupes PDR')}</span>
+                    </span>
+                    <span className={getBadgeClass('pdr_groups')}>
+                      {counts.pdr_groups ?? counts.pdrGroups ?? 0}
+                    </span>
+                  </button>
+                )}
+
+                {/* L2: Types */}
+                {canAccess('types') && (
+                  <button onClick={() => navTo('types')} className={getTabClass('types', true)}>
+                    <span className="flex items-center gap-2">
+                      <Tag
+                        className={`w-3.5 h-3.5 shrink-0 sidebar-l2-icon ${
+                          isTabRouteActive('types')
+                            ? isDark
+                              ? 'text-slate-900'
+                              : 'text-white'
+                            : isDark
+                              ? 'text-slate-400'
+                              : 'text-slate-500'
+                        }`}
+                      />
+                      <span>{t('nav.subtabs.types', 'Types')}</span>
+                    </span>
+                    <span className={getBadgeClass('types')}>{counts.types || 0}</span>
+                  </button>
+                )}
+
+                {/* L2: Désignations */}
+                {canAccess('designations') && (
+                  <button
+                    onClick={() => navTo('designations')}
+                    className={getTabClass('designations', true)}
+                  >
+                    <span className="flex items-center gap-2">
+                      <BadgeCheck
+                        className={`w-3.5 h-3.5 shrink-0 sidebar-l2-icon ${
+                          isTabRouteActive('designations')
+                            ? isDark
+                              ? 'text-slate-900'
+                              : 'text-white'
+                            : isDark
+                              ? 'text-slate-400'
+                              : 'text-slate-500'
+                        }`}
+                      />
+                      <span>{t('nav.subtabs.designations', 'Désignations')}</span>
+                    </span>
+                    <span className={getBadgeClass('designations')}>
+                      {counts.designations || counts.diagnostics || 0}
+                    </span>
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* GROUPE 2: PARC MACHINES */}
+          {(canAccess('machines') ||
+            canAccess('families') ||
+            canAccess('templates') ||
+            canAccess('blueprints')) && (
+            <div>
+              <div className="px-3 mb-1.5 text-[10px] font-bold tracking-[0.08em] text-slate-400 uppercase">
+                <span>{t('nav.groups.parc_machines', 'Parc Machines')}</span>
+              </div>
+              <div className="space-y-1">
+                {/* Machines Registered */}
+                {canAccess('machines') && (
+                  <button onClick={() => navTo('machines')} className={getTabClass('machines')}>
+                    <span className="flex items-center gap-2.5">
+                      <Factory
+                        className={`w-4 h-4 shrink-0 ${isDark ? 'text-emerald-400' : 'text-emerald-600'}`}
+                      />
+                      <span>{t('nav.subtabs.machines', 'Machines Registered')}</span>
+                    </span>
+                    <span className={getBadgeClass('machines')}>{counts.machines || 0}</span>
+                  </button>
+                )}
+
+                {/* Families (Machines) */}
+                {canAccess('families') && (
+                  <button onClick={() => navTo('families')} className={getTabClass('families', true)}>
+                    <span className="flex items-center gap-2">
+                      <HubIcon
+                        className={`w-3.5 h-3.5 shrink-0 sidebar-l2-icon ${
+                          isTabRouteActive('families')
+                            ? isDark
+                              ? 'text-slate-900'
+                              : 'text-white'
+                            : isDark
+                              ? 'text-slate-400'
+                              : 'text-slate-500'
+                        }`}
+                      />
+                      <span>{t('nav.subtabs.families', 'Familles Machines')}</span>
+                    </span>
+                    <span className={getBadgeClass('families')}>{counts.families || 0}</span>
+                  </button>
+                )}
+
+                {/* Templates (Machines) */}
+                {canAccess('templates') && (
+                  <button
+                    onClick={() => navTo('templates')}
+                    className={getTabClass('templates', true)}
+                  >
+                    <span className="flex items-center gap-2">
+                      <CategoryIcon
+                        className={`w-3.5 h-3.5 shrink-0 sidebar-l2-icon ${
+                          isTabRouteActive('templates')
+                            ? isDark
+                              ? 'text-slate-900'
+                              : 'text-white'
+                            : isDark
+                              ? 'text-slate-400'
+                              : 'text-slate-500'
+                        }`}
+                      />
+                      <span>{t('nav.subtabs.templates', 'Templates Machines')}</span>
+                    </span>
+                    <span className={getBadgeClass('templates')}>{counts.templates || 0}</span>
+                  </button>
+                )}
+
+                {/* Blueprint Machine (Level 3) */}
+                {canAccess('blueprints') && (
+                  <button
+                    onClick={() => navTo('blueprints')}
+                    className={getTabClass('blueprints', true)}
+                  >
+                    <span className="flex items-center gap-2">
+                      <FingerprintPattern
+                        className={`w-3.5 h-3.5 shrink-0 sidebar-l2-icon ${
+                          isTabRouteActive('blueprints')
+                            ? isDark
+                              ? 'text-slate-900'
+                              : 'text-white'
+                            : isDark
+                              ? 'text-slate-400'
+                              : 'text-slate-500'
+                        }`}
+                      />
+                      <span>{t('nav.subtabs.blueprints', 'Blueprint Machine')}</span>
+                    </span>
+                    <span className={getBadgeClass('blueprints')}>{counts.blueprints || 0}</span>
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* GROUPE: MAINTENANCE PRÉVENTIVE */}
+          {(canAccess('preventive') || canAccess('preventive_referentiel')) && (
+            <div>
+              <div className="px-3 mb-1.5 text-[10px] font-bold tracking-[0.08em] text-slate-400 uppercase">
+                <span>{t('nav.groups.maintenance_preventive', 'Maintenance & Préventif')}</span>
+              </div>
+              <div className="space-y-1">
+                {canAccess('preventive') && (
+                  <button onClick={() => navTo('preventive')} className={getTabClass('preventive')}>
+                    <span className="flex items-center gap-2.5">
+                      <Calendar
+                        className={`w-4 h-4 shrink-0 ${isDark ? 'text-indigo-400' : 'text-indigo-600'}`}
+                      />
+                      <span>{t('nav.subtabs.preventive', 'Planning Préventif')}</span>
+                    </span>
+                    <span className="flex items-center gap-1">
+                      {pendingPreventiveVal > 0 && (
+                        <span
+                          className="text-[10px] px-1.5 py-0.5 rounded-full font-mono bg-amber-500 text-slate-950 font-black shadow-2xs"
+                          title={`${pendingPreventiveVal} exécution(s) préventive(s) à valider`}
+                        >
+                          {pendingPreventiveVal} {t('nav.groups.to_validate', 'À valider')}
+                        </span>
+                      )}
+                      <span className={getBadgeClass('preventive')}>{counts.preventive || 0}</span>
+                    </span>
+                  </button>
+                )}
+
+                {/* Référentiel, Guides, Actions & Concepteur de Plans */}
+                {canAccess('preventive_referentiel') && (
+                  <button
+                    onClick={() => navTo('preventive_referentiel')}
+                    className={getTabClass('preventive_referentiel', true)}
+                  >
+                    <span className="flex items-center gap-2">
+                      <Settings2
+                        className={`w-3.5 h-3.5 shrink-0 sidebar-l2-icon ${
+                          isTabRouteActive('preventive_referentiel')
+                            ? isDark
+                              ? 'text-slate-900'
+                              : 'text-white'
+                            : isDark
+                              ? 'text-slate-400'
+                              : 'text-slate-500'
+                        }`}
+                      />
+                      <span>{t('nav.subtabs.preventive_referentiel', 'Ingénierie & Référentiel')}</span>
+                    </span>
+                    <span className={getBadgeClass('preventive_referentiel')}>
+                      {(counts.preventiveGuides || 0) + (counts.preventiveActions || 0) || 'Guides'}
+                    </span>
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* GROUPE: MAINTENANCE CORRECTIVE */}
+          {(canAccess('corrective') || canAccess('corrective_referentiel')) && (
+            <div>
+              <div className="px-3 mb-1.5 text-[10px] font-bold tracking-[0.08em] text-slate-400 uppercase">
+                <span>{t('nav.groups.maintenance_corrective', 'Maintenance Corrective')}</span>
+              </div>
+              <div className="space-y-1">
+                {/* Item 1: Correctif Hub (Main page) */}
+                {canAccess('corrective') && (
+                  <button onClick={() => navTo('corrective')} className={getTabClass('corrective')}>
+                    <span className="flex items-center gap-2.5">
+                      <Wrench
+                        className={`w-4 h-4 shrink-0 ${isDark ? 'text-amber-400' : 'text-amber-600'}`}
+                      />
+                      <span>{t('nav.subtabs.corrective', 'Correctif Hub')}</span>
+                    </span>
+                    <span className="flex items-center gap-1">
+                      {pendingCorrectiveVal > 0 && (
+                        <span
+                          className="text-[10px] px-1.5 py-0.5 rounded-full font-mono bg-rose-600 text-white font-black shadow-2xs"
+                          title={`${pendingCorrectiveVal} intervention(s) corrective(s) à valider`}
+                        >
+                          {pendingCorrectiveVal} {t('nav.groups.to_validate', 'À valider')}
+                        </span>
+                      )}
+                      <span className={getBadgeClass('corrective')}>{counts.corrective || 'Live'}</span>
+                    </span>
+                  </button>
+                )}
+
+                {/* Item 2: Catalogue (Second position - L2) */}
+                {canAccess('corrective_referentiel') && (
+                  <button
+                    onClick={() => navTo('corrective_referentiel')}
+                    className={getTabClass('corrective_referentiel', true)}
+                  >
+                    <span className="flex items-center gap-2">
+                      <Database
+                        className={`w-3.5 h-3.5 shrink-0 sidebar-l2-icon ${
+                          isTabRouteActive('corrective_referentiel')
+                            ? isDark
+                              ? 'text-slate-900'
+                              : 'text-white'
+                            : isDark
+                              ? 'text-slate-400'
+                              : 'text-slate-500'
+                        }`}
+                      />
+                      <span className="truncate">{t('nav.subtabs.corrective_referentiel', 'Catalogue')}</span>
+                    </span>
+                    <span className={getBadgeClass('corrective_referentiel')}>Réf</span>
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* GROUPE 3: GROUPE ENTREPÔT (COMPONENTS & PARTS) */}
+          {canAccess('entrepot') && (
+            <div>
+              <div className="px-3 mb-1.5 text-[10px] font-bold tracking-[0.08em] text-slate-400 uppercase">
+                <span>{t('nav.groups.groupe_entrepot', 'Groupe Entrepôt')}</span>
+              </div>
+              <div className="space-y-1">
+                {/* Entrepôt Principal (Éléments, Composants & Parts) */}
+                <button onClick={() => navTo('entrepot')} className={getTabClass('entrepot')}>
+                  <span className="flex items-center gap-2.5">
+                    <Warehouse
+                      className={`w-4 h-4 shrink-0 ${isDark ? 'text-indigo-400' : 'text-indigo-600'}`}
+                    />
+                    <span>{t('nav.subtabs.entrepot', 'Entrepôt (Inventaire)')}</span>
+                  </span>
+                  <span className={getBadgeClass('entrepot')}>
+                    {counts.warehouse || counts.entrepot || 0}
+                  </span>
+                </button>
+
+                {/* Components section: Groupes -> Familles -> Templates */}
+                {canAccess('comp_groups') && (
+                  <button
+                    onClick={() => navTo('comp_groups')}
+                    className={getTabClass('comp_groups', true)}
+                  >
+                    <span className="flex items-center gap-2">
+                      <Boxes
+                        className={`w-3.5 h-3.5 shrink-0 sidebar-l2-icon ${
+                          isTabRouteActive('comp_groups')
+                            ? isDark
+                              ? 'text-slate-900'
+                              : 'text-white'
+                            : isDark
+                              ? 'text-slate-400'
+                              : 'text-slate-500'
+                        }`}
+                      />
+                      <span>{t('nav.subtabs.comp_groups', 'Groupes (Composants)')}</span>
+                    </span>
+                    <span className={getBadgeClass('comp_groups')}>{counts.compGroups || 0}</span>
+                  </button>
+                )}
+
+                {canAccess('comp_families') && (
+                  <button
+                    onClick={() => navTo('comp_families')}
+                    className={getTabClass('comp_families', true)}
+                  >
+                    <span className="flex items-center gap-2">
+                      <SpokeIcon
+                        className={`w-3.5 h-3.5 shrink-0 sidebar-l2-icon ${
+                          isTabRouteActive('comp_families')
+                            ? isDark
+                              ? 'text-slate-900'
+                              : 'text-white'
+                            : isDark
+                              ? 'text-slate-400'
+                              : 'text-slate-500'
+                        }`}
+                      />
+                      <span>{t('nav.subtabs.comp_families', 'Familles (Composants)')}</span>
+                    </span>
+                    <span className={getBadgeClass('comp_families')}>
+                      {counts.compFamilies || 0}
+                    </span>
+                  </button>
+                )}
+
+                {canAccess('comp_templates') && (
+                  <button
+                    onClick={() => navTo('comp_templates')}
+                    className={getTabClass('comp_templates', true)}
+                  >
+                    <span className="flex items-center gap-2">
+                      <CubeIcon
+                        className={`w-3.5 h-3.5 shrink-0 sidebar-l2-icon ${
+                          isTabRouteActive('comp_templates')
+                            ? isDark
+                              ? 'text-slate-900'
+                              : 'text-white'
+                            : isDark
+                              ? 'text-slate-400'
+                              : 'text-slate-500'
+                        }`}
+                      />
+                      <span>{t('nav.subtabs.comp_templates', 'Templates (Composants)')}</span>
+                    </span>
+                    <span className={getBadgeClass('comp_templates')}>
+                      {counts.compTemplates || 0}
+                    </span>
+                  </button>
+                )}
+
+                {/* Parts section sub-items: Groupes -> Types -> Désignations */}
+                {canAccess('part_groups') && (
+                  <button
+                    onClick={() => navTo('part_groups')}
+                    className={getTabClass('part_groups', true)}
+                  >
+                    <span className="flex items-center gap-2">
+                      <Boxes
+                        className={`w-3.5 h-3.5 shrink-0 sidebar-l2-icon ${
+                          isTabRouteActive('part_groups')
+                            ? isDark
+                              ? 'text-slate-900'
+                              : 'text-white'
+                            : isDark
+                              ? 'text-slate-400'
+                              : 'text-slate-500'
+                        }`}
+                      />
+                      <span>{t('nav.subtabs.part_groups', 'Groupes (Parts)')}</span>
+                    </span>
+                    <span className={getBadgeClass('part_groups')}>
+                      {counts.part_groups ?? counts.partGroups ?? 0}
+                    </span>
+                  </button>
+                )}
+
+                {canAccess('part_types') && (
+                  <button
+                    onClick={() => navTo('part_types')}
+                    className={getTabClass('part_types', true)}
+                  >
+                    <span className="flex items-center gap-2">
+                      <LayersIcon
+                        className={`w-3.5 h-3.5 shrink-0 sidebar-l2-icon ${
+                          isTabRouteActive('part_types')
+                            ? isDark
+                              ? 'text-slate-900'
+                              : 'text-white'
+                            : isDark
+                              ? 'text-slate-400'
+                              : 'text-slate-500'
+                        }`}
+                      />
+                      <span>{t('nav.subtabs.part_types', 'Types (Parts)')}</span>
+                    </span>
+                    <span className={getBadgeClass('part_types')}>{counts.partTypes || 0}</span>
+                  </button>
+                )}
+
+                {canAccess('part_designations') && (
+                  <button
+                    onClick={() => navTo('part_designations')}
+                    className={getTabClass('part_designations', true)}
+                  >
+                    <span className="flex items-center gap-2">
+                      <PartInfoIcon
+                        className={`w-3.5 h-3.5 shrink-0 sidebar-l2-icon ${
+                          isTabRouteActive('part_designations')
+                            ? isDark
+                              ? 'text-slate-900'
+                              : 'text-white'
+                            : isDark
+                              ? 'text-slate-400'
+                              : 'text-slate-500'
+                        }`}
+                      />
+                      <span>{t('nav.subtabs.part_designations', 'Désignations (Parts)')}</span>
+                    </span>
+                    <span className={getBadgeClass('part_designations')}>
+                      {counts.partDesignations || 0}
+                    </span>
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* GROUPE 4: ZONES & ÉQUIPES */}
+          {(canAccess('zones') || canAccess('utilisateurs') || canAccess('equipment')) && (
+            <div>
+              <div className="px-3 mb-1.5 text-[10px] font-bold tracking-[0.08em] text-slate-400 uppercase">
+                <span>{t('nav.groups.zones_equipes', 'Zones & Équipes')}</span>
+              </div>
+              <div className="space-y-1">
+                {/* Zones */}
+                {canAccess('zones') && (
+                  <button onClick={() => navTo('zones')} className={getTabClass('zones')}>
+                    <span className="flex items-center gap-2.5">
+                      <MapPin
+                        className={`w-4 h-4 shrink-0 ${isDark ? 'text-purple-400' : 'text-purple-600'}`}
+                      />
+                      <span>{t('nav.subtabs.zones', 'Zones & Ateliers')}</span>
+                    </span>
+                    <span className={getBadgeClass('zones')}>{counts.zones || 0}</span>
+                  </button>
+                )}
+
+                {/* Utilisateurs (Special Level-1 Page kept in place) */}
+                {canAccess('utilisateurs') && (
+                  <button
+                    onClick={() => navTo('utilisateurs')}
+                    className={getTabClass('utilisateurs', true)}
+                  >
+                    <span className="flex items-center gap-2">
+                      <Users
+                        className={`w-4 h-4 shrink-0 ${isDark ? 'text-violet-400' : 'text-violet-600'}`}
+                      />
+                      <span>{t('nav.subtabs.utilisateurs', 'Utilisateurs (Membres)')}</span>
+                    </span>
+                    <span className={getBadgeClass('utilisateurs')}>
+                      {(counts.technicians || 0) + (counts.operations || 0)}
+                    </span>
+                  </button>
+                )}
+
+                {/* Équipements Système Général (Special Level-1 Page kept in place) */}
+                {canAccess('equipment') && (
+                  <button
+                    onClick={() => navTo('equipment')}
+                    className={getTabClass('equipment', true)}
+                  >
+                    <span className="flex items-center gap-2">
+                      <ShieldAlert
+                        className={`w-4 h-4 shrink-0 ${isDark ? 'text-amber-400' : 'text-amber-600'}`}
+                      />
+                      <span>{t('nav.subtabs.equipment', 'Équipements (Système Général)')}</span>
+                    </span>
+                    <span className={getBadgeClass('equipment')}>
+                      {counts.equipment || 0}
+                    </span>
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* GROUPE 5: OUTILS & RÉFÉRENTIEL */}
+          {(canAccess('nexus') || canAccess('guide')) && (
+            <div
+              className={`space-y-1 pt-2 border-t ${isDark ? 'border-slate-800' : 'border-slate-200'}`}
+            >
+              {canAccess('nexus') && (
+                <button onClick={() => navTo('nexus')} className={getTabClass('nexus')}>
+                  <span className="flex items-center gap-2.5">
+                    <GitBranch
+                      className={`w-4 h-4 shrink-0 ${isDark ? 'text-emerald-400' : 'text-emerald-600'}`}
+                    />
+                    <span>{t('nav.subtabs.nexus', 'Nexus Matrix')}</span>
+                  </span>
+                </button>
+              )}
+              {canAccess('guide') && (
+                <button onClick={() => navTo('guide')} className={getTabClass('guide')}>
+                  <span className="flex items-center gap-2.5">
+                    <BookOpen
+                      className={`w-4 h-4 shrink-0 ${isDark ? 'text-amber-400' : 'text-amber-600'}`}
+                    />
+                    <span>{t('nav.subtabs.guide', "Guide d'utilisation")}</span>
+                  </span>
+                </button>
+              )}
+            </div>
+          )}
+        </div>
+
+            {/* Guided Tip Box */}
+        <div
+          className={`p-3 border-t ${isDark ? 'border-slate-800 bg-slate-950/40' : 'border-slate-200 bg-slate-50'}`}
+        >
+          <div
+            className={`rounded-xl p-3 text-[11.5px] leading-relaxed space-y-1 border ${
+              isDark
+                ? 'bg-slate-800/80 text-slate-300 border-slate-700/60 shadow-inner'
+                : 'bg-white text-slate-600 border-slate-200 shadow-2xs'
+            }`}
+          >
+            <div
+              className={`font-semibold flex items-center gap-1.5 text-[12px] ${isDark ? 'text-slate-100' : 'text-slate-800'}`}
+            >
+              <Lightbulb className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+              <span>{t('nav.groups.tip_title', 'Astuce Excel Twin')}</span>
+            </div>
+            <div
+              className={`text-[11px] leading-relaxed ${isDark ? 'text-slate-400' : 'text-slate-500'}`}
+            >
+              {t('nav.groups.tip_body', "• Cliquez sur n'importe quel code (Zone, Famille, Type) pour filtrer les tables associées.")}
+            </div>
+          </div>
+        </div>
+
+        {/* Quick Excel Synchronization for Mobile / Fixed Sidebar (RBAC Guarded — NH-1) */}
+        {((handleExportExcel && canExportData) || (fileInputRef && canImportData)) && (
+          <div className="px-3 pb-2 flex items-center gap-2">
+            {handleExportExcel && canExportData && (
+              <button
+                onClick={() => {
+                  handleExportExcel();
+                  setMobileMenuOpen(false);
+                }}
+                className={`flex-1 flex items-center justify-center gap-1.5 py-2 px-2.5 rounded-xl text-xs font-semibold border transition cursor-pointer ${
+                  isDark
+                    ? 'bg-slate-800/80 border-slate-700 text-emerald-400 hover:bg-slate-700'
+                    : 'bg-white border-slate-200 text-emerald-700 hover:bg-emerald-50'
+                }`}
+                title={t('header.export_excel', 'Export externe Type B (consultation Excel — non réimportable)')}
+              >
+                <Download className="w-3.5 h-3.5" />
+                <span>{t('common.filters.export_excel', 'Export Excel (Type B)')}</span>
+              </button>
+            )}
+            {fileInputRef && canImportData && (
+              <button
+                onClick={() => {
+                  fileInputRef.current?.click();
+                  setMobileMenuOpen(false);
+                }}
+                className={`flex-1 flex items-center justify-center gap-1.5 py-2 px-2.5 rounded-xl text-xs font-semibold border transition cursor-pointer ${
+                  isDark
+                    ? 'bg-slate-800/80 border-slate-700 text-slate-300 hover:bg-slate-700'
+                    : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-100'
+                }`}
+                title={t('header.import_excel', 'Importer un paquet JSON officiel (Type A)')}
+              >
+                <Upload className="w-3.5 h-3.5" />
+                <span>{t('header.import_excel', 'Import (Type A)')}</span>
+              </button>
+            )}
+          </div>
+        )}
+
+        {/* PWA Install Button Container */}
+        <div className="px-3 pb-2">
+          <PWAInstallButton variant="sidebar" />
+        </div>
+
+        {/* Bottom Control Actions: Settings (Parameters) & Light/Dark Theme Switcher */}
+        <div
+          className={`p-3 border-t flex items-center justify-between gap-2 shrink-0 ${
+            isDark ? 'border-slate-800 bg-slate-950/80' : 'border-slate-200 bg-slate-100/70'
+          }`}
+        >
+          {/* Settings Button */}
+          {canAccess('settings') && (
+            <button
+              onClick={() => navTo('settings')}
+              className={`flex-1 flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-semibold transition-all duration-150 cursor-pointer ${
+                currentTab === 'settings'
+                  ? isDark
+                    ? 'bg-white text-slate-900 shadow-sm'
+                    : 'bg-slate-900 text-white shadow-sm'
+                  : isDark
+                    ? 'text-slate-300 hover:text-white hover:bg-slate-800'
+                    : 'text-slate-700 hover:text-slate-900 hover:bg-slate-200/80'
+              }`}
+              title={t('nav.settings', 'Paramètres du système')}
+            >
+              <Settings
+                className={`w-4 h-4 shrink-0 ${
+                  currentTab === 'settings'
+                    ? isDark
+                      ? 'text-sky-600'
+                      : 'text-sky-400'
+                    : isDark
+                      ? 'text-sky-400'
+                      : 'text-sky-600'
+                }`}
+              />
+              <span>{t('nav.subtabs.settings', 'Paramètres')}</span>
+            </button>
+          )}
+
+          {/* Light / Dark Mode Toggle Button */}
+          <button
+            onClick={toggleSidebarTheme}
+            className={`p-2 rounded-xl border flex items-center justify-center transition-all duration-150 cursor-pointer ${
+              isDark
+                ? 'bg-slate-800 border-slate-700 text-amber-400 hover:bg-slate-700 hover:text-amber-300'
+                : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50 hover:text-slate-900 shadow-2xs'
+            }`}
+            title={
+              isDark
+                ? t('nav.theme_light', 'Passer au mode clair')
+                : t('nav.theme_dark', 'Passer au mode sombre')
+            }
+            aria-label="Toggle Sidebar Theme"
+          >
+            {isDark ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4 text-indigo-600" />}
+          </button>
+        </div>
+
+        {/* User Account Card & Logout Section */}
+        {currentUser && (
+          <div
+            className={`p-3 border-t flex items-center justify-between gap-2 shrink-0 ${
+              isDark ? 'border-slate-800 bg-slate-950' : 'border-slate-200 bg-slate-50'
+            }`}
+          >
+            {/* Account Card */}
+            <div
+              className={`flex items-center gap-2.5 px-2.5 py-1.5 rounded-xl border min-w-0 flex-1 ${
+                isDark
+                  ? 'bg-slate-900 border-slate-800 text-white'
+                  : 'bg-white border-slate-200/90 text-slate-900 shadow-2xs'
+              }`}
+            >
+              <div className="w-7 h-7 rounded-lg bg-emerald-700 text-white font-bold text-[10.5px] flex items-center justify-center shadow-2xs shrink-0">
+                {currentUser.avatar || 'RM'}
+              </div>
+              <div className="text-left leading-tight min-w-0 flex-1">
+                <div
+                  className={`text-[11.5px] font-bold truncate ${isDark ? 'text-slate-100' : 'text-slate-900'}`}
+                >
+                  {currentUser.name}
+                </div>
+                <div
+                  className={`text-[9.5px] font-semibold truncate ${isDark ? 'text-emerald-400' : 'text-emerald-800'}`}
+                >
+                  {currentUser.titleFr || currentUser.role}
+                </div>
+              </div>
+            </div>
+
+            {/* Logout Button */}
+            {onLogout && (
+              <button
+                onClick={onLogout}
+                className={`p-2 rounded-xl transition shrink-0 cursor-pointer ${
+                  isDark
+                    ? 'text-slate-400 hover:text-rose-400 hover:bg-slate-800'
+                    : 'text-slate-500 hover:text-rose-600 hover:bg-rose-50'
+                }`}
+                title={t('nav.logout', 'Déconnexion')}
+                aria-label={t('nav.logout', 'Déconnexion')}
+              >
+                <LogOut className="w-4 h-4" />
+              </button>
+            )}
+          </div>
+        )}
+      </aside>
+    </>
+  );
+}

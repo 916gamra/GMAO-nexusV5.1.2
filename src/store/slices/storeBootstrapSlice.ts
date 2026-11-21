@@ -1,0 +1,586 @@
+/**
+ * GMAO Store Bootstrap & Pure Slice Helpers (`src/store/slices/storeBootstrapSlice.ts`)
+ * Extracted from `useGmaoStore.ts` to keep the master store modular and maintainable.
+ */
+
+import { STORAGE_KEYS } from '../../infrastructure/persistence/storageKeys';
+import { loadCollection } from '../../infrastructure/persistence/migrateStorage';
+import { storageService } from '../../utils/storageService';
+import { sanitizeMachinesHierarchy } from '../../utils/assetHierarchy';
+import type { IMeterReading } from '../../types/meter';
+import type { IReplenishmentOrder } from '../../types/replenishment';
+import SortieExterneService from '../../application/services/SortieExterneService';
+import type { IWorkshopOrder } from '../../domain/corrective/workshopOrderService';
+import type { INeedRequest } from '../../domain/corrective/needRequestService';
+import { getEntityRecordId } from '../../services/lanStateMergeService';
+import { SecurityService } from '../../core/security/SecurityService';
+import type {
+  IMachine,
+  IMouvement,
+  IOperation,
+  IStockItem,
+  ITechnician,
+  IUserRecord,
+  IZone,
+} from '../../types/domain';
+import type { CorrectiveInterventionItem, SortieExterneItem } from '../../types/store';
+
+export const ACTIVE_LIVE_KEY = STORAGE_KEYS.CORRECTIVE_ACTIVE_LIVE;
+export const PENDING_DELETED_IDS_KEY = 'gmao_pending_deleted_ids_v1';
+
+interface SessionPayloadShape {
+  userId?: string;
+  id?: string;
+  username?: string;
+  nom?: string;
+  name?: string;
+  role?: string;
+}
+
+interface SessionWrapperShape {
+  payload?: SessionPayloadShape;
+  userId?: string;
+  id?: string;
+  username?: string;
+  nom?: string;
+  name?: string;
+  role?: string;
+}
+
+export function resolveActiveActorContext(): { actorId: string; actorName: string; actorRole: string } {
+  try {
+    const parsed = SecurityService.getSessionSecure('gmao_session_v2') as SessionWrapperShape | null;
+    if (parsed && typeof parsed === 'object') {
+      const payload: SessionPayloadShape = parsed.payload || parsed;
+      return {
+        actorId: String(payload.userId || payload.id || payload.username || 'ADMIN').trim(),
+        actorName: String(payload.nom || payload.name || payload.username || 'Administrateur').trim(),
+        actorRole: String(payload.role || 'ADMIN').trim().toUpperCase(),
+      };
+    }
+  } catch {
+    // ignore
+  }
+  return {
+    actorId: 'ADMIN',
+    actorName: 'Administrateur GMAO',
+    actorRole: 'ADMIN',
+  };
+}
+
+export function isMachineArchivedState(m: Partial<IMachine> | Record<string, unknown> | null | undefined): boolean {
+  if (!m || typeof m !== 'object') return false;
+  const rec = m as Partial<IMachine>;
+  const statusUpper = String(rec.status || rec.statut || '').trim().toUpperCase();
+  const lifecycleUpper = String(rec.lifecycle_status || '').trim().toUpperCase();
+  return (
+    statusUpper === 'ARCHIVEE' ||
+    statusUpper === 'ARCHIVED' ||
+    lifecycleUpper === 'ARCHIVED' ||
+    rec.is_active === false ||
+    rec.actif === false ||
+    rec.archived === true
+  );
+}
+
+export function resolveActiveSessionRole(): string {
+  try {
+    const parsed = SecurityService.getSessionSecure('gmao_session_v2') as SessionWrapperShape | null;
+    if (parsed && typeof parsed === 'object') {
+      const role = parsed.payload?.role || parsed.role || '';
+      return String(role).trim().toUpperCase();
+    }
+  } catch {
+    // ignore
+  }
+  return '';
+}
+
+const GENERIC_PLACEHOLDER_ACTORS = new Set([
+  'ADMIN',
+  'ADMINISTRATEUR',
+  'ADMINISTRATEUR GMAO',
+  'SYSTEM',
+  'MAGASINIER / ADMIN',
+]);
+
+/**
+ * Enforces Maker-Checker Segregation of Duties (SoD) on approval transitions:
+ * prevents the creator/submitter of a field claim from approving their own submission,
+ * while remaining compatible with headless unit test fixtures that omit active browser sessions.
+ */
+export function isMakerCheckerSelfApproval(params: {
+  submitterId?: unknown;
+  submitterName?: unknown;
+  validatorId?: unknown;
+  validatorName?: unknown;
+  hasExplicitValidatorId?: boolean;
+  hasActiveSession?: boolean;
+}): boolean {
+  const subId = String(params.submitterId || '').trim().toUpperCase();
+  const valId = String(params.validatorId || '').trim().toUpperCase();
+  const subName = String(params.submitterName || '').trim().toUpperCase();
+  const valName = String(params.validatorName || '').trim().toUpperCase();
+
+  if (subId && valId && subId === valId) {
+    if (
+      params.hasActiveSession ||
+      params.hasExplicitValidatorId ||
+      !GENERIC_PLACEHOLDER_ACTORS.has(subId)
+    ) {
+      return true;
+    }
+  }
+
+  if (
+    (params.hasActiveSession || params.hasExplicitValidatorId) &&
+    subName &&
+    valName &&
+    subName === valName &&
+    !GENERIC_PLACEHOLDER_ACTORS.has(subName)
+  ) {
+    return true;
+  }
+
+  return false;
+}
+
+export function normalizeInterventionNature(raw: unknown): string | undefined {
+  const clean = String(raw || '').trim().toUpperCase();
+  if (
+    clean === 'REPLACE' ||
+    clean === 'ATELIER' ||
+    clean === 'REPAIR' ||
+    clean === 'CLEAN' ||
+    clean === 'ADJUST' ||
+    clean === 'INSPECT' ||
+    clean === 'OTHER'
+  ) {
+    return clean;
+  }
+  return undefined;
+}
+
+export function syncCorrectiveInterventionsWithSortieRecord(
+  interventions: CorrectiveInterventionItem[],
+  sortieRecord: SortieExterneItem | Record<string, unknown> | null | undefined,
+  allSorties: SortieExterneItem[]
+): { changed: boolean; nextInterventions: CorrectiveInterventionItem[] } {
+  if (!Array.isArray(interventions) || !sortieRecord || typeof sortieRecord !== 'object') {
+    return { changed: false, nextInterventions: interventions };
+  }
+  const sortie = sortieRecord as SortieExterneItem;
+  const targetBtKey = String(sortie.id_corrective || '').trim().toUpperCase();
+  const sortieId = String(sortie.id || '').trim();
+  const sortieCode = String(sortie.code || '').trim();
+  if (!targetBtKey && !sortieId && !sortieCode) {
+    return { changed: false, nextInterventions: interventions };
+  }
+
+  let changed = false;
+  const nextInterventions = interventions.map((bt) => {
+    if (!bt || typeof bt !== 'object') return bt;
+    const btId = String(bt.id || '').trim().toUpperCase();
+    const btNum = String(bt.num_bt || '').trim().toUpperCase();
+    const existingSortieId = String(bt.id_sortie_atelier || '').trim();
+    const existingSortieCode = String(bt.code_sortie_atelier || '').trim().toUpperCase();
+
+    const matches =
+      (targetBtKey && (btId === targetBtKey || btNum === targetBtKey)) ||
+      (sortieId && existingSortieId === sortieId) ||
+      (sortieCode && existingSortieCode === sortieCode.toUpperCase());
+
+    if (!matches) return bt;
+
+    changed = true;
+    const linkedList = SortieExterneService.getLinkedOrdersForBt(
+      { ...bt, id_sortie_atelier: sortieId || bt.id_sortie_atelier, code_sortie_atelier: sortieCode || bt.code_sortie_atelier },
+      allSorties
+    );
+    const totalAtelierCost = linkedList.reduce(
+      (sum, s) => sum + (Number(s?.cout_bobinage ?? s?.cout_atelier) || 0),
+      0
+    );
+    const totalPdrCost = Number(bt.cout_pdr ?? bt.pdr_cost ?? 0) || 0;
+
+    return {
+      ...bt,
+      id_sortie_atelier: sortie.id ? String(sortie.id) : bt.id_sortie_atelier || '',
+      code_sortie_atelier: sortie.code || bt.code_sortie_atelier || '',
+      cout_atelier: totalAtelierCost,
+      cout_total: Number((totalPdrCost + totalAtelierCost).toFixed(2)),
+      nature_travail_atelier:
+        sortie.nature_travail || sortie.type_probleme || bt.nature_travail_atelier || '',
+      prestataire_atelier:
+        sortie.fournisseur_externe || bt.prestataire_atelier || '',
+      ...(bt.intervention_nature ? {} : { intervention_nature: 'ATELIER' }),
+    };
+  });
+
+  return { changed, nextInterventions };
+}
+
+export function recordLocalDeletedIds(entity: string, removedIds: unknown[]): void {
+  const cleanEntity = String(entity || '').trim();
+  if (!cleanEntity || !Array.isArray(removedIds) || removedIds.length === 0) return;
+  const cleanIds = removedIds
+    .map((id) => String(id ?? '').trim())
+    .filter(Boolean);
+  if (cleanIds.length === 0) return;
+  try {
+    const raw = storageService.getItem(PENDING_DELETED_IDS_KEY);
+    const current =
+      typeof raw === 'string'
+        ? JSON.parse(raw)
+        : raw && typeof raw === 'object'
+        ? raw
+        : {};
+    const parsed = current && typeof current === 'object' && !Array.isArray(current) ? { ...current } : {};
+    const existing = new Set<string>(Array.isArray(parsed[cleanEntity]) ? parsed[cleanEntity] : []);
+    for (const id of cleanIds) existing.add(id);
+    parsed[cleanEntity] = Array.from(existing);
+    storageService.setItem(PENDING_DELETED_IDS_KEY, parsed);
+  } catch {}
+}
+
+export function trackRemovedEntityIds<T>(entity: string, prevList: T[], nextList: T[]): void {
+  if (!Array.isArray(prevList) || prevList.length === 0) return;
+  const nextArr = Array.isArray(nextList) ? nextList : [];
+  if (nextArr.length >= prevList.length) {
+    const nextIds = new Set<string>();
+    for (const item of nextArr) {
+      const id = getEntityRecordId(entity, item as Record<string, unknown>);
+      if (id) nextIds.add(id);
+    }
+    const removed: string[] = [];
+    for (const prevItem of prevList) {
+      const prevId = getEntityRecordId(entity, prevItem as Record<string, unknown>);
+      if (prevId && !nextIds.has(prevId)) removed.push(prevId);
+    }
+    if (removed.length > 0) recordLocalDeletedIds(entity, removed);
+    return;
+  }
+  const nextIds = new Set<string>();
+  for (const item of nextArr) {
+    const id = getEntityRecordId(entity, item as Record<string, unknown>);
+    if (id) nextIds.add(id);
+  }
+  const removed: string[] = [];
+  for (const prevItem of prevList) {
+    const prevId = getEntityRecordId(entity, prevItem as Record<string, unknown>);
+    if (prevId && !nextIds.has(prevId)) {
+      removed.push(prevId);
+    }
+  }
+  if (removed.length > 0) {
+    recordLocalDeletedIds(entity, removed);
+  }
+}
+
+export function isPartAlreadyDeductedByStoreBon(
+  mouvements: Array<Partial<IMouvement>>,
+  numBonSaisi: unknown,
+  ref: unknown
+): boolean {
+  const cleanBon = String(numBonSaisi || '').trim().toUpperCase();
+  const cleanRef = String(ref || '').trim().toUpperCase();
+  if (!cleanBon || !cleanRef) return false;
+  return (mouvements || []).some((m) => {
+    if (!m) return false;
+    const mType = String(m.type || '').trim().toLowerCase();
+    if (!mType.includes('sortie') && mType !== 'out') return false;
+    const mBon = String(m.code_bon || '').trim().toUpperCase();
+    const mTechBon = String(m.num_bon_saisi_par_tech || '').trim().toUpperCase();
+    if (mBon !== cleanBon && mTechBon !== cleanBon) return false;
+    const mRef = String(m.ref || m.code_article || m.reference || '').trim().toUpperCase();
+    return mRef === cleanRef;
+  });
+}
+
+export function resolveUpdate<T>(updater: T | ((prev: T) => T), current: T): T {
+  return typeof updater === 'function' ? (updater as (prev: T) => T)(current) : updater;
+}
+
+export function buildInitialStockMapFromList(rawStock: Array<Partial<IStockItem> & { Ref?: string }> = []): Map<string, number> {
+  const map = new Map<string, number>();
+  if (!Array.isArray(rawStock)) return map;
+  for (const item of rawStock) {
+    if (!item) continue;
+    const ref = String(item.ref || item.Ref || '').trim();
+    if (!ref) continue;
+    map.set(ref, Number(item.stockInitial) || 0);
+  }
+  return map;
+}
+
+export function isRealPersonnelUser(u: Partial<IUserRecord> | Record<string, unknown> | null | undefined): boolean {
+  if (!u || typeof u !== 'object') return false;
+  const rec = u as Partial<IUserRecord>;
+  if (rec.passwordHash) return false;
+  const idStr = String(rec.id || rec.id_technician || rec.id_operation || '').trim().toUpperCase();
+  const usernameStr = String(rec.username || '').trim().toLowerCase();
+  if (['ADMIN', 'MAGASINIER', 'VIEWER'].includes(idStr) || ['admin', 'magasinier', 'viewer'].includes(usernameStr)) {
+    return false;
+  }
+  if (idStr === 'TECH' && (!rec.nom || rec.nom === 'Technicien Maintenance')) {
+    return false;
+  }
+  return true;
+}
+
+export function deriveTechnicians(users: IUserRecord[]): ITechnician[] {
+  return (users || [])
+    .filter((u) => {
+      if (!u || !isRealPersonnelUser(u)) return false;
+      const roleStr = String(u.role || u.type_profil || '').toLowerCase();
+      const idStr = String(u.id || u.id_technician || '').toUpperCase();
+      return roleStr.includes('tech') || idStr.startsWith('TECH');
+    })
+    .map((u) => ({
+      ...u,
+      id_technician: u.id_technician || u.id,
+    }));
+}
+
+export function deriveOperations(users: IUserRecord[]): IOperation[] {
+  return (users || [])
+    .filter((u) => {
+      if (!u || !isRealPersonnelUser(u)) return false;
+      const roleStr = String(u.role || u.type_profil || '').toLowerCase();
+      const idStr = String(u.id || u.id_technician || '').toUpperCase();
+      return !roleStr.includes('tech') && !idStr.startsWith('TECH');
+    })
+    .map((u) => ({
+      ...u,
+      id_operation: u.id_operation || u.id,
+    }));
+}
+
+export function getInitialStock() {
+  const types = loadCollection(STORAGE_KEYS.STOCK_TYPES, {
+    allowDemoFallback: false,
+    demoSeed: [],
+  });
+  const rawStock = loadCollection(STORAGE_KEYS.RAW_STOCK, {
+    allowDemoFallback: false,
+    demoSeed: [],
+  });
+  const designations = loadCollection(STORAGE_KEYS.DESIGNATIONS, {
+    allowDemoFallback: false,
+    demoSeed: [],
+  });
+  const pdrGroups = loadCollection(STORAGE_KEYS.PDR_GROUPS, {
+    allowDemoFallback: false,
+    demoSeed: [],
+  });
+  return { types, rawStock, designations, pdrGroups };
+}
+
+export function normalizeMachinesList(list: IMachine[] = []): IMachine[] {
+  if (!Array.isArray(list)) return [];
+  const baseNormalized = list.map((m) => {
+    if (!m || typeof m !== 'object') return m;
+    const assetClass: 'SYSTEM_GENERAL' | 'PRODUCTION' =
+      String(m.asset_class || '').trim().toUpperCase() === 'SYSTEM_GENERAL'
+        ? 'SYSTEM_GENERAL'
+        : 'PRODUCTION';
+    return {
+      ...m,
+      asset_class: assetClass,
+      id_general_system_type:
+        assetClass === 'SYSTEM_GENERAL' ? m.id_general_system_type || null : null,
+    };
+  });
+  return sanitizeMachinesHierarchy(baseNormalized);
+}
+
+export function getInitialMachines() {
+  const families = loadCollection(STORAGE_KEYS.FAMILIES, {
+    allowDemoFallback: false,
+    demoSeed: [],
+  });
+  const templates = loadCollection(STORAGE_KEYS.TEMPLATES, {
+    allowDemoFallback: false,
+    demoSeed: [],
+  });
+  const blueprints = loadCollection(STORAGE_KEYS.BLUEPRINTS, {
+    allowDemoFallback: false,
+    demoSeed: [],
+  });
+  const loadedMachines = loadCollection<IMachine>(STORAGE_KEYS.MACHINES, {
+    allowDemoFallback: false,
+    demoSeed: [],
+  });
+  const machines = normalizeMachinesList(loadedMachines);
+  const generalSystemTypes = loadCollection(STORAGE_KEYS.GENERAL_SYSTEM_TYPES, {
+    allowDemoFallback: false,
+    demoSeed: [],
+  });
+  const loadedZones = loadCollection<IZone>(STORAGE_KEYS.ZONES, {
+    allowDemoFallback: false,
+    demoSeed: [],
+  });
+  const zones = loadedZones.map((z) => ({
+    ...z,
+    code_zone: z.code_zone || z.code || z.id_zone,
+    id_zone: z.id_zone || z.code_zone || z.code,
+  }));
+  const machineElementsLedger = loadCollection(STORAGE_KEYS.MACHINE_BOM, {
+    allowDemoFallback: false,
+    demoSeed: [],
+  });
+  return { families, templates, blueprints, machines, generalSystemTypes, zones, machineElementsLedger };
+}
+
+export function getInitialWarehouse() {
+  const compGroups = loadCollection(STORAGE_KEYS.COMP_GROUPS, {
+    allowDemoFallback: false,
+    demoSeed: [],
+  });
+  const warehouseItems = loadCollection(STORAGE_KEYS.WAREHOUSE_ITEMS, {
+    allowDemoFallback: false,
+    demoSeed: [],
+  });
+  const entrepotComponents = loadCollection(STORAGE_KEYS.ENTREPOT_COMPONENTS, {
+    allowDemoFallback: false,
+    demoSeed: [],
+  });
+  const compFamilies = loadCollection(STORAGE_KEYS.COMP_FAMILIES, {
+    allowDemoFallback: false,
+    demoSeed: [],
+  });
+  const compTemplates = loadCollection(STORAGE_KEYS.COMP_TEMPLATES, {
+    allowDemoFallback: false,
+    demoSeed: [],
+  });
+  const partGroups = loadCollection(STORAGE_KEYS.PART_GROUPS, {
+    allowDemoFallback: false,
+    demoSeed: [],
+  });
+  const partTypes = loadCollection(STORAGE_KEYS.PART_TYPES, {
+    allowDemoFallback: false,
+    demoSeed: [],
+  });
+  const partDesignations = loadCollection(STORAGE_KEYS.PART_DESIGNATIONS, {
+    allowDemoFallback: false,
+    demoSeed: [],
+  });
+  return {
+    compGroups,
+    warehouseItems,
+    entrepotComponents,
+    compFamilies,
+    compTemplates,
+    partGroups,
+    partTypes,
+    partDesignations,
+  };
+}
+
+export function getInitialPersonnel() {
+  const users = loadCollection(STORAGE_KEYS.PERSONNEL, {
+    allowDemoFallback: false,
+    demoSeed: [],
+  }).filter(isRealPersonnelUser);
+  return {
+    users,
+    technicians: deriveTechnicians(users),
+    operations: deriveOperations(users),
+  };
+}
+
+export function getInitialMovements() {
+  const mouvements = loadCollection(STORAGE_KEYS.MOUVEMENTS, {
+    allowDemoFallback: false,
+    demoSeed: [],
+  });
+  const sortieDemands = loadCollection(STORAGE_KEYS.SORTIE_DEMANDS, {
+    allowDemoFallback: false,
+    demoSeed: [],
+  });
+  const replenishmentOrders = loadCollection<IReplenishmentOrder>(STORAGE_KEYS.REPLENISHMENT_ORDERS, {
+    allowDemoFallback: false,
+    demoSeed: [],
+  });
+  return { mouvements, sortieDemands, replenishmentOrders };
+}
+
+export function getInitialPreventive() {
+  const actions = loadCollection(STORAGE_KEYS.PREVENTIVE_ACTIONS, {
+    allowDemoFallback: false,
+    demoSeed: [],
+  });
+  const guides = loadCollection(STORAGE_KEYS.PREVENTIVE_GUIDES, {
+    allowDemoFallback: false,
+    demoSeed: [],
+  });
+  const plans = loadCollection(STORAGE_KEYS.PREVENTIVE_PLANS, {
+    allowDemoFallback: false,
+    demoSeed: [],
+  });
+  const tasks = loadCollection(STORAGE_KEYS.PREVENTIVE_TASKS, {
+    allowDemoFallback: false,
+    demoSeed: [],
+  });
+  const executions = loadCollection(STORAGE_KEYS.PREVENTIVE_EXECUTIONS, {
+    allowDemoFallback: false,
+    demoSeed: [],
+  });
+  const meterReadings = loadCollection<IMeterReading>(STORAGE_KEYS.METER_READINGS, {
+    allowDemoFallback: false,
+    demoSeed: [],
+  });
+  return { actions, guides, plans, tasks, executions, meterReadings };
+}
+
+export function getInitialSorties() {
+  const sorties = loadCollection(STORAGE_KEYS.SORTIE_EXTERNE, {
+    allowDemoFallback: false,
+    demoSeed: [],
+  });
+  return { sorties };
+}
+
+export function getInitialCorrective() {
+  const interventions = loadCollection(STORAGE_KEYS.CORRECTIVE_INTERVENTIONS, {
+    allowDemoFallback: false,
+    demoSeed: [],
+  });
+  const actionsByPanne = loadCollection(STORAGE_KEYS.CORRECTIVE_ACTIONS_BY_PANNE, {
+    allowDemoFallback: false,
+    demoSeed: {},
+    emptyDefault: {},
+  });
+  const panneCategories = loadCollection(STORAGE_KEYS.CORRECTIVE_PANNE_CATEGORIES, {
+    allowDemoFallback: false,
+    demoSeed: {},
+    emptyDefault: {},
+  });
+  const travauxAFaire = loadCollection(STORAGE_KEYS.CORRECTIVE_TRAVAUX, {
+    allowDemoFallback: false,
+    demoSeed: [],
+  });
+  const intervenants = loadCollection(STORAGE_KEYS.CORRECTIVE_INTERVENANTS, {
+    allowDemoFallback: false,
+    demoSeed: [],
+  });
+  const workshopOrders = loadCollection<IWorkshopOrder>(STORAGE_KEYS.WORKSHOP_ORDERS, {
+    allowDemoFallback: false,
+    demoSeed: [],
+  });
+  const needRequests = loadCollection<INeedRequest>(STORAGE_KEYS.NEED_REQUESTS, {
+    allowDemoFallback: false,
+    demoSeed: [],
+  });
+  const activeLiveId = storageService.getItem(ACTIVE_LIVE_KEY) || null;
+  return {
+    interventions,
+    actionsByPanne,
+    panneCategories,
+    travauxAFaire,
+    intervenants,
+    workshopOrders,
+    needRequests,
+    activeLiveId,
+  };
+}

@@ -1,0 +1,184 @@
+import {
+  LayoutDashboard,
+  Package,
+  Factory,
+  Warehouse,
+  MapPin,
+  Users,
+  ShieldAlert,
+  GitBranch,
+  BookOpen,
+  Calendar,
+  Wrench,
+  Landmark
+} from 'lucide-react';
+
+export const PARENT_MODULES = [
+  {
+    id: 'dashboard',
+    label: 'Dashboard',
+    icon: LayoutDashboard,
+    color: 'text-blue-500',
+    colorDark: 'text-blue-400',
+    bgLight: 'bg-blue-50',
+    children: [
+      { id: 'dashboard', label: 'Dashboard Opérations' },
+      { id: 'validation_center', label: 'Centre de Validation (À valider)' },
+      { id: 'shift_weekly_report', label: 'Rapport Vacation / Hebdo' },
+      { id: 'executive_report', label: 'Rapport Mensuel Direction' }
+    ]
+  },
+  {
+    id: 'finance',
+    label: 'Coûts & Budgets',
+    icon: Landmark,
+    color: 'text-emerald-500',
+    colorDark: 'text-emerald-400',
+    bgLight: 'bg-emerald-50',
+    children: [
+      { id: 'finance', label: 'Pilotage Coûts & Budgets' }
+    ]
+  },
+  {
+    id: 'stock',
+    label: 'Stock PDR',
+    icon: Package,
+    color: 'text-cyan-500',
+    colorDark: 'text-cyan-400',
+    bgLight: 'bg-cyan-50',
+    children: [
+      { id: 'stock', label: 'Stock Articles' },
+      { id: 'sortie', label: 'Sortie & Entrée Rapide' },
+      { id: 'pdr_groups', label: 'Groupes PDR' },
+      { id: 'types', label: 'Types PDR' },
+      { id: 'designations', label: 'Désignations PDR' }
+    ]
+  },
+  {
+    id: 'machines',
+    label: 'Machines',
+    icon: Factory,
+    color: 'text-emerald-500',
+    colorDark: 'text-emerald-400',
+    bgLight: 'bg-emerald-50',
+    children: [
+      { id: 'machines', label: 'Machines Registered' },
+      { id: 'families', label: 'Familles' },
+      { id: 'templates', label: 'Templates' },
+      { id: 'blueprints', label: 'Blueprints' }
+    ]
+  },
+  {
+    id: 'preventive',
+    label: 'Préventif',
+    icon: Calendar,
+    color: 'text-indigo-500',
+    colorDark: 'text-indigo-400',
+    bgLight: 'bg-indigo-50',
+    children: [
+      { id: 'preventive', label: 'Planning Préventif' },
+      { id: 'preventive_referentiel', label: 'Ingénierie & Référentiel' }
+    ]
+  },
+  {
+    id: 'corrective',
+    label: 'Correctif Nexus',
+    icon: Wrench,
+    color: 'text-amber-500',
+    colorDark: 'text-amber-400',
+    bgLight: 'bg-amber-50',
+    children: [
+      { id: 'corrective', label: 'Correctif Hub' },
+      { id: 'corrective_referentiel', label: 'Catalogue' }
+    ]
+  },
+  {
+    id: 'entrepot',
+    label: 'Entrepôt',
+    icon: Warehouse,
+    color: 'text-indigo-500',
+    colorDark: 'text-indigo-400',
+    bgLight: 'bg-indigo-50',
+    children: [
+      { id: 'entrepot', label: 'Stock Entrepôt' },
+      { id: 'comp_groups', label: 'Groupes Composants' },
+      { id: 'comp_families', label: 'Familles Composants' },
+      { id: 'comp_templates', label: 'Templates Composants' },
+      { id: 'part_groups', label: 'Groupes Parts' },
+      { id: 'part_types', label: 'Types Parts' },
+      { id: 'part_designations', label: 'Désignations Parts' }
+    ]
+  },
+  {
+    id: 'zones',
+    label: 'Zones & Ateliers',
+    icon: MapPin,
+    color: 'text-purple-500',
+    colorDark: 'text-purple-400',
+    bgLight: 'bg-purple-50',
+    children: [
+      { id: 'zones', label: 'Zones & Ateliers' }
+    ]
+  },
+  {
+    id: 'utilisateurs',
+    label: 'Utilisateurs',
+    icon: Users,
+    color: 'text-violet-500',
+    colorDark: 'text-violet-400',
+    bgLight: 'bg-violet-50',
+    children: [
+      { id: 'utilisateurs', label: 'Utilisateurs & Rôles' }
+    ]
+  },
+  {
+    id: 'equipment',
+    label: 'Équipements',
+    icon: ShieldAlert,
+    color: 'text-amber-500',
+    colorDark: 'text-amber-400',
+    bgLight: 'bg-amber-50',
+    children: [
+      { id: 'equipment', label: 'Équipements & Système Général' }
+    ]
+  },
+  {
+    id: 'nexus',
+    label: 'Nexus Matrix',
+    icon: GitBranch,
+    color: 'text-emerald-500',
+    colorDark: 'text-emerald-400',
+    bgLight: 'bg-emerald-50',
+    children: [
+      { id: 'nexus', label: 'Nexus Matrix' }
+    ]
+  },
+  {
+    id: 'guide',
+    label: 'Guide & Manuel',
+    icon: BookOpen,
+    color: 'text-amber-500',
+    colorDark: 'text-amber-400',
+    bgLight: 'bg-amber-50',
+    children: [
+      { id: 'guide', label: "Guide d'utilisation" },
+      { id: 'settings', label: 'Paramètres' }
+    ]
+  }
+];
+
+export function getParentModuleForTab(currentTab?: string) {
+  const cleanTab = String(currentTab || 'dashboard').trim();
+  if (cleanTab === 'diagnostics') {
+    return PARENT_MODULES.find((p) => p.id === 'stock') || PARENT_MODULES[0];
+  }
+  if (cleanTab.startsWith('corrective_')) {
+    return PARENT_MODULES.find((p) => p.id === 'corrective') || PARENT_MODULES[0];
+  }
+  if (cleanTab.startsWith('preventive_')) {
+    return PARENT_MODULES.find((p) => p.id === 'preventive') || PARENT_MODULES[0];
+  }
+  const match = PARENT_MODULES.find((p) => p.children.some((c) => c.id === cleanTab));
+  return match || PARENT_MODULES[0];
+}
+

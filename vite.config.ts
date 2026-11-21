@@ -1,0 +1,323 @@
+import { defineConfig } from 'vite';
+import react from '@vitejs/plugin-react';
+import { VitePWA } from 'vite-plugin-pwa';
+import path from 'path';
+
+export default defineConfig(({ command }) => ({
+  define:
+    command === 'build'
+      ? {
+          'process.env.NODE_ENV': JSON.stringify('production'),
+        }
+      : undefined,
+  resolve: {
+    alias: {
+      '@': path.resolve(__dirname, './src'),
+      xlsx: path.resolve(__dirname, './src/vendor/xlsx/index.ts'),
+      react: path.resolve(__dirname, './node_modules/react'),
+      'react-dom': path.resolve(__dirname, './node_modules/react-dom'),
+    },
+    dedupe: ['react', 'react-dom'],
+  },
+  optimizeDeps: {
+    entries: ['index.html'],
+    include: [
+      'react',
+      'react-dom',
+      'react-dom/client',
+      'react/jsx-runtime',
+      'react/jsx-dev-runtime',
+      'zustand',
+      'motion/react',
+      'lucide-react',
+      'zod',
+      '@tanstack/react-virtual',
+      'date-fns',
+      'dompurify',
+      'exceljs',
+      'hyperformula',
+      'lz-string',
+      'prop-types',
+      'react-window',
+      'recharts',
+    ],
+  },
+  plugins: [
+    react(),
+    VitePWA({
+      registerType: 'autoUpdate',
+      injectRegister: false,
+      includeAssets: [
+        'apple-touch-icon.png',
+        'icon.svg',
+        'pwa-192x192.png',
+        'pwa-512x512.png',
+        'pwa-maskable-512x512.png',
+        'offline.html',
+        'manifest.json',
+      ],
+      manifest: {
+        id: '/',
+        name: 'CIOB GMAO Light UI Excel',
+        short_name: 'CIOB GMAO',
+        description: 'Application CIOB GMAO Light UI Excel avec Twin Tables et calculs 100% Offline',
+        theme_color: '#047857',
+        background_color: '#f8fafc',
+        display: 'standalone',
+        start_url: '/',
+        scope: '/',
+        icons: [
+          {
+            src: '/pwa-192x192.png',
+            sizes: '192x192',
+            type: 'image/png',
+            purpose: 'any',
+          },
+          {
+            src: '/pwa-512x512.png',
+            sizes: '512x512',
+            type: 'image/png',
+            purpose: 'any',
+          },
+          {
+            src: '/pwa-maskable-512x512.png',
+            sizes: '512x512',
+            type: 'image/png',
+            purpose: 'maskable',
+          },
+        ],
+      },
+      workbox: {
+        maximumFileSizeToCacheInBytes: 20 * 1024 * 1024,
+        navigateFallback: null,
+        globPatterns: ['**/*.{js,css,ico,png,svg,woff,woff2,json,webp}'],
+        globIgnores: ['**/index.html', '**/service-worker.js'],
+        runtimeCaching: [
+          {
+            urlPattern: /^https:\/\/cdn\.tailwindcss\.com\/.*/i,
+            handler: 'CacheFirst',
+            options: {
+              cacheName: 'tailwind-cdn-cache',
+              expiration: {
+                maxEntries: 10,
+                maxAgeSeconds: 60 * 60 * 24 * 365,
+              },
+              cacheableResponse: {
+                statuses: [0, 200],
+              },
+            },
+          },
+          {
+            urlPattern: /^https:\/\/cdn\.jsdelivr\.net\/.*/i,
+            handler: 'CacheFirst',
+            options: {
+              cacheName: 'jsdelivr-cdn-cache',
+              expiration: {
+                maxEntries: 10,
+                maxAgeSeconds: 60 * 60 * 24 * 365,
+              },
+              cacheableResponse: {
+                statuses: [0, 200],
+              },
+            },
+          },
+          {
+            urlPattern: /^https:\/\/fonts\.googleapis\.com\/.*/i,
+            handler: 'CacheFirst',
+            options: {
+              cacheName: 'google-fonts-cache',
+              expiration: {
+                maxEntries: 10,
+                maxAgeSeconds: 60 * 60 * 24 * 365,
+              },
+              cacheableResponse: {
+                statuses: [0, 200],
+              },
+            },
+          },
+          {
+            urlPattern: /^https:\/\/fonts\.gstatic\.com\/.*/i,
+            handler: 'CacheFirst',
+            options: {
+              cacheName: 'gstatic-fonts-cache',
+              expiration: {
+                maxEntries: 20,
+                maxAgeSeconds: 60 * 60 * 24 * 365,
+              },
+              cacheableResponse: {
+                statuses: [0, 200],
+              },
+            },
+          },
+          {
+            urlPattern: /\/api\/gmao\/.*/i,
+            handler: 'NetworkFirst',
+            options: {
+              cacheName: 'gmao-api-cache',
+              expiration: {
+                maxEntries: 100,
+                maxAgeSeconds: 60 * 60 * 24,
+              },
+              cacheableResponse: {
+                statuses: [0, 200],
+              },
+            },
+          },
+        ],
+      },
+      devOptions: {
+        enabled: false,
+        type: 'module',
+      },
+    }),
+  ],
+  esbuild: {
+    jsx: 'automatic',
+    jsxDev: command !== 'build',
+  },
+  build: {
+    outDir: 'dist',
+    emptyOutDir: true,
+    chunkSizeWarningLimit: 1000,
+    rollupOptions: {
+      output: {
+        manualChunks(id) {
+          // 1. Seed & Reference Data Chunks (Pure leaf data modules)
+          if (id.includes('src/data/corrective')) {
+            return 'data-corrective';
+          }
+          if (id.includes('src/data/preventive')) {
+            return 'data-preventive';
+          }
+          if (id.includes('src/data/machines')) {
+            return 'data-machines';
+          }
+          if (id.includes('src/data/stock')) {
+            return 'data-stock';
+          }
+          if (id.includes('src/data/warehouse')) {
+            return 'data-warehouse';
+          }
+          if (id.includes('src/data/zones')) {
+            return 'data-zones';
+          }
+          if (id.includes('src/data/users')) {
+            return 'data-users';
+          }
+          if (id.includes('src/data/movements')) {
+            return 'data-movements';
+          }
+          if (id.includes('src/data/')) {
+            return 'data-common';
+          }
+
+          // 2. Third-Party Vendor Chunks (Heavy Spreadsheet, Formula, PDF, Charts, UI & Framework)
+          if (id.includes('node_modules')) {
+            if (id.includes('exceljs')) {
+              return 'vendor-exceljs';
+            }
+            if (id.includes('hyperformula') || id.includes('chevrotain')) {
+              return 'vendor-hyperformula';
+            }
+            if (id.includes('xlsx')) {
+              return 'vendor-xlsx';
+            }
+            if (id.includes('jspdf') || id.includes('html2canvas')) {
+              return 'vendor-jspdf';
+            }
+            if (id.includes('recharts') || id.includes('d3-') || id.includes('victory-vendor')) {
+              return 'vendor-recharts';
+            }
+            if (id.includes('lucide-react')) {
+              return 'vendor-lucide';
+            }
+            if (id.includes('motion') || id.includes('framer-motion')) {
+              return 'vendor-motion';
+            }
+            if (id.includes('zod')) {
+              return 'vendor-zod';
+            }
+            if (
+              id.includes('/react/') ||
+              id.includes('/react-dom/') ||
+              id.includes('/react-router') ||
+              id.includes('/scheduler/') ||
+              id.includes('/zustand/')
+            ) {
+              return 'vendor-react';
+            }
+            return 'vendor-core';
+          }
+
+          // 3. Local Hardened OpenXML Vendor Leaf Chunk
+          if (id.includes('src/vendor/xlsx')) {
+            return 'vendor-xlsx';
+          }
+
+          // 4. Static Translations / Locales Leaf Chunk (~260 kB)
+          if (id.includes('src/i18n/translations/') || id.includes('src/i18n/locales/')) {
+            return 'app-i18n';
+          }
+
+          // 4. Unified Non-UI GMAO Engine Chunk (prevents cross-chunk circular TDZ crash on boot)
+          if (
+            id.includes('src/store/') ||
+            id.includes('src/application/') ||
+            id.includes('src/domain/') ||
+            id.includes('src/services/') ||
+            id.includes('src/infrastructure/') ||
+            id.includes('src/core/') ||
+            id.includes('src/utils/') ||
+            id.includes('src/config/') ||
+            id.includes('src/types/')
+          ) {
+            return 'app-engine';
+          }
+        }
+      },
+      onwarn(warning, defaultHandler) {
+        if (
+          warning.code === 'MODULE_LEVEL_DIRECTIVE' ||
+          (warning.message && warning.message.includes('Module level directives cause errors when bundled'))
+        ) {
+          return;
+        }
+        defaultHandler(warning);
+      },
+    },
+  },
+  server: {
+    port: 3000,
+    hmr: false,
+    watch: {
+      ignored: ['**/dist/**', '**/coverage/**', '**/data/**', '**/node_modules/**', '**/.git/**'],
+    },
+    headers: {
+      'Content-Security-Policy': "default-src 'self' blob: data:; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data:; img-src 'self' data: blob: https://api.dicebear.com; connect-src 'self' blob: data:; worker-src 'self' blob:; object-src 'none'; base-uri 'self'; form-action 'self';",
+      'X-Content-Type-Options': 'nosniff',
+      'Referrer-Policy': 'strict-origin-when-cross-origin',
+      'Permissions-Policy': 'camera=(), microphone=(), geolocation=()',
+    },
+  },
+  preview: {
+    port: 3000,
+    headers: {
+      'Content-Security-Policy': "default-src 'self' blob: data:; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data:; img-src 'self' data: blob: https://api.dicebear.com; connect-src 'self' blob: data:; worker-src 'self' blob:; object-src 'none'; base-uri 'self'; form-action 'self';",
+      'X-Content-Type-Options': 'nosniff',
+      'Referrer-Policy': 'strict-origin-when-cross-origin',
+      'Permissions-Policy': 'camera=(), microphone=(), geolocation=()',
+    },
+  },
+  test: {
+    globals: true,
+    environment: 'jsdom',
+    setupFiles: ['./src/tests/setup.js'],
+    exclude: ['node_modules/**', 'dist/**', 'e2e/**'],
+    coverage: {
+      provider: 'v8',
+      reporter: ['text', 'json', 'html'],
+      reportsDirectory: './coverage',
+      exclude: ['node_modules/', 'src/tests/', 'e2e/', '**/*.d.ts'],
+    },
+  },
+}));

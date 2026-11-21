@@ -1,0 +1,307 @@
+import React, { createContext, useContext, useState, useCallback, useMemo, useEffect } from 'react';
+import type {
+  WizardProfile,
+  WizardStep,
+  ValidationResult,
+  WizardThemeColor,
+  StepValidationReturn,
+} from './wizard.types';
+import { resolveWizardThemeColor } from './wizardThemeTokens';
+
+export interface EvaluatedStepValidation {
+  canProceed: boolean;
+  banner: ValidationResult | null;
+}
+
+/**
+ * Pure helper that normalizes any StepValidationReturn (boolean, string, or ValidationResult)
+ * into a deterministic navigation decision (`canProceed`) and footer alert state (`banner`).
+ * Preserves non-blocking operational warnings (`valid: true, level: 'warning'`).
+ */
+export function evaluateStepValidation(
+  rawResult: StepValidationReturn | undefined | null
+): EvaluatedStepValidation {
+  if (rawResult === undefined || rawResult === null) {
+    return { canProceed: true, banner: null };
+  }
+
+  if (typeof rawResult === 'boolean') {
+    if (!rawResult) {
+      return {
+        canProceed: false,
+        banner: {
+          valid: false,
+          message: 'Veuillez vérifier les champs requis avant de continuer.',
+          level: 'critical',
+        },
+      };
+    }
+    return { canProceed: true, banner: null };
+  }
+
+  if (typeof rawResult === 'string') {
+    const trimmed = rawResult.trim();
+    if (trimmed.length > 0) {
+      return {
+        canProceed: false,
+        banner: {
+          valid: false,
+          message: trimmed,
+          level: 'critical',
+        },
+      };
+    }
+    return { canProceed: true, banner: null };
+  }
+
+  const isStepValid = rawResult.valid ?? rawResult.isValid ?? true;
+  const resolvedLevel = rawResult.level ?? rawResult.severity ?? 'critical';
+
+  if (!isStepValid) {
+    return {
+      canProceed: false,
+      banner: {
+        valid: false,
+        message: rawResult.message || 'Veuillez vérifier les champs requis avant de continuer.',
+        level: resolvedLevel,
+      },
+    };
+  }
+
+  if (resolvedLevel === 'warning' && rawResult.message) {
+    return {
+      canProceed: true,
+      banner: {
+        valid: true,
+        message: rawResult.message,
+        level: 'warning',
+      },
+    };
+  }
+
+  return { canProceed: true, banner: null };
+}
+
+export interface WizardContextValue {
+  profile: WizardProfile;
+  themeColor: WizardThemeColor;
+  stepIndex: number;
+  totalSteps: number;
+  currentStep: WizardStep | undefined;
+  isFirst: boolean;
+  isLast: boolean;
+  isSubmitting: boolean;
+  isValidating: boolean;
+  direction: number;
+  validationResult: ValidationResult | null;
+  clearValidation: () => void;
+  next: () => Promise<boolean>;
+  back: () => void;
+  goToStep: (targetIndex: number) => Promise<boolean>;
+  handleFinish: () => Promise<boolean>;
+}
+
+const WizardContext = createContext<WizardContextValue | null>(null);
+
+export interface WizardProviderProps {
+  profile: WizardProfile;
+  initialStepIndex?: number;
+  children: React.ReactNode;
+}
+
+export const WizardProvider: React.FC<WizardProviderProps> = ({
+  profile,
+  initialStepIndex = 0,
+  children,
+}) => {
+  const totalSteps = profile.steps.length;
+  const safeInitialIndex = Math.min(Math.max(0, initialStepIndex), Math.max(0, totalSteps - 1));
+
+  const [stepIndex, setStepIndex] = useState<number>(safeInitialIndex);
+  const [direction, setDirection] = useState<number>(1);
+  const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
+  const [isValidating, setIsValidating] = useState<boolean>(false);
+  const [validationResult, setValidationResult] = useState<ValidationResult | null>(null);
+
+  const currentStep = profile.steps[stepIndex];
+  const isFirst = stepIndex === 0;
+  const isLast = totalSteps > 0 && stepIndex === totalSteps - 1;
+  const themeColor: WizardThemeColor = resolveWizardThemeColor(
+    profile.themeColor,
+    profile.moduleKey
+  );
+
+  const clearValidation = useCallback(() => {
+    setValidationResult(null);
+  }, []);
+
+  const runCurrentStepValidation = useCallback(
+    async (mode: 'live' | 'submit' = 'submit'): Promise<boolean> => {
+      if (!currentStep?.validate) {
+        setValidationResult(null);
+        return true;
+      }
+
+      try {
+        setIsValidating(true);
+        const rawResult = await Promise.resolve(currentStep.validate({ mode }));
+        const evaluated = evaluateStepValidation(rawResult);
+        setValidationResult(evaluated.banner);
+        return evaluated.canProceed;
+      } catch (error) {
+        const message =
+          error instanceof Error
+            ? error.message
+            : 'Une erreur est survenue lors de la validation de cette étape.';
+        setValidationResult({
+          valid: false,
+          message,
+          level: 'critical',
+        });
+        return false;
+      } finally {
+        setIsValidating(false);
+      }
+    },
+    [currentStep]
+  );
+
+  const effectiveValidateOn = currentStep?.validateOn ?? profile.validateOn ?? 'next';
+
+  useEffect(() => {
+    if (effectiveValidateOn === 'always' && currentStep?.validate) {
+      void runCurrentStepValidation('live');
+    }
+  }, [effectiveValidateOn, currentStep, runCurrentStepValidation]);
+
+  const next = useCallback(async (): Promise<boolean> => {
+    if (isLast || isSubmitting || isValidating) return false;
+    const isValid = await runCurrentStepValidation('submit');
+    if (!isValid) return false;
+
+    setDirection(1);
+    setStepIndex((prev) => Math.min(prev + 1, totalSteps - 1));
+    return true;
+  }, [isLast, isSubmitting, isValidating, runCurrentStepValidation, totalSteps]);
+
+  const back = useCallback(() => {
+    if (isFirst || isSubmitting || isValidating) return;
+    setValidationResult(null);
+    setDirection(-1);
+    setStepIndex((prev) => Math.max(prev - 1, 0));
+  }, [isFirst, isSubmitting, isValidating]);
+
+  const goToStep = useCallback(
+    async (targetIndex: number): Promise<boolean> => {
+      if (
+        targetIndex < 0 ||
+        targetIndex >= totalSteps ||
+        targetIndex === stepIndex ||
+        isSubmitting ||
+        isValidating
+      ) {
+        return false;
+      }
+
+      // Moving backwards is always allowed without blocking on current incomplete fields
+      if (targetIndex < stepIndex) {
+        setValidationResult(null);
+        setDirection(-1);
+        setStepIndex(targetIndex);
+        return true;
+      }
+
+      // Moving forward validates the current step first
+      const isValid = await runCurrentStepValidation();
+      if (!isValid) return false;
+
+      setDirection(1);
+      setStepIndex(targetIndex);
+      return true;
+    },
+    [totalSteps, stepIndex, isSubmitting, isValidating, runCurrentStepValidation]
+  );
+
+  const handleFinish = useCallback(async (): Promise<boolean> => {
+    if (isSubmitting || isValidating) return false;
+    const isValid = await runCurrentStepValidation();
+    if (!isValid) return false;
+
+    try {
+      setIsSubmitting(true);
+      const finishFn = profile.onFinish ?? profile.onComplete;
+      if (finishFn) {
+        const outcome = await Promise.resolve(finishFn());
+        if (outcome === false) {
+          return false;
+        }
+      }
+      setValidationResult(null);
+      setDirection(-1);
+      setStepIndex(0);
+      return true;
+    } catch (error) {
+      const message =
+        error instanceof Error
+          ? error.message
+          : "Échec de l'enregistrement final. Veuillez réessayer.";
+      setValidationResult({
+        valid: false,
+        message,
+        level: 'critical',
+      });
+      return false;
+    } finally {
+      setIsSubmitting(false);
+    }
+  }, [isSubmitting, isValidating, runCurrentStepValidation, profile]);
+
+  const contextValue = useMemo<WizardContextValue>(
+    () => ({
+      profile,
+      themeColor,
+      stepIndex,
+      totalSteps,
+      currentStep,
+      isFirst,
+      isLast,
+      isSubmitting,
+      isValidating,
+      direction,
+      validationResult,
+      clearValidation,
+      next,
+      back,
+      goToStep,
+      handleFinish,
+    }),
+    [
+      profile,
+      themeColor,
+      stepIndex,
+      totalSteps,
+      currentStep,
+      isFirst,
+      isLast,
+      isSubmitting,
+      isValidating,
+      direction,
+      validationResult,
+      clearValidation,
+      next,
+      back,
+      goToStep,
+      handleFinish,
+    ]
+  );
+
+  return <WizardContext.Provider value={contextValue}>{children}</WizardContext.Provider>;
+};
+
+export function useWizard(): WizardContextValue {
+  const context = useContext(WizardContext);
+  if (!context) {
+    throw new Error('useWizard must be used within a <WizardProvider>.');
+  }
+  return context;
+}

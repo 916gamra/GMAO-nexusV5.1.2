@@ -1,0 +1,591 @@
+import { useState, useEffect, useRef } from 'react';
+import {
+  X,
+  Database,
+  RotateCcw,
+  Download,
+  Upload,
+  Trash2,
+  CheckCircle2,
+  AlertTriangle,
+  Clock,
+  ShieldCheck,
+  Plus,
+  Layers,
+  Server,
+  Activity,
+} from 'lucide-react';
+import { AutoBackupService } from '../../../core/backup/AutoBackupService';
+import { usePermission } from '../common/PermissionGate';
+import Action3DButton from '../common/Action3DButton';
+
+export default function BackupManagerModal({ isOpen, onClose, onDataRestored }) {
+  const [activeTab, setActiveTab] = useState('snapshots'); // 'snapshots' | 'partitions'
+  const [snapshots, setSnapshots] = useState([]);
+  const [confirmRestoreId, setConfirmRestoreId] = useState(null);
+  const [confirmResetOps, setConfirmResetOps] = useState(false);
+  const [pendingImport, setPendingImport] = useState<{
+    fileName: string;
+    jsonText: string;
+    partition: string;
+    exportDate: string | null;
+    counts: Record<string, number>;
+  } | null>(null);
+  const [isRestoring, setIsRestoring] = useState(false);
+  const [successMsg, setSuccessMsg] = useState('');
+  const [errorMsg, setErrorMsg] = useState('');
+  const fileInputRef = useRef(null);
+
+  const canBackup = usePermission('settings.backup');
+  const canRestore = usePermission('settings.restore');
+
+  const refreshList = () => {
+    setSnapshots(AutoBackupService.listSnapshots());
+  };
+
+  useEffect(() => {
+    if (isOpen) {
+      refreshList();
+      setSuccessMsg('');
+      setErrorMsg('');
+      setConfirmRestoreId(null);
+      setConfirmResetOps(false);
+      setPendingImport(null);
+    }
+  }, [isOpen]);
+
+  if (!isOpen) return null;
+
+  const handleCreateManual = () => {
+    const snap = AutoBackupService.createSnapshot('Sauvegarde manuelle utilisateur', true);
+    if (snap) {
+      setSuccessMsg('Point de restauration créé avec succès !');
+      refreshList();
+      setTimeout(() => setSuccessMsg(''), 4000);
+    } else {
+      setErrorMsg('Échec de création du point de restauration.');
+    }
+  };
+
+  const handleExecuteRestore = async (id) => {
+    setIsRestoring(true);
+    try {
+      const ok = await AutoBackupService.restoreSnapshot(id);
+      setIsRestoring(false);
+      setConfirmRestoreId(null);
+      if (ok) {
+        setSuccessMsg('Données restaurées avec succès ! Actualisation...');
+        refreshList();
+        if (onDataRestored) {
+          onDataRestored();
+        } else {
+          setTimeout(() => {
+            window.location.reload();
+          }, 1000);
+        }
+      } else {
+        setErrorMsg('Erreur lors de la restauration du point.');
+      }
+    } catch {
+      setIsRestoring(false);
+      setErrorMsg('Erreur inattendue lors de la restauration.');
+    }
+  };
+
+  const handleDelete = (id) => {
+    AutoBackupService.deleteSnapshot(id);
+    refreshList();
+  };
+
+  const handleExportFull = () => {
+    AutoBackupService.exportFullBackupJSON();
+  };
+
+  const handleExportPartition = (type) => {
+    AutoBackupService.exportPartitionJSON(type);
+  };
+
+  const handleResetOperations = () => {
+    const ok = AutoBackupService.resetOperationsHistory();
+    setConfirmResetOps(false);
+    if (ok) {
+      setSuccessMsg('Historique des opérations réinitialisé avec succès (Référentiel Master préservé).');
+      refreshList();
+      if (onDataRestored) {
+        onDataRestored();
+      } else {
+        setTimeout(() => {
+          window.location.reload();
+        }, 1000);
+      }
+    } else {
+      setErrorMsg('Erreur lors de la réinitialisation des opérations.');
+    }
+  };
+
+  const handleFileImport = (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setErrorMsg('');
+    setSuccessMsg('');
+    const reader = new FileReader();
+    reader.onload = (evt) => {
+      try {
+        const text = String(evt.target?.result || '');
+        const preview = AutoBackupService.parseAndNormalizeBackupJSON(text);
+        if (!preview.valid) {
+          setPendingImport(null);
+          setErrorMsg(preview.error || 'Fichier de sauvegarde invalide.');
+          return;
+        }
+        setPendingImport({
+          fileName: file.name,
+          jsonText: text,
+          partition: preview.partition,
+          exportDate: preview.exportDate,
+          counts: preview.counts,
+        });
+      } catch {
+        setPendingImport(null);
+        setErrorMsg('Erreur de lecture du fichier JSON.');
+      }
+    };
+    reader.readAsText(file);
+    e.target.value = '';
+  };
+
+  const handleConfirmFileImport = () => {
+    if (!pendingImport) return;
+    setIsRestoring(true);
+    try {
+      const ok = AutoBackupService.importFullBackupJSON(pendingImport.jsonText);
+      setIsRestoring(false);
+      setPendingImport(null);
+      if (ok) {
+        setSuccessMsg('Sauvegarde importée et restaurée avec succès !');
+        refreshList();
+        if (onDataRestored) onDataRestored();
+      } else {
+        setErrorMsg('Fichier de sauvegarde invalide.');
+      }
+    } catch {
+      setIsRestoring(false);
+      setPendingImport(null);
+      setErrorMsg("Erreur lors de l'importation de la sauvegarde.");
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-5 bg-slate-950/70 backdrop-blur-xs overflow-y-auto animate-in fade-in duration-200">
+      <div className="relative w-full max-w-2xl bg-white rounded-3xl shadow-2xl border border-slate-200 overflow-hidden my-auto flex flex-col max-h-[88vh]">
+        {/* Header */}
+        <div className="px-6 py-4 bg-white text-slate-900 flex items-center justify-between border-b border-slate-100 shrink-0">
+          <div className="flex items-center gap-3">
+            <Database className="w-5 h-5 text-sky-700 shrink-0" />
+            <div>
+              <h2 className="text-sm font-extrabold tracking-tight text-slate-900">
+                Sauvegardes &amp; Partitions GMAO
+              </h2>
+              <p className="text-[11px] text-slate-500 font-mono">
+                Modèle Dual Partition (Master / Opérations) • 100% Offline
+              </p>
+            </div>
+          </div>
+
+          <Action3DButton
+            variant="circle"
+            color="slate"
+            icon={X}
+            onClick={onClose}
+            title="Fermer"
+            ariaLabel="Fermer"
+            className="!w-8 !h-8"
+          />
+        </div>
+
+        {/* Tab Navigation */}
+        <div className="px-6 py-2.5 bg-slate-50/80 border-b border-slate-200 shrink-0">
+          <div className="inline-flex flex-wrap items-center gap-1 p-1 bg-slate-100/90 rounded-xl border border-slate-200/90">
+            <button
+              type="button"
+              onClick={() => setActiveTab('snapshots')}
+              className={`px-3.5 py-1.5 text-xs font-semibold rounded-lg transition-all duration-150 border cursor-pointer flex items-center gap-1.5 select-none ${
+                activeTab === 'snapshots'
+                  ? 'bg-white text-slate-950 border-slate-200 shadow-2xs'
+                  : 'bg-transparent text-slate-600 hover:text-slate-900 hover:bg-white/60 border-transparent'
+              }`}
+            >
+              <Clock className={`w-3.5 h-3.5 ${activeTab === 'snapshots' ? 'text-sky-700' : 'text-slate-400'}`} />
+              <span>Points de Restauration ({snapshots.length})</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setActiveTab('partitions')}
+              className={`px-3.5 py-1.5 text-xs font-semibold rounded-lg transition-all duration-150 border cursor-pointer flex items-center gap-1.5 select-none ${
+                activeTab === 'partitions'
+                  ? 'bg-white text-slate-950 border-slate-200 shadow-2xs'
+                  : 'bg-transparent text-slate-600 hover:text-slate-900 hover:bg-white/60 border-transparent'
+              }`}
+            >
+              <Layers className={`w-3.5 h-3.5 ${activeTab === 'partitions' ? 'text-sky-700' : 'text-slate-400'}`} />
+              <span>Modèle Dual Partition (Master vs Opérations)</span>
+            </button>
+          </div>
+        </div>
+
+        {/* Status Alerts */}
+        {successMsg && (
+          <div className="mx-4 mt-3 p-3 bg-emerald-50 border border-emerald-200 rounded-xl flex items-center gap-2 text-xs font-bold text-emerald-800 shrink-0 animate-in fade-in">
+            <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+            <span>{successMsg}</span>
+          </div>
+        )}
+
+        {errorMsg && (
+          <div className="mx-4 mt-3 p-3 bg-rose-50 border border-rose-200 rounded-xl flex items-center gap-2 text-xs font-bold text-rose-800 shrink-0 animate-in fade-in">
+            <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0" />
+            <span>{errorMsg}</span>
+          </div>
+        )}
+
+        {/* Explicit Overwrite Confirmation Banner before JSON File Restore */}
+        {pendingImport && (
+          <div
+            data-testid="a3-confirm-import-banner"
+            className="mx-4 mt-3 p-4 bg-amber-50 border-2 border-amber-300 rounded-2xl space-y-2.5 shrink-0 animate-in fade-in"
+          >
+            <div className="flex items-start gap-2.5">
+              <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+              <div className="space-y-1 flex-1">
+                <h4 className="text-xs font-bold text-amber-950">
+                  Confirmation requise : Écrasement des données actuelles
+                </h4>
+                <p className="text-[11px] text-amber-900 leading-relaxed">
+                  Vous êtes sur le point de restaurer le fichier{' '}
+                  <span className="font-mono font-bold">{pendingImport.fileName}</span>
+                  {pendingImport.exportDate
+                    ? ` (exporté le ${new Date(pendingImport.exportDate).toLocaleString('fr-FR')})`
+                    : ''}
+                  . Cette opération remplacera les données actuelles de l&apos;usine (un point de sauvegarde de sécurité sera créé automatiquement avant l&apos;import).
+                </p>
+                <div className="flex flex-wrap gap-2 text-[10px] font-mono text-amber-900 pt-1">
+                  <span>Machines: <b>{pendingImport.counts?.machines ?? 0}</b></span>
+                  <span>•</span>
+                  <span>PDR: <b>{pendingImport.counts?.spare_parts ?? 0}</b></span>
+                  <span>•</span>
+                  <span>Mouvements: <b>{pendingImport.counts?.movements ?? 0}</b></span>
+                  <span>•</span>
+                  <span>Correctif: <b>{pendingImport.counts?.corrective ?? 0}</b></span>
+                  <span>•</span>
+                  <span>Préventif: <b>{pendingImport.counts?.preventive ?? 0}</b></span>
+                  <span>•</span>
+                  <span>Demandes Sortie: <b>{pendingImport.counts?.sortie_demands ?? 0}</b></span>
+                </div>
+              </div>
+            </div>
+            <div className="flex items-center justify-end gap-2 pt-1">
+              <button
+                type="button"
+                onClick={() => setPendingImport(null)}
+                className="px-3 py-1.5 rounded-xl bg-white hover:bg-slate-100 border border-slate-300 text-xs font-bold text-slate-700 cursor-pointer"
+              >
+                Annuler
+              </button>
+              <button
+                type="button"
+                disabled={isRestoring}
+                onClick={handleConfirmFileImport}
+                className="px-3.5 py-1.5 rounded-xl bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold shadow-xs cursor-pointer"
+              >
+                {isRestoring ? 'Restauration...' : 'Oui, Écraser et Restaurer'}
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Tab 1: Snapshots Manager */}
+        {activeTab === 'snapshots' && (
+          <>
+            {/* Toolbar */}
+            <div className="p-4 bg-white border-b border-slate-100 flex flex-wrap items-center justify-between gap-2 shrink-0">
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  disabled={!canBackup}
+                  onClick={handleCreateManual}
+                  className="px-4 py-2 rounded-full bg-sky-800 hover:bg-sky-900 border border-sky-900 disabled:opacity-40 text-xs font-semibold text-white transition-all duration-150 flex items-center gap-1.5 cursor-pointer shadow-[0_1px_2px_rgba(15,23,42,0.10),inset_0_1px_0_rgba(255,255,255,0.12)] hover:shadow-[0_3px_8px_-2px_rgba(15,23,42,0.14)] active:translate-y-px active:scale-[0.99]"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  <span>Créer un point maintenant</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handleExportFull}
+                  className="px-4 py-2 rounded-full bg-white hover:bg-slate-50 border border-slate-200/95 hover:border-slate-300 text-xs font-semibold text-slate-700 hover:text-slate-950 transition-all duration-150 flex items-center gap-1.5 cursor-pointer shadow-[0_1px_2px_rgba(15,23,42,0.05),inset_0_1px_0_rgba(255,255,255,0.9)] hover:shadow-[0_2px_6px_-1px_rgba(15,23,42,0.08)] active:bg-slate-100 active:scale-[0.99]"
+                  title="Télécharger toutes les données au format JSON"
+                >
+                  <Download className="w-3.5 h-3.5 text-sky-700" />
+                  <span>Exporter Global JSON</span>
+                </button>
+              </div>
+
+              <div>
+                <input
+                  type="file"
+                  ref={fileInputRef}
+                  accept=".json"
+                  onChange={handleFileImport}
+                  className="hidden"
+                />
+                <button
+                  type="button"
+                  disabled={!canRestore}
+                  onClick={() => fileInputRef.current?.click()}
+                  className="px-4 py-2 rounded-full bg-white hover:bg-slate-50 border border-slate-200/95 hover:border-slate-300 text-xs font-semibold text-slate-700 hover:text-slate-950 transition-all duration-150 flex items-center gap-1.5 cursor-pointer shadow-[0_1px_2px_rgba(15,23,42,0.05),inset_0_1px_0_rgba(255,255,255,0.9)] hover:shadow-[0_2px_6px_-1px_rgba(15,23,42,0.08)] active:bg-slate-100 active:scale-[0.99] disabled:opacity-40"
+                  title="Restaurer à partir d'un fichier .json externe"
+                >
+                  <Upload className="w-3.5 h-3.5 text-sky-700" />
+                  <span>Importer JSON</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Snapshots List */}
+            <div className="p-4 overflow-y-auto space-y-2.5 grow">
+              {snapshots.length === 0 ? (
+                <div className="py-12 text-center text-slate-400 text-xs space-y-2">
+                  <Database className="w-8 h-8 mx-auto text-slate-300" />
+                  <p className="font-medium">Aucun point de restauration enregistré.</p>
+                  <p className="text-[11px] text-slate-400">
+                    Cliquez sur "Créer un point maintenant" ou effectuez des modifications pour en générer un automatiquement.
+                  </p>
+                </div>
+              ) : (
+                snapshots.map((snap) => {
+                  const totalItems = Object.values(snap.counts || {}).reduce<number>((acc, c) => acc + (Number(c) || 0), 0);
+                  const isConfirming = confirmRestoreId === snap.id;
+
+                  return (
+                    <div
+                      key={snap.id}
+                      className={`p-3.5 rounded-2xl border transition-all ${
+                        isConfirming
+                          ? 'bg-amber-50/70 border-amber-300 shadow-xs'
+                          : 'bg-white border-slate-200 hover:border-slate-300 hover:shadow-xs'
+                      }`}
+                    >
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
+                        <div className="space-y-1">
+                          <div className="flex items-center gap-2">
+                            <span className="font-bold text-xs text-slate-900 font-mono">
+                              {snap.dateStr}
+                            </span>
+                            <span
+                              className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase ${
+                                snap.isManual
+                                  ? 'bg-indigo-50 text-indigo-700 border border-indigo-200'
+                                  : 'bg-slate-100 text-slate-600'
+                              }`}
+                            >
+                              {snap.isManual ? 'Manuel' : 'Automatique'}
+                            </span>
+                          </div>
+
+                          <div className="text-[11px] text-slate-600 font-medium flex items-center gap-1.5">
+                            <Clock className="w-3 h-3 text-slate-400" />
+                            <span>{snap.reason}</span>
+                          </div>
+
+                          {/* Counts breakdown */}
+                          <div className="flex flex-wrap gap-2 text-[10px] font-mono text-slate-500 pt-0.5">
+                            <span>PDR: <b>{snap.counts?.spare_parts ?? 0}</b></span>
+                            <span>•</span>
+                            <span>Mouvements: <b>{snap.counts?.movements ?? 0}</b></span>
+                            <span>•</span>
+                            <span>Machines: <b>{snap.counts?.machines ?? 0}</b></span>
+                            <span>•</span>
+                            <span>Total: <b>{totalItems}</b> enregistrements</span>
+                          </div>
+                        </div>
+
+                        {/* Actions */}
+                        <div className="flex items-center gap-2 self-end sm:self-center">
+                          {isConfirming ? (
+                            <div className="flex items-center gap-1.5 bg-amber-100 p-1.5 rounded-xl border border-amber-300 animate-in fade-in">
+                              <span className="text-[10px] font-bold text-amber-900 px-1">Confirmer ?</span>
+                              <button
+                                type="button"
+                                disabled={isRestoring}
+                                onClick={() => handleExecuteRestore(snap.id)}
+                                className="px-2.5 py-1 rounded-lg bg-amber-600 hover:bg-amber-700 text-white font-bold text-[11px] cursor-pointer shadow-2xs"
+                              >
+                                {isRestoring ? 'Restauration...' : 'Oui, Restaurer'}
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setConfirmRestoreId(null)}
+                                className="px-2 py-1 rounded-lg bg-white text-slate-700 font-bold text-[11px] hover:bg-slate-100 border border-slate-300 cursor-pointer"
+                              >
+                                Annuler
+                              </button>
+                            </div>
+                          ) : (
+                            <>
+                              <button
+                                type="button"
+                                disabled={!canRestore}
+                                onClick={() => setConfirmRestoreId(snap.id)}
+                                className="px-2.5 py-1.5 rounded-xl bg-slate-100 hover:bg-emerald-50 hover:text-emerald-700 hover:border-emerald-200 border border-slate-200 text-xs font-bold text-slate-700 transition flex items-center gap-1 cursor-pointer disabled:opacity-40"
+                                title="Restaurer l'état à ce point"
+                              >
+                                <RotateCcw className="w-3 h-3 text-emerald-600" />
+                                <span>Restaurer</span>
+                              </button>
+
+                              <button
+                                type="button"
+                                onClick={() => handleDelete(snap.id)}
+                                className="p-1.5 rounded-xl text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition cursor-pointer"
+                                title="Supprimer ce point"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            </>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          </>
+        )}
+
+        {/* Tab 2: Dual Partition Model (Constitution AGENTS.md) */}
+        {activeTab === 'partitions' && (
+          <div className="p-5 overflow-y-auto space-y-4 grow">
+            {/* Partition 1 Card: Master Referential */}
+            <div className="p-4 rounded-2xl bg-slate-50/80 border border-slate-200/90 space-y-3">
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex items-center gap-2.5">
+                  <Server className="w-5 h-5 text-sky-700 shrink-0" />
+                  <div>
+                    <h3 className="text-xs font-bold uppercase tracking-wider text-slate-900">
+                      Partition 1 : Référentiel Master Usine (Master Referential)
+                    </h3>
+                    <p className="text-[11px] text-slate-500">
+                      412 Machines • 19 Zones • 282 Pannes • 114 Tâches Standard • Utilisateurs
+                    </p>
+                  </div>
+                </div>
+                <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-white text-sky-900 border border-slate-200 font-mono">
+                  Protégé &amp; Immuable
+                </span>
+              </div>
+
+              <p className="text-xs text-slate-600 leading-relaxed">
+                Cette partition contient les fondations immuables de l'usine. Elle n'est jamais altérée par les mouvements quotidiens et sert de source de vérité universelle (SSOT).
+              </p>
+
+              <div className="flex items-center gap-2 pt-1">
+                <button
+                  type="button"
+                  onClick={() => handleExportPartition('master')}
+                  className="px-4 py-2 rounded-full bg-white hover:bg-slate-50 border border-slate-200/95 hover:border-slate-300 text-slate-800 hover:text-slate-950 font-semibold text-xs flex items-center gap-1.5 cursor-pointer shadow-[0_1px_2px_rgba(15,23,42,0.05),inset_0_1px_0_rgba(255,255,255,0.9)] hover:shadow-[0_2px_6px_-1px_rgba(15,23,42,0.08)] active:bg-slate-100 active:scale-[0.99] transition-all duration-150"
+                >
+                  <Download className="w-3.5 h-3.5 text-sky-700" />
+                  <span>Exporter Référentiel Master JSON</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Partition 2 Card: Operations History */}
+            <div className="p-4 rounded-2xl bg-slate-50/80 border border-slate-200/90 space-y-3">
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex items-center gap-2.5">
+                  <Activity className="w-5 h-5 text-sky-700 shrink-0" />
+                  <div>
+                    <h3 className="text-xs font-bold uppercase tracking-wider text-slate-900">
+                      Partition 2 : Historique Opérationnel (Operations History)
+                    </h3>
+                    <p className="text-[11px] text-slate-500">
+                      Demandes DI • Bons de Travail BT • Mouvements Magasin • Suivi Réalisations
+                    </p>
+                  </div>
+                </div>
+                <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-white text-sky-900 border border-slate-200 font-mono">
+                  Transactionnel
+                </span>
+              </div>
+
+              <p className="text-xs text-slate-600 leading-relaxed">
+                Cette partition accumule les activités quotidiennes et les mouvements de stock. Vous pouvez l'exporter ou la purger pour démarrer un nouvel exercice sans toucher à la configuration de vos machines.
+              </p>
+
+              <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
+                <button
+                  type="button"
+                  onClick={() => handleExportPartition('operations')}
+                  className="px-4 py-2 rounded-full bg-white hover:bg-slate-50 border border-slate-200/95 hover:border-slate-300 text-slate-800 hover:text-slate-950 font-semibold text-xs flex items-center gap-1.5 cursor-pointer shadow-[0_1px_2px_rgba(15,23,42,0.05),inset_0_1px_0_rgba(255,255,255,0.9)] hover:shadow-[0_2px_6px_-1px_rgba(15,23,42,0.08)] active:bg-slate-100 active:scale-[0.99] transition-all duration-150"
+                >
+                  <Download className="w-3.5 h-3.5 text-sky-700" />
+                  <span>Exporter Opérations JSON</span>
+                </button>
+
+                {confirmResetOps ? (
+                  <div className="flex items-center gap-1.5 bg-rose-100 p-1.5 rounded-full border border-rose-300 animate-in fade-in">
+                    <span className="text-[10px] font-bold text-rose-900 px-2">Confirmer la purge ?</span>
+                    <button
+                      type="button"
+                      onClick={handleResetOperations}
+                      className="px-3 py-1 rounded-full bg-rose-700 hover:bg-rose-800 text-white font-semibold text-[11px] cursor-pointer shadow-2xs"
+                    >
+                      Oui, Purger Opérations
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setConfirmResetOps(false)}
+                      className="px-2.5 py-1 rounded-full bg-white text-slate-700 font-semibold text-[11px] hover:bg-slate-100 border border-slate-300 cursor-pointer"
+                    >
+                      Annuler
+                    </button>
+                  </div>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => setConfirmResetOps(true)}
+                    className="px-4 py-2 rounded-full bg-white hover:bg-rose-50/50 border border-rose-200/90 hover:border-rose-300 text-rose-700 font-semibold text-xs flex items-center gap-1.5 cursor-pointer shadow-[0_1px_2px_rgba(15,23,42,0.04)] hover:shadow-[0_2px_5px_-1px_rgba(15,23,42,0.07)] active:bg-rose-50 active:scale-[0.99] transition-all duration-150"
+                    title="Purger l'historique sans toucher aux machines et catalogues"
+                  >
+                    <Trash2 className="w-3.5 h-3.5 text-rose-600" />
+                    <span>Purger Historique Opérations</span>
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Footer */}
+        <div className="p-4 bg-slate-50 border-t border-slate-200 flex items-center justify-between text-xs text-slate-500 shrink-0">
+          <div className="flex items-center gap-1.5 font-mono text-[11px]">
+            <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" />
+            <span>Moteur Relational Hétérogène • IndexDB & LocalStorage</span>
+          </div>
+
+          <button
+            type="button"
+            onClick={onClose}
+            className="px-4.5 py-1.5 rounded-full bg-white hover:bg-slate-50 border border-slate-300/90 font-semibold text-xs text-slate-800 shadow-[0_1px_2px_rgba(15,23,42,0.05)] hover:shadow-[0_2px_6px_-1px_rgba(15,23,42,0.08)] active:bg-slate-100 active:scale-[0.99] transition-all cursor-pointer"
+          >
+            Fermer
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}

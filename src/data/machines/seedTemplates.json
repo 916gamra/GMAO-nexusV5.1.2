@@ -1,0 +1,122 @@
+[
+  {
+    "id_templates": "TPL-COMPRESSEUR",
+    "libelle": "Compresseur",
+    "id_family": "FAM-PRES",
+    "famille_lib": "Presse"
+  },
+  {
+    "id_templates": "TPL-FRAISEUSE",
+    "libelle": "Fraiseuse",
+    "id_family": "FAM-FRAI",
+    "famille_lib": "Fraiseuse"
+  },
+  {
+    "id_templates": "TPL-FRAISEUSEAUR",
+    "libelle": "Fraiseuse aureillete",
+    "id_family": "FAM-FRAI",
+    "famille_lib": "Fraiseuse"
+  },
+  {
+    "id_templates": "TPL-MACHINEEMBAL",
+    "libelle": "Machine emballage",
+    "id_family": "FAM-EMBA",
+    "famille_lib": "Emballage"
+  },
+  {
+    "id_templates": "TPL-MEULE",
+    "libelle": "Meule",
+    "id_family": "FAM-MEUL",
+    "famille_lib": "Meule"
+  },
+  {
+    "id_templates": "TPL-PERCEUSE",
+    "libelle": "Perçeuse",
+    "id_family": "FAM-PERC",
+    "famille_lib": "Perceuse"
+  },
+  {
+    "id_templates": "TPL-POMPEDEAU",
+    "libelle": "Pompe d'eau",
+    "id_family": "FAM-MANU",
+    "famille_lib": "Manutention"
+  },
+  {
+    "id_templates": "TPL-POSTESOUDAGE",
+    "libelle": "Poste soudage",
+    "id_family": "FAM-SOUD",
+    "famille_lib": "Soudage"
+  },
+  {
+    "id_templates": "TPL-PRESSEHYDRAU",
+    "libelle": "Presse Hydraulique",
+    "id_family": "FAM-PRES",
+    "famille_lib": "Presse"
+  },
+  {
+    "id_templates": "TPL-PRESSEDINJEC",
+    "libelle": "Presse d'injection bakelite",
+    "id_family": "FAM-PRES",
+    "famille_lib": "Presse"
+  },
+  {
+    "id_templates": "TPL-PRESSEMECANI",
+    "libelle": "Presse mécanique",
+    "id_family": "FAM-PRES",
+    "famille_lib": "Presse"
+  },
+  {
+    "id_templates": "TPL-SCIEMECANIQU",
+    "libelle": "Scie mécanique",
+    "id_family": "FAM-SCIE",
+    "famille_lib": "Scie"
+  },
+  {
+    "id_templates": "TPL-SERTISSEUSE",
+    "libelle": "Sertisseuse",
+    "id_family": "FAM-SERT",
+    "famille_lib": "Sertissage"
+  },
+  {
+    "id_templates": "TPL-TOURDESATINA",
+    "libelle": "Tour de Satinage",
+    "id_family": "FAM-TOUR",
+    "famille_lib": "Tour"
+  },
+  {
+    "id_templates": "TPL-TOURDEDETOUR",
+    "libelle": "Tour de détourage",
+    "id_family": "FAM-TOUR",
+    "famille_lib": "Tour"
+  },
+  {
+    "id_templates": "TPL-TOURDEPOLISS",
+    "libelle": "Tour de polissage",
+    "id_family": "FAM-TOUR",
+    "famille_lib": "Tour"
+  },
+  {
+    "id_templates": "TPL-TOURDEREPOUS",
+    "libelle": "Tour de repoussage",
+    "id_family": "FAM-TOUR",
+    "famille_lib": "Tour"
+  },
+  {
+    "id_templates": "TPL-TOURPARALLEL",
+    "libelle": "Tour paralléle",
+    "id_family": "FAM-TOUR",
+    "famille_lib": "Tour"
+  },
+  {
+    "id_templates": "TPL-RIVETEUSE",
+    "libelle": "Riveteuse",
+    "id_family": "FAM-RIVE",
+    "famille_lib": "Rivetage"
+  },
+  {
+    "id_templates": "TPL-MACHINE",
+    "libelle": "Machine Standard",
+    "id_family": "FAM-MEC",
+    "famille_lib": "Mécanique Générale"
+  }
+]

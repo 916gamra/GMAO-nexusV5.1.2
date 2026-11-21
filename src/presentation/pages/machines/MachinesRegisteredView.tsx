@@ -1,0 +1,2304 @@
+import {  useState, useRef, useMemo, useEffect  } from 'react';
+import * as XLSX from 'xlsx';
+import AnimatedPage from '../../components/common/AnimatedPage';
+import CustomSelect from '../../components/common/CustomSelect';
+import { HubIcon } from '../../components/common/icons/HubIcon';
+import { CategoryIcon } from '../../components/common/icons/CategoryIcon';
+import FormulasModalButton from '../../components/common/FormulasModalButton';
+import Action3DButton from '../../components/common/Action3DButton';
+import PageHeaderIcon from '../../components/common/PageHeaderIcon';
+import { useMachines } from '../../hooks/useMachines';
+import { useSmartTableLoader } from '../../hooks/useSmartTableLoader';
+import TableSkeletonRows from '../../components/common/TableSkeletonRows';
+import MachinesKPIBar from './components/MachinesKPIBar';
+import {
+  Factory, Search, MapPin, Users, CheckCircle2, AlertTriangle, Trash2, Edit2,
+  ChevronLeft, ChevronRight, SlidersHorizontal, ArrowUpDown, ChevronDown, ArrowDown,
+  ArrowUp, Activity, Cpu, X, Radio, FileText, Calculator, MoreVertical, Calendar,
+  Hash, Wrench, FileSpreadsheet, RotateCcw, ShieldCheck, Clock, Sparkles, ShieldAlert,
+  Settings2, Plus, Check, QrCode, Gauge, Smartphone, Flame,
+} from 'lucide-react';
+import PreventiveService from '../../../application/services/PreventiveService';
+import { filterActiveMachines, getMachineAssetClass, isArchivedMachine } from '../../../utils/activeMachines';
+import {
+  ASSET_HIERARCHY_LEVEL_LABELS,
+  computeParentCorrectiveRollup,
+  evaluateParentArchivePolicy,
+  resolveMachineHierarchyContext,
+  wouldCreateHierarchyCycle,
+  type AssetHierarchyLevel,
+} from '../../../utils/assetHierarchy';
+import { MachinesRegisteredModals } from './components/MachinesRegisteredModals';
+import MachineQrFieldModal from './components/MachineQrFieldModal';
+import MachinePassport360Modal from './components/MachinePassport360Modal';
+import { MachinesCockpitBar } from './components/MachinesCockpitBar';
+import BatchQrPrintModal from './components/BatchQrPrintModal';
+import {
+  buildQuickEditMachineUpdates,
+  computeMachinesCockpitMetrics,
+  type MachineQuickEditDraft,
+  type MachinesCockpitFilter,
+} from '../../../domain/machines/machinesCockpitService';
+import { useGmaoStore } from '../../../store/useGmaoStore';
+import { buildMachineActivityLedger } from '../../../application/services/MachineHealthPassportService';
+import { usePermission } from '../../components/common/PermissionGate';
+import { dataIntegrityService } from '../../../services/dataIntegrityService';
+import { storageService } from '../../../utils/storageService';
+import { STORAGE_KEYS } from '../../../infrastructure/persistence/storageKeys';
+
+// Helper to retrieve real machine serial number without fabricating fake data
+export const getMachineSerialNumber = (m) => {
+  return String(m?.serial_number || m?.numero_serie || m?.num_serie || '').trim();
+};
+
+// Helper to retrieve real machine commissioning date without fabricating fake data
+export const getMachineCommissioningDate = (m) => {
+  if (m?.date_mise_en_service) return String(m.date_mise_en_service).trim();
+  if (m?.date_installation) return String(m.date_installation).trim();
+  if (m?.annee) return `${m.annee}-01-15`;
+  return '';
+};
+
+// Helper to find a zone object from any zone/sector reference (id_zone, code_zone, code, or libelle)
+const getZoneByRef = (ref, zonesList = []) => {
+  if (!ref || !Array.isArray(zonesList)) return null;
+  const str = String(ref).trim().toLowerCase();
+  return (
+    zonesList.find((z) => {
+      const idZ = String(z?.id_zone || '').trim().toLowerCase();
+      const codeZ = String(z?.code_zone || z?.code || '').trim().toLowerCase();
+      const libZ = String(z?.libelle || '').trim().toLowerCase();
+      return (idZ && idZ === str) || (codeZ && codeZ === str) || (libZ && libZ === str);
+    }) || null
+  );
+};
+
+// Check if a machine matches the zone/sector filter
+const matchesZoneFilter = (machineZoneRef, filterVal, zonesList = []) => {
+  if (!filterVal || filterVal === 'ALL') return true;
+  if (!machineZoneRef) return false;
+
+  const mRef = String(machineZoneRef).trim().toLowerCase();
+  const fRef = String(filterVal).trim().toLowerCase();
+
+  // 1. Direct string match
+  if (mRef === fRef) return true;
+
+  // 2. Lookup zone objects
+  const fZone = getZoneByRef(filterVal, zonesList);
+  const mZone = getZoneByRef(machineZoneRef, zonesList);
+
+  if (fZone && mZone) {
+    const fId = String(fZone.id_zone || '').trim().toLowerCase();
+    const fCode = String(fZone.code_zone || fZone.code || '').trim().toLowerCase();
+    const mId = String(mZone.id_zone || '').trim().toLowerCase();
+    const mCode = String(mZone.code_zone || mZone.code || '').trim().toLowerCase();
+    return (fId && fId === mId) || (fCode && fCode === mCode);
+  }
+
+  if (fZone) {
+    const fId = String(fZone.id_zone || '').trim().toLowerCase();
+    const fCode = String(fZone.code_zone || fZone.code || '').trim().toLowerCase();
+    return (fId && fId === mRef) || (fCode && fCode === mRef);
+  }
+
+  if (mZone) {
+    const mId = String(mZone.id_zone || '').trim().toLowerCase();
+    const mCode = String(mZone.code_zone || mZone.code || '').trim().toLowerCase();
+    return (mId && mId === fRef) || (mCode && mCode === fRef);
+  }
+
+  return false;
+};
+
+export default function MachinesRegisteredView({
+  machines: propMachines = [],
+  families: passedFamilies = [],
+  effectiveFamilies = [],
+  templates: passedTemplates = [],
+  effectiveTemplates = [],
+  blueprints = [],
+  zones = [],
+  technicians = [],
+  mouvements = [],
+  mchFamilyFilter = 'ALL',
+  setMchFamilyFilter = () => {},
+  mchTemplateFilter = 'ALL',
+  setMchTemplateFilter = () => {},
+  mchZoneFilter = 'ALL',
+  setMchZoneFilter = () => {},
+  mchSearch = '',
+  setMchSearch = () => {},
+  onAddMachine: _propAddMachine,
+  onUpdateMachine: propUpdateMachine,
+  onDeleteMachine: propDeleteMachine,
+  onOpenAddMachine = () => {},
+  onNavigateToFamily = () => {},
+  onNavigateToTemplate = () => {},
+  onNavigateToZone = () => {},
+  onNavigateToBlueprints = () => {},
+  onNavigateToQuickSortie = () => {},
+  onNavigateToPreventive = () => {},
+  onNavigateToEquipment = (_machineId?: string) => {},
+  showToast,
+}: any) {
+  const canCreate = usePermission('machine.create');
+  const canEdit = usePermission('machine.edit');
+  const canDelete = usePermission('machine.delete');
+
+  const {
+    machines: dbMachines,
+    generalSystemTypes = [],
+    updateMachine: dbUpdateMachine,
+    deleteMachine: dbDeleteMachine,
+  } = useMachines();
+
+  const preventiveTasks = useGmaoStore((s) => s.preventiveTasks) || [];
+  const correctiveInterventions = useGmaoStore((s) => s.correctiveInterventions) || [];
+  const preventiveExecutions = useGmaoStore((s) => s.preventiveExecutions) || [];
+  const sortiesExterne = useGmaoStore((s) => s.sortiesExterne) || [];
+  const sortieDemands = useGmaoStore((s) => s.sortieDemands) || [];
+  const rawStock = useGmaoStore((s) => s.rawStock) || [];
+  const machineElementsLedger = useGmaoStore((s) => s.machineElementsLedger) || [];
+  const warehouseItems = useGmaoStore((s) => s.warehouseItems) || [];
+
+  const machines = useMemo(() => {
+    if (Array.isArray(propMachines) && propMachines.length > 0) {
+      return propMachines;
+    }
+    if (Array.isArray(dbMachines) && dbMachines.length > 0) {
+      return dbMachines;
+    }
+    return [];
+  }, [propMachines, dbMachines]);
+
+  const families = useMemo(() => {
+    if (Array.isArray(passedFamilies) && passedFamilies.length > 0) return passedFamilies;
+    if (Array.isArray(effectiveFamilies) && effectiveFamilies.length > 0) return effectiveFamilies;
+    return [];
+  }, [passedFamilies, effectiveFamilies]);
+
+  const templates = useMemo(() => {
+    if (Array.isArray(passedTemplates) && passedTemplates.length > 0) return passedTemplates;
+    if (Array.isArray(effectiveTemplates) && effectiveTemplates.length > 0) return effectiveTemplates;
+    return [];
+  }, [passedTemplates, effectiveTemplates]);
+
+  const onUpdateMachine = (id: any, data: any) => {
+    if (propUpdateMachine) propUpdateMachine(id, data);
+    else if (dbUpdateMachine) dbUpdateMachine(id, data).catch(() => {});
+  };
+
+  const onDeleteMachine = (id: any) => {
+    if (propDeleteMachine) propDeleteMachine(id);
+    else if (dbDeleteMachine) dbDeleteMachine(id).catch(() => {});
+  };
+
+  const [toEdit, setToEdit] = useState<any>(null);
+  const [toDelete, setToDelete] = useState<any>(null);
+  const [preventiveMachine, setPreventiveMachine] = useState<any>(null);
+  const [qrMachine, setQrMachine] = useState<{ machine: any; mode: 'ETIQUETTE' | 'FICHE_TERRAIN' } | null>(null);
+  const [passport360Machine, setPassport360Machine] = useState<any | null>(null);
+  const [statusFilter, setStatusFilter] = useState('ALL'); // ALL | 'En Service' | 'En Maintenance' | 'Arrêt'
+  const [cockpitFilter, setCockpitFilter] = useState<MachinesCockpitFilter>('NONE');
+  const [quickEditMode, setQuickEditMode] = useState(false);
+  const [quickEditDrafts, setQuickEditDrafts] = useState<Record<string, MachineQuickEditDraft>>({});
+  const [showBatchQrModal, setShowBatchQrModal] = useState(false);
+  const [assetClassFilter, setAssetClassFilter] = useState<'ALL' | 'PRODUCTION' | 'SYSTEM_GENERAL'>('ALL');
+  const [sysTypeFilter, setSysTypeFilter] = useState('ALL');
+  const [showFormulasModal, setShowFormulasModal] = useState(false);
+
+  const navigateToEquipmentForMachine = (machineId?: string) => {
+    try {
+      if (machineId) {
+        storageService.setItem(STORAGE_KEYS.EQUIPMENT_FOCUS_ID, String(machineId));
+      }
+    } catch {
+      // Ignore storage access errors
+    }
+    onNavigateToEquipment(machineId);
+  };
+
+  // Debounce state for high-performance machine searching
+  const [localSearch, setLocalSearch] = useState(mchSearch);
+
+  // Sync from parent
+  useEffect(() => {
+    setLocalSearch(mchSearch);
+  }, [mchSearch]);
+
+  // Propagate to parent with 200ms debounce
+  useEffect(() => {
+    const handler = setTimeout(() => {
+      setMchSearch(localSearch);
+    }, 200);
+    return () => clearTimeout(handler);
+  }, [localSearch, setMchSearch]);
+
+  // Only show families that have registered machines
+  const machineFamilies = useMemo(() => {
+    const usedFamilyIds = new Set(machines.map((m) => m.id_family).filter(Boolean));
+    return families.filter((f) => usedFamilyIds.has(f.id_family));
+  }, [families, machines]);
+
+  // Cascading templates based on selected family
+  const availableTemplates = useMemo(() => {
+    let relTemplates = templates;
+    if (mchFamilyFilter !== 'ALL') {
+      relTemplates = templates.filter((t) => t.id_family === mchFamilyFilter);
+    }
+    return relTemplates;
+  }, [templates, mchFamilyFilter]);
+
+  // Calculate Interventions Count Map per Machine for high efficiency
+  const sortiesCountMap = useMemo(() => {
+    const map: Record<string, number> = {};
+    mouvements.forEach((m) => {
+      const rawCode = String(m?.id_machine_registered || m?.machine || m?.code_machine || '').trim();
+      if (rawCode) {
+        const normCode = rawCode.toUpperCase();
+        map[normCode] = (map[normCode] || 0) + 1;
+        if (rawCode !== normCode) {
+          map[rawCode] = map[normCode];
+        }
+      }
+    });
+    return map;
+  }, [mouvements]);
+
+  const cockpitMetrics = useMemo(
+    () =>
+      computeMachinesCockpitMetrics({
+        machines,
+        correctiveInterventions,
+        preventiveTasks,
+        preventiveExecutions,
+        sortiesExterne,
+        stockItems: rawStock,
+      }),
+    [machines, correctiveInterventions, preventiveTasks, preventiveExecutions, sortiesExterne, rawStock]
+  );
+
+  const pendingQuickUpdates = useMemo(
+    () => buildQuickEditMachineUpdates(machines, quickEditDrafts),
+    [machines, quickEditDrafts]
+  );
+
+  const handleStageQuickDraft = (machineId: string, patch: MachineQuickEditDraft) => {
+    setQuickEditDrafts((prev) => ({
+      ...prev,
+      [machineId]: {
+        ...(prev[machineId] || {}),
+        ...patch,
+      },
+    }));
+  };
+
+  const handleCommitQuickEdits = () => {
+    if (!canEdit || pendingQuickUpdates.length === 0) return;
+    pendingQuickUpdates.forEach((item) => {
+      onUpdateMachine(item.id, item.updatedMachine);
+    });
+    const updatedCount = pendingQuickUpdates.length;
+    setQuickEditDrafts({});
+    setQuickEditMode(false);
+    showToast?.(
+      `${updatedCount} équipement(s) mis à jour avec journalisation AUDIT_EVENTS.`,
+      'success'
+    );
+  };
+
+  // KPI Statistics
+  const kpis = useMemo(() => {
+    const total = machines.length;
+    let enService = 0;
+    let enMaintenance = 0;
+    let enArret = 0;
+    let archivees = 0;
+
+    machines.forEach((m) => {
+      if (isArchivedMachine(m)) {
+        archivees++;
+        return;
+      }
+      const st = String(m.status || 'En Service').toLowerCase();
+      if (st.includes('service')) enService++;
+      else if (st.includes('maint') || st.includes('panne')) enMaintenance++;
+      else enArret++;
+    });
+
+    const activeFamiliesCount = new Set(machines.map((m) => m.id_family).filter(Boolean)).size;
+    const totalInterventions = machines.reduce((acc, m) => {
+      const codeNorm = String(m?.id_machine_registered || '').trim().toUpperCase();
+      return acc + (sortiesCountMap[codeNorm] || 0);
+    }, 0);
+
+    return {
+      total,
+      enService,
+      enMaintenance,
+      enArret,
+      archivees,
+      activeFamiliesCount,
+      totalInterventions,
+      totalEconomicImpact12m: cockpitMetrics.totalEconomicImpact12m,
+    };
+  }, [machines, sortiesCountMap, cockpitMetrics.totalEconomicImpact12m]);
+
+  // Filtering
+  const filteredMachines = useMemo(() => {
+    return machines.filter((m) => {
+      const codeNorm = String(m?.id_machine_registered || m?.id || m?.code || '')
+        .trim()
+        .toUpperCase();
+      const rowSignal = cockpitMetrics.perMachineSignals[codeNorm];
+      if (cockpitFilter === 'BAD_ACTORS' && !rowSignal?.isBadActor) return false;
+      if (cockpitFilter === 'MAINT_DUE' && !rowSignal?.hasMaintDue) return false;
+      if (cockpitFilter === 'INCOMPLETE_SETUP' && !rowSignal?.isIncompleteSetup) return false;
+      if (cockpitFilter === 'STOPPED_OR_MAINT' && !rowSignal?.isStoppedOrMaint) return false;
+
+      const mClass = getMachineAssetClass(m);
+      if (assetClassFilter !== 'ALL' && mClass !== assetClassFilter) return false;
+      if (sysTypeFilter !== 'ALL' && String(m.id_general_system_type || '') !== sysTypeFilter) return false;
+      if (mchFamilyFilter !== 'ALL' && m.id_family !== mchFamilyFilter) return false;
+      if (mchTemplateFilter !== 'ALL' && m.id_templates !== mchTemplateFilter) return false;
+      if (!matchesZoneFilter(m.id_zone_default, mchZoneFilter, zones)) return false;
+      if (statusFilter !== 'ALL') {
+        const archived = isArchivedMachine(m);
+        if (statusFilter === 'ARCHIVEE') {
+          if (!archived) return false;
+        } else {
+          if (archived) return false;
+          const st = String(m.status || 'En Service').toLowerCase();
+          if (statusFilter === 'En Service' && !st.includes('service')) return false;
+          if (statusFilter === 'STOPPED_OR_MAINT' && st.includes('service')) return false;
+          if (statusFilter === 'En Maintenance' && !st.includes('maint') && !st.includes('panne')) return false;
+          if (statusFilter === 'Arrêt' && (st.includes('service') || st.includes('maint') || st.includes('panne'))) return false;
+        }
+      }
+      if (mchSearch) {
+        const q = String(mchSearch).trim().toLowerCase();
+        const techObj = technicians.find((t) => t.id_technician === m.technician || t.nom === m.technician);
+        const techName = techObj ? `${techObj.nom} ${techObj.id_technician || ''}`.toLowerCase() : '';
+        const znObj = getZoneByRef(m.id_zone_default, zones);
+        const znName = znObj ? `${znObj.libelle} ${znObj.code_zone || ''} ${znObj.id_zone || ''}`.toLowerCase() : '';
+        const bpObj = blueprints.find((b) => b.id_blueprint === m.id_blueprint);
+        const bpName = bpObj ? `${bpObj.id_blueprint} ${bpObj.libelle || ''} ${bpObj.ref_plan || ''} ${bpObj.revision || ''}`.toLowerCase() : '';
+        const sysObj = generalSystemTypes.find((t) => t.id === m.id_general_system_type);
+        const sysName = sysObj ? `${sysObj.id} ${sysObj.code || ''} ${sysObj.name || ''}`.toLowerCase() : '';
+
+        const sn = getMachineSerialNumber(m).toLowerCase();
+        const dt = getMachineCommissioningDate(m).toLowerCase();
+
+        return (
+          String(m.id_machine_registered || '').toLowerCase().includes(q) ||
+          String(m.designation || '').toLowerCase().includes(q) ||
+          sn.includes(q) ||
+          dt.includes(q) ||
+          String(m.id_family || '').toLowerCase().includes(q) ||
+          String(m.id_templates || '').toLowerCase().includes(q) ||
+          String(m.id_blueprint || '').toLowerCase().includes(q) ||
+          String(m.id_zone_default || '').toLowerCase().includes(q) ||
+          String(m.technician || '').toLowerCase().includes(q) ||
+          String(m.id_general_system_type || '').toLowerCase().includes(q) ||
+          techName.includes(q) ||
+          znName.includes(q) ||
+          bpName.includes(q) ||
+          sysName.includes(q)
+        );
+      }
+      return true;
+    });
+  }, [machines, cockpitMetrics.perMachineSignals, cockpitFilter, assetClassFilter, sysTypeFilter, mchFamilyFilter, mchTemplateFilter, mchZoneFilter, statusFilter, mchSearch, technicians, zones, blueprints, generalSystemTypes]);
+
+  const [pageSize, setPageSize] = useState(25);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [sortField, setSortField] = useState('id_machine_registered');
+  const [sortOrder, setSortOrder] = useState('asc');
+  const [showSortMenu, setShowSortMenu] = useState(false);
+
+  const sortMenuRef = useRef(null);
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [mchSearch, cockpitFilter, assetClassFilter, sysTypeFilter, mchFamilyFilter, mchTemplateFilter, mchZoneFilter, statusFilter, sortField, sortOrder]);
+
+  // Active Action Menu Popover
+  const [activeActionMenuId, setActiveActionMenuId] = useState(null);
+
+  useEffect(() => {
+    function handleClickOutside(event) {
+      if (sortMenuRef.current && !sortMenuRef.current.contains(event.target)) {
+        setShowSortMenu(false);
+      }
+      if (!event.target.closest('.action-menu-container')) {
+        setActiveActionMenuId(null);
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  const sortedData = useMemo(() => {
+    if (!sortField) return filteredMachines;
+    return [...filteredMachines].sort((a, b) => {
+      if (sortField === 'sorties') {
+        const cntA = sortiesCountMap[String(a.id_machine_registered || '').trim().toUpperCase()] || 0;
+        const cntB = sortiesCountMap[String(b.id_machine_registered || '').trim().toUpperCase()] || 0;
+        return sortOrder === 'asc' ? cntA - cntB : cntB - cntA;
+      }
+      if (sortField === 'serial_number') {
+        const valA = (getMachineSerialNumber(a) || '').toLowerCase();
+        const valB = (getMachineSerialNumber(b) || '').toLowerCase();
+        if (valA < valB) return sortOrder === 'asc' ? -1 : 1;
+        if (valA > valB) return sortOrder === 'asc' ? 1 : -1;
+        return 0;
+      }
+      if (sortField === 'date_mise_en_service') {
+        const valA = getMachineCommissioningDate(a) || '';
+        const valB = getMachineCommissioningDate(b) || '';
+        if (valA < valB) return sortOrder === 'asc' ? -1 : 1;
+        if (valA > valB) return sortOrder === 'asc' ? 1 : -1;
+        return 0;
+      }
+      let valA = a[sortField] || '';
+      let valB = b[sortField] || '';
+      if (typeof valA === 'string') valA = valA.toLowerCase();
+      if (typeof valB === 'string') valB = valB.toLowerCase();
+      if (valA < valB) return sortOrder === 'asc' ? -1 : 1;
+      if (valA > valB) return sortOrder === 'asc' ? 1 : -1;
+      return 0;
+    });
+  }, [filteredMachines, sortField, sortOrder, sortiesCountMap]);
+
+  const totalItems = sortedData.length;
+  const totalPages = pageSize === 0 ? 1 : Math.ceil(totalItems / pageSize);
+  const effectivePageSize = pageSize === 0 ? totalItems : pageSize;
+  const startIndex = pageSize === 0 ? 0 : (currentPage - 1) * pageSize;
+  const rawDisplayedData =
+    pageSize === 0 ? sortedData : sortedData.slice(startIndex, startIndex + effectivePageSize);
+  const displayedData = rawDisplayedData;
+
+  const { isDataReady: isTableReady } = useSmartTableLoader(displayedData);
+
+  const handleSort = (field) => {
+    if (sortField === field) {
+      setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc');
+    } else {
+      setSortField(field);
+      setSortOrder('asc');
+    }
+  };
+
+  const renderSortIcon = (field) => {
+    if (sortField !== field) {
+      return (
+        <ArrowUpDown className="w-3 h-3 text-slate-300 group-hover:text-slate-500 transition shrink-0" />
+      );
+    }
+    return sortOrder === 'asc' ? (
+      <ArrowUp className="w-3 h-3 text-emerald-700 shrink-0 font-bold" />
+    ) : (
+      <ArrowDown className="w-3 h-3 text-emerald-700 shrink-0 font-bold" />
+    );
+  };
+
+  const hasActiveFilters =
+    cockpitFilter !== 'NONE' ||
+    assetClassFilter !== 'ALL' ||
+    sysTypeFilter !== 'ALL' ||
+    mchFamilyFilter !== 'ALL' ||
+    mchTemplateFilter !== 'ALL' ||
+    mchZoneFilter !== 'ALL' ||
+    statusFilter !== 'ALL' ||
+    Boolean(localSearch);
+
+  const clearAllFilters = () => {
+    setCockpitFilter('NONE');
+    setAssetClassFilter('ALL');
+    setSysTypeFilter('ALL');
+    setMchFamilyFilter('ALL');
+    setMchTemplateFilter('ALL');
+    setMchZoneFilter('ALL');
+    setStatusFilter('ALL');
+    setLocalSearch('');
+    setSortField('id_machine_registered');
+    setSortOrder('asc');
+  };
+
+  // Export Filtered Machines to Excel (.xlsx)
+  const handleExportFilteredMachines = () => {
+    const exportRows = sortedData
+      .map((m, idx) => {
+        const techObj = technicians.find((t) => t.id_technician === m.technician || t.nom === m.technician);
+        const znObj = getZoneByRef(m.id_zone_default, zones);
+        const bpObj = blueprints.find((b) => b.id_blueprint === m.id_blueprint);
+        const famObj = families.find((f) => f.id_family === m.id_family);
+        const tmplObj = templates.find((t) => t.id_templates === m.id_templates);
+        const sysObj = generalSystemTypes.find((t) => t.id === m.id_general_system_type);
+        const sortiesCount = sortiesCountMap[String(m.id_machine_registered || '').trim().toUpperCase()] || 0;
+        const mClass = getMachineAssetClass(m);
+
+        return {
+          'N°': idx + 1,
+          'Code Machine (B)': m.id_machine_registered || '',
+          'Désignation (C)': m.designation || '',
+          "Classe d'Actif": mClass === 'SYSTEM_GENERAL' ? 'Système Général' : 'Machine de Production',
+          'Type Système Général': sysObj ? `${sysObj.code ? sysObj.code + ' - ' : ''}${sysObj.name}` : m.id_general_system_type || '',
+          'N° Série': getMachineSerialNumber(m),
+          'Date Mise en Service': getMachineCommissioningDate(m),
+          'Famille ID (D)': m.id_family || '',
+          'Famille Libellé (D)': famObj?.libelle || m.id_family || '',
+          'Template ID (E)': m.id_templates || '',
+          'Template Libellé (E)': tmplObj?.libelle || m.id_templates || '',
+          'Blueprint ID': m.id_blueprint || '',
+          'Blueprint Titre': bpObj?.libelle || bpObj?.ref_plan || '',
+          'Zone ID (F)': m.id_zone_default || '',
+          'Zone Nom (F)': znObj?.libelle || m.id_zone_default || '',
+          'Technicien ID (G)': m.technician || '',
+          'Technicien Nom (G)': techObj?.nom || m.technician || '',
+          'Statut Opérationnel (H)': m.status || 'En Service',
+          'Régime Travail': m.regime_travail || '2x8',
+          'Coût Arrêt Horaire (DH/h)': Number(m.cout_arret_horaire || 0),
+          'Valeur Acquisition (DH)': Number(m.valeur_acquisition ?? m.valeur_a_neuf ?? 0),
+          'Interventions / Sorties': sortiesCount,
+        };
+      });
+
+    const ws = XLSX.utils.json_to_sheet(exportRows);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Machines_Enregistrées');
+    const nowStr = new Date().toISOString().slice(0, 10);
+    XLSX.writeFile(wb, `GMAO_Parc_Machines_${nowStr}.xlsx`);
+  };
+
+  return (
+    <AnimatedPage className="space-y-5">
+      {/* Top Banner (BDR Light GMAO Header Card with 3D Tactile Elevation) */}
+      <div className="bg-white p-5 md:p-6 rounded-2xl border border-slate-200/90 shadow-[0_12px_32px_-6px_rgba(0,0,0,0.12),0_4px_12px_-2px_rgba(0,0,0,0.06)] hover:shadow-[0_16px_40px_-8px_rgba(0,0,0,0.16),0_6px_16px_-3px_rgba(0,0,0,0.08)] hover:-translate-y-0.5 transition-all duration-300 ease-out flex flex-col md:flex-row items-start md:items-center justify-between gap-4 relative overflow-hidden group/header">
+        {/* Subtle Ambient Gradient Background Highlight */}
+        <div className="absolute -top-12 -right-12 w-48 h-48 bg-emerald-500/5 rounded-full blur-2xl pointer-events-none group-hover/header:bg-emerald-500/10 transition-colors duration-500" />
+
+        <div className="min-w-0 flex-1 flex items-start sm:items-center gap-3.5 relative">
+          <PageHeaderIcon icon={Factory} colorClass="text-emerald-700" />
+          <div>
+            <h2 className="text-xl font-black text-slate-900 tracking-tight">
+              Parc Machines & Équipements Enregistrés
+            </h2>
+            <p className="text-xs text-slate-500 mt-1 max-w-3xl leading-relaxed">
+              Répertoire central des équipements de production et lignes industrielles. Lié dynamiquement avec{' '}
+              <b className="text-cyan-700 font-semibold">Familles (D)</b>,{' '}
+              <b className="text-amber-700 font-semibold">Templates (E)</b>,{' '}
+              <b className="text-purple-700 font-semibold">Zones (F)</b> et{' '}
+              <b className="text-blue-700 font-semibold">Techniciens (G)</b>.
+            </p>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-2.5 shrink-0 relative">
+          <FormulasModalButton
+            onClick={() => setShowFormulasModal(true)}
+            title="Formules Excel (Liaisons Machines)"
+          />
+
+          {canCreate && (
+            <Action3DButton
+              variant="circle"
+              color="emerald"
+              icon={Factory}
+              showAddBadge={true}
+              onClick={onOpenAddMachine}
+              title="Nouvelle Machine"
+            />
+          )}
+        </div>
+      </div>
+
+      {/* KPI Cards Bar */}
+      <MachinesKPIBar
+        kpis={kpis}
+        statusFilter={statusFilter}
+        setStatusFilter={(val: string) => {
+          setStatusFilter(val);
+          if (val !== 'STOPPED_OR_MAINT' && cockpitFilter === 'STOPPED_OR_MAINT') {
+            setCockpitFilter('NONE');
+          }
+        }}
+      />
+
+      {/* Phase C1: Owner & Field Live Cockpit */}
+      <MachinesCockpitBar
+        metrics={cockpitMetrics}
+        statusFilter={statusFilter}
+        cockpitFilter={cockpitFilter}
+        onToggleStopped={() => {
+          const isActive =
+            cockpitFilter === 'STOPPED_OR_MAINT' || statusFilter === 'STOPPED_OR_MAINT';
+          if (isActive) {
+            setCockpitFilter('NONE');
+            setStatusFilter('ALL');
+          } else {
+            setCockpitFilter('STOPPED_OR_MAINT');
+            setStatusFilter('STOPPED_OR_MAINT');
+          }
+        }}
+        onToggleBadActors={() =>
+          setCockpitFilter((prev) => (prev === 'BAD_ACTORS' ? 'NONE' : 'BAD_ACTORS'))
+        }
+        onToggleMaintDue={() =>
+          setCockpitFilter((prev) => (prev === 'MAINT_DUE' ? 'NONE' : 'MAINT_DUE'))
+        }
+        onToggleIncompleteSetup={() =>
+          setCockpitFilter((prev) => (prev === 'INCOMPLETE_SETUP' ? 'NONE' : 'INCOMPLETE_SETUP'))
+        }
+      />
+
+      {/* Filter Bar with Cascading Selects, Status Presets, Search & Active Chips */}
+      <div className="relative z-30 bg-white border border-slate-200 rounded-2xl p-4 md:p-5 shadow-[0_12px_32px_-6px_rgba(0,0,0,0.12),0_4px_12px_-2px_rgba(0,0,0,0.06)] hover:shadow-[0_16px_40px_-8px_rgba(0,0,0,0.16),0_6px_16px_-3px_rgba(0,0,0,0.08)] hover:-translate-y-0.5 transition-all duration-300 ease-out space-y-4">
+        {/* Header Toolbar inside Filter Card */}
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-100">
+          <div className="flex items-center gap-2.5">
+            <div className="w-8 h-8 rounded-xl bg-amber-500/10 border border-amber-200/80 flex items-center justify-center text-amber-700 shadow-2xs">
+              <SlidersHorizontal className="w-4 h-4 text-amber-700" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-black uppercase tracking-wider text-slate-900">
+                  Filtres & Recherche Avancée
+                </span>
+                <span className="bg-amber-50 text-amber-800 px-2.5 py-0.5 rounded-lg text-[11px] font-mono font-bold border border-amber-200/70 shadow-2xs">
+                  {filteredMachines.length} / {machines.length}
+                </span>
+              </div>
+              <p className="text-[10.5px] text-slate-400 font-medium">
+                Parc Machines · Liaisons Excel Twin Colonnes B → H
+              </p>
+            </div>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2 self-end sm:self-auto">
+            {canEdit && (
+              <button
+                type="button"
+                data-testid="machines-quick-edit-toggle"
+                onClick={() => {
+                  if (quickEditMode) {
+                    setQuickEditDrafts({});
+                    setQuickEditMode(false);
+                  } else {
+                    setQuickEditMode(true);
+                  }
+                }}
+                className={`h-8 px-3 rounded-xl border text-xs font-bold transition flex items-center gap-1.5 cursor-pointer shadow-2xs active:scale-95 ${
+                  quickEditMode
+                    ? 'bg-amber-600 text-white border-amber-700'
+                    : 'bg-amber-50 hover:bg-amber-100 text-amber-900 border-amber-300/90'
+                }`}
+                title="Activer l'édition rapide en ligne (Statut, Technicien, Régime, Coût arrêt) sans ouvrir les fiches une par une"
+              >
+                <Edit2 className="w-3.5 h-3.5" />
+                <span>{quickEditMode ? 'Quitter Pilotage Terrain' : 'Pilotage Terrain'}</span>
+              </button>
+            )}
+
+            <button
+              type="button"
+              data-testid="machines-batch-qr-btn"
+              onClick={() => setShowBatchQrModal(true)}
+              className="h-8 px-3 rounded-xl border border-cyan-300/90 bg-cyan-50 hover:bg-cyan-100 text-cyan-900 text-xs font-bold transition flex items-center gap-1.5 cursor-pointer shadow-2xs active:scale-95"
+              title="Imprimer une planche A4 d'étiquettes QR pour toutes les machines actives filtrées"
+            >
+              <QrCode className="w-3.5 h-3.5 text-cyan-700" />
+              <span className="hidden sm:inline">Planche QR (Lot)</span>
+            </button>
+
+            {/* Direct Excel Export Button */}
+            <button
+              type="button"
+              onClick={handleExportFilteredMachines}
+              className="h-8 px-3 rounded-xl border border-emerald-300/90 bg-emerald-50 hover:bg-emerald-100 text-emerald-900 text-xs font-bold transition flex items-center gap-1.5 cursor-pointer shadow-2xs active:scale-95"
+              title="Exporter la liste filtrée vers Excel (.xlsx) — Type B : Export externe (non réimportable ; pour Round-Trip utilisez Paramètres ➔ ASSETS_MACHINES)"
+            >
+              <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-700" />
+              <span className="hidden sm:inline">Export Excel (Type B)</span>
+            </button>
+
+            {/* Quick Reset Button (Circular Iconic) */}
+            {hasActiveFilters && (
+              <button
+                type="button"
+                onClick={clearAllFilters}
+                className="w-8 h-8 rounded-full border border-rose-200/80 bg-rose-50 hover:bg-rose-100 text-rose-700 transition flex items-center justify-center cursor-pointer shadow-2xs active:scale-95 animate-in fade-in"
+                title="Réinitialiser tous les filtres actifs"
+              >
+                <RotateCcw className="w-3.5 h-3.5" />
+              </button>
+            )}
+          </div>
+        </div>
+
+        {/* Quick Status Presets Row */}
+        <div className="flex items-center gap-1.5 overflow-x-auto pb-0.5 text-xs no-scrollbar">
+          <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider mr-1 shrink-0 flex items-center gap-1">
+            <Radio className="w-3 h-3 text-slate-400" /> Statut :
+          </span>
+          {[
+            { key: 'ALL', label: 'Toutes', count: machines.length, color: 'slate' },
+            { key: 'En Service', label: 'En Service', count: kpis.enService, color: 'emerald' },
+            { key: 'En Maintenance', label: 'En Maintenance', count: kpis.enMaintenance, color: 'amber' },
+            { key: 'Arrêt', label: "À l'Arrêt", count: kpis.enArret, color: 'rose' },
+            { key: 'ARCHIVEE', label: 'Archivées', count: kpis.archivees, color: 'slate' },
+          ].map((preset) => (
+            <button
+              key={preset.key}
+              type="button"
+              onClick={() => {
+                setStatusFilter(preset.key);
+                if (cockpitFilter === 'STOPPED_OR_MAINT') {
+                  setCockpitFilter('NONE');
+                }
+              }}
+              className={`h-7 px-2.5 rounded-lg border text-[11px] font-bold transition flex items-center gap-1.5 cursor-pointer shrink-0 ${
+                statusFilter === preset.key
+                  ? preset.color === 'emerald'
+                    ? 'bg-emerald-600 text-white border-emerald-600 shadow-xs'
+                    : preset.color === 'amber'
+                    ? 'bg-amber-600 text-white border-amber-600 shadow-xs'
+                    : preset.color === 'rose'
+                    ? 'bg-rose-600 text-white border-rose-600 shadow-xs'
+                    : 'bg-slate-800 text-white border-slate-800 shadow-xs'
+                  : 'bg-slate-50 hover:bg-slate-100 text-slate-600 border-slate-200'
+              }`}
+            >
+              {preset.key !== 'ALL' && (
+                <span
+                  className={`w-1.5 h-1.5 rounded-full ${
+                    statusFilter === preset.key
+                      ? 'bg-white'
+                      : preset.color === 'emerald'
+                      ? 'bg-emerald-500'
+                      : preset.color === 'amber'
+                      ? 'bg-amber-500'
+                      : 'bg-rose-500'
+                  }`}
+                />
+              )}
+              <span>{preset.label}</span>
+              <span
+                className={`text-[10px] font-mono px-1.5 py-0.2 rounded-md ${
+                  statusFilter === preset.key
+                    ? 'bg-white/25 text-white'
+                    : 'bg-slate-200/70 text-slate-700'
+                }`}
+              >
+                {preset.count}
+              </span>
+            </button>
+          ))}
+        </div>
+
+        {/* Asset Class & System General Filter Row */}
+        <div className="flex flex-wrap items-center justify-between gap-2 pb-1 border-b border-slate-100 text-xs">
+          <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar">
+            <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider mr-1 shrink-0 flex items-center gap-1">
+              <ShieldAlert className="w-3 h-3 text-slate-400" /> Classe :
+            </span>
+            {[
+              {
+                key: 'ALL' as const,
+                label: 'Tous Équipements',
+                count: machines.length,
+                activeClass: 'bg-slate-800 text-white border-slate-800',
+              },
+              {
+                key: 'PRODUCTION' as const,
+                label: 'Production',
+                count: machines.filter((m) => getMachineAssetClass(m) === 'PRODUCTION').length,
+                activeClass: 'bg-emerald-600 text-white border-emerald-600',
+              },
+              {
+                key: 'SYSTEM_GENERAL' as const,
+                label: 'Système Général (Utilités & Sécurité)',
+                count: machines.filter((m) => getMachineAssetClass(m) === 'SYSTEM_GENERAL').length,
+                activeClass: 'bg-amber-600 text-white border-amber-600',
+              },
+            ].map((cls) => (
+              <button
+                key={cls.key}
+                type="button"
+                onClick={() => {
+                  setAssetClassFilter(cls.key);
+                  if (cls.key === 'PRODUCTION') {
+                    setSysTypeFilter('ALL');
+                  }
+                }}
+                className={`h-7 px-2.5 rounded-lg border text-[11px] font-bold transition flex items-center gap-1.5 cursor-pointer shrink-0 ${
+                  assetClassFilter === cls.key
+                    ? `${cls.activeClass} shadow-xs`
+                    : 'bg-slate-50 hover:bg-slate-100 text-slate-600 border-slate-200'
+                }`}
+              >
+                <span>{cls.label}</span>
+                <span
+                  className={`text-[10px] font-mono px-1.5 py-0.2 rounded-md ${
+                    assetClassFilter === cls.key
+                      ? 'bg-white/25 text-white'
+                      : 'bg-slate-200/70 text-slate-700'
+                  }`}
+                >
+                  {cls.count}
+                </span>
+              </button>
+            ))}
+          </div>
+
+          <div className="flex items-center gap-2">
+            {(assetClassFilter === 'SYSTEM_GENERAL' || sysTypeFilter !== 'ALL' || generalSystemTypes.length > 0) && (
+              <div className="w-52">
+                <CustomSelect
+                  value={sysTypeFilter}
+                  onChange={(val) => {
+                    setSysTypeFilter(val);
+                    if (val !== 'ALL') {
+                      setAssetClassFilter('SYSTEM_GENERAL');
+                    }
+                  }}
+                  options={[
+                    { value: 'ALL', label: 'Tous Types Système Général' },
+                    ...generalSystemTypes.map((t) => ({
+                      value: t.id,
+                      label: `${t.code ? t.code + ' • ' : ''}${t.name}${t.is_active === false ? ' (Inactif)' : ''}`,
+                    })),
+                  ]}
+                />
+              </div>
+            )}
+
+            <button
+              type="button"
+              onClick={() => navigateToEquipmentForMachine()}
+              className="h-7 px-2.5 rounded-lg border border-amber-300/90 bg-amber-50 hover:bg-amber-100 text-amber-900 text-[11px] font-bold transition flex items-center gap-1.5 cursor-pointer shrink-0"
+              title="Ouvrir la page dédiée Équipements (Système Général) pour créer ou gérer les types et utilités"
+            >
+              <Settings2 className="w-3.5 h-3.5 text-amber-700" />
+              <span>Gérer dans Équipements ➔</span>
+            </button>
+          </div>
+        </div>
+
+        {/* 5-Column Multi-Criteria Filter Grid */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3.5 items-end">
+          {/* 1. Omni-Text Search */}
+          <div className="w-full sm:col-span-2 lg:col-span-1">
+            <div className="flex items-center justify-between mb-1.5 text-[11px] font-bold uppercase tracking-wider text-slate-800">
+              <span>Recherche</span>
+              <span className="px-1.5 py-0.2 rounded text-[9.5px] font-mono font-bold bg-slate-100 text-slate-600 border border-slate-200/80">
+                Omni
+              </span>
+            </div>
+            <div className="relative">
+              <div className="absolute left-2.5 top-1/2 -translate-y-1/2 w-5 h-5 rounded-md bg-amber-100 border border-amber-300/80 flex items-center justify-center text-amber-700 shadow-2xs pointer-events-none">
+                <Search className="w-3 h-3" />
+              </div>
+              <input
+                type="text"
+                placeholder="Code, Nom, Zone, Tech..."
+                value={localSearch}
+                onChange={(e) => setLocalSearch(e.target.value)}
+                className="w-full h-9 pl-9 pr-7 rounded-xl border border-slate-200 bg-slate-50/70 text-xs font-semibold focus:bg-white focus:outline-none focus:ring-1 focus:ring-amber-500 transition-colors"
+              />
+              {localSearch && (
+                <button
+                  type="button"
+                  onClick={() => setLocalSearch('')}
+                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-rose-600 cursor-pointer"
+                  title="Effacer la recherche"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              )}
+            </div>
+          </div>
+
+          {/* 2. Family Filter (D) */}
+          <div>
+            <div className="flex items-center justify-between mb-1.5 text-[11px] font-bold uppercase tracking-wider text-slate-800">
+              <span>Famille</span>
+              <span className="px-1.5 py-0.2 rounded text-[9.5px] font-mono font-bold bg-cyan-50 text-cyan-700 border border-cyan-200/80">
+                Col. D
+              </span>
+            </div>
+            <CustomSelect
+              value={mchFamilyFilter}
+              prefixIcon={
+                <span className="w-5 h-5 rounded-md bg-amber-100 border border-amber-300/80 flex items-center justify-center text-amber-700 shadow-2xs">
+                  <Factory className="w-3 h-3" />
+                </span>
+              }
+              onChange={(val) => {
+                setMchFamilyFilter(val);
+                setMchTemplateFilter('ALL');
+              }}
+              options={[
+                { value: 'ALL', label: `Toutes Familles (${machineFamilies.length})` },
+                ...machineFamilies.map((f) => ({
+                  value: f.id_family,
+                  label: `${f.libelle} (${f.id_family})`,
+                })),
+              ]}
+            />
+          </div>
+
+          {/* 3. Cascading Template Filter (E) */}
+          <div>
+            <div className="flex items-center justify-between mb-1.5 text-[11px] font-bold uppercase tracking-wider text-slate-800">
+              <span>Template Modèle</span>
+              <span className="px-1.5 py-0.2 rounded text-[9.5px] font-mono font-bold bg-amber-50 text-amber-700 border border-amber-200/80">
+                Col. E
+              </span>
+            </div>
+            <CustomSelect
+              value={mchTemplateFilter}
+              prefixIcon={
+                <span className="w-5 h-5 rounded-md bg-amber-100 border border-amber-300/80 flex items-center justify-center text-amber-700 shadow-2xs">
+                  <Cpu className="w-3 h-3" />
+                </span>
+              }
+              onChange={(val) => setMchTemplateFilter(val)}
+              options={[
+                { value: 'ALL', label: `Tous Templates (${availableTemplates.length})` },
+                ...availableTemplates.map((t) => ({
+                  value: t.id_templates,
+                  label: `${t.libelle} (${t.id_templates})`,
+                })),
+              ]}
+            />
+          </div>
+
+          {/* 4. Zone & Secteur Filter (F) */}
+          <div>
+            <div className="flex items-center justify-between mb-1.5 text-[11px] font-bold uppercase tracking-wider text-slate-800">
+              <span>Secteur / Zone</span>
+              <span className="px-1.5 py-0.2 rounded text-[9.5px] font-mono font-bold bg-purple-50 text-purple-700 border border-purple-200/80">
+                Col. F
+              </span>
+            </div>
+            <CustomSelect
+              value={
+                mchZoneFilter === 'ALL'
+                  ? 'ALL'
+                  : (getZoneByRef(mchZoneFilter, zones)?.id_zone ||
+                     getZoneByRef(mchZoneFilter, zones)?.code_zone ||
+                     mchZoneFilter)
+              }
+              prefixIcon={
+                <span className="w-5 h-5 rounded-md bg-amber-100 border border-amber-300/80 flex items-center justify-center text-amber-700 shadow-2xs">
+                  <MapPin className="w-3 h-3" />
+                </span>
+              }
+              onChange={(val) => setMchZoneFilter(val)}
+              options={[
+                { value: 'ALL', label: `Tous Secteurs & Zones (${zones.length})` },
+                ...zones.map((z) => {
+                  const idZ = z.id_zone || z.code_zone || z.code;
+                  const codeZ = z.code_zone || z.code || z.id_zone;
+                  const showDual = idZ && codeZ && idZ !== codeZ;
+                  return {
+                    value: idZ,
+                    label: `${z.code_zone ? z.code_zone + ' • ' : ''}${z.libelle}${showDual ? ` (${idZ})` : ''}`,
+                  };
+                }),
+              ]}
+            />
+          </div>
+
+          {/* 5. Sort Menu Button & Popover */}
+          <div className="relative" ref={sortMenuRef}>
+            <div className="flex items-center justify-between mb-1.5 text-[11px] font-bold uppercase tracking-wider text-slate-800">
+              <span>Tri & Ordre</span>
+              <span className="px-1.5 py-0.2 rounded text-[9.5px] font-mono font-bold bg-indigo-50 text-indigo-700 border border-indigo-200/80">
+                Ordre
+              </span>
+            </div>
+            <button
+              type="button"
+              onClick={() => setShowSortMenu(!showSortMenu)}
+              className={`w-full h-9 px-2.5 rounded-xl border text-xs font-semibold transition flex items-center justify-between cursor-pointer ${
+                showSortMenu || sortField !== 'id_machine_registered' || sortOrder !== 'asc'
+                  ? 'bg-amber-50/80 text-amber-950 border-amber-300 ring-1 ring-amber-200'
+                  : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
+              }`}
+            >
+              <div className="flex items-center gap-2 truncate">
+                <span className="w-5 h-5 rounded-md bg-amber-100 border border-amber-300/80 flex items-center justify-center text-amber-700 shrink-0 shadow-2xs">
+                  <ArrowUpDown className="w-3 h-3" />
+                </span>
+                <span className="truncate">
+                  Tri : <b className="font-mono text-slate-900">{sortField.slice(0, 10).toUpperCase()}</b> (
+                  {sortOrder === 'asc' ? 'A→Z' : 'Z→A'})
+                </span>
+              </div>
+              <ChevronDown
+                className={`w-3 h-3 text-slate-400 transition-transform shrink-0 ${showSortMenu ? 'rotate-180' : ''}`}
+              />
+            </button>
+
+            {/* Sort Popover Menu */}
+            {showSortMenu && (
+              <div className="absolute right-0 mt-1 w-64 bg-white rounded-2xl border border-slate-200 shadow-xl z-50 p-2.5 space-y-1.5 animate-in fade-in slide-in-from-top-2 duration-150">
+                <div className="flex items-center justify-between pb-1.5 border-b border-slate-100 text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+                  <span>Sélectionner la Colonne de Tri</span>
+                  <span>A→H</span>
+                </div>
+                <div className="grid grid-cols-1 gap-1 text-xs max-h-60 overflow-y-auto pr-0.5">
+                  {[
+                    { key: 'id_machine_registered', label: 'Code Machine' },
+                    { key: 'designation', label: 'Désignation' },
+                    { key: 'serial_number', label: 'Date / N° Série' },
+                    { key: 'id_family', label: 'Famille' },
+                    { key: 'id_templates', label: 'Template Modèle' },
+                    { key: 'id_blueprint', label: 'Blueprint / Schéma' },
+                    { key: 'id_zone_default', label: 'Zone Défaut' },
+                    { key: 'technician', label: 'Technicien Assigné' },
+                    { key: 'status', label: 'Statut Opérationnel' },
+                    { key: 'sorties', label: 'Interventions / Sorties' },
+                  ].map((col) => (
+                    <button
+                      key={col.key}
+                      type="button"
+                      onClick={() => {
+                        handleSort(col.key);
+                      }}
+                      className={`px-2.5 py-1.5 rounded-lg border text-left font-medium text-[11px] flex items-center justify-between transition cursor-pointer ${
+                        sortField === col.key
+                          ? 'bg-amber-50 text-amber-950 border-amber-300 font-bold'
+                          : 'bg-slate-50 text-slate-700 border-slate-200/80 hover:bg-slate-100'
+                      }`}
+                    >
+                      <span>{col.label}</span>
+                      {sortField === col.key && (
+                        sortOrder === 'asc' ? (
+                          <ArrowUp className="w-3.5 h-3.5 text-amber-700" />
+                        ) : (
+                          <ArrowDown className="w-3.5 h-3.5 text-amber-700" />
+                        )
+                      )}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Active Filter Chips & Summary Bar (From Entrepôt) */}
+        {hasActiveFilters && (
+          <div className="pt-2.5 border-t border-slate-100 flex items-center justify-between text-xs text-slate-500 flex-wrap gap-2 animate-in fade-in">
+            <div className="flex items-center gap-1.5 flex-wrap">
+              <span className="font-bold text-slate-600 text-[11px]">Filtres actifs :</span>
+              {localSearch && (
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-slate-100 font-mono text-[11px] font-semibold text-slate-800 border border-slate-200">
+                  <span>Recherche: "{localSearch}"</span>
+                  <button
+                    type="button"
+                    onClick={() => setLocalSearch('')}
+                    className="hover:text-rose-600 cursor-pointer"
+                    title="Supprimer ce filtre"
+                  >
+                    <X className="w-3 h-3" />
+                  </button>
+                </span>
+              )}
+              {cockpitFilter !== 'NONE' && cockpitFilter !== 'STOPPED_OR_MAINT' && (
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-amber-50 text-amber-900 font-bold text-[11px] border border-amber-200">
+                  <span>
+                    Cockpit:{' '}
+                    {cockpitFilter === 'BAD_ACTORS'
+                      ? 'Bad Actors & Alertes BER'
+                      : cockpitFilter === 'MAINT_DUE'
+                        ? 'BT Ouverts / PM en cours'
+                        : 'Fiches à compléter'}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setCockpitFilter('NONE')}
+                    className="hover:text-rose-600 cursor-pointer"
+                    title="Supprimer ce filtre"
+                  >
+                    <X className="w-3 h-3" />
+                  </button>
+                </span>
+              )}
+              {statusFilter !== 'ALL' && (
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-emerald-50 text-emerald-800 font-bold text-[11px] border border-emerald-200">
+                  <span>
+                    Statut: {statusFilter === 'STOPPED_OR_MAINT' ? 'En Maintenance / Arrêt' : statusFilter}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setStatusFilter('ALL');
+                      if (cockpitFilter === 'STOPPED_OR_MAINT') setCockpitFilter('NONE');
+                    }}
+                    className="hover:text-rose-600 cursor-pointer"
+                    title="Supprimer ce filtre"
+                  >
+                    <X className="w-3 h-3" />
+                  </button>
+                </span>
+              )}
+              {assetClassFilter !== 'ALL' && (
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-amber-50 text-amber-900 font-bold text-[11px] border border-amber-200">
+                  <span>Classe: {assetClassFilter === 'SYSTEM_GENERAL' ? 'Système Général' : 'Production'}</span>
+                  <button
+                    type="button"
+                    onClick={() => setAssetClassFilter('ALL')}
+                    className="hover:text-rose-600 cursor-pointer"
+                    title="Supprimer ce filtre"
+                  >
+                    <X className="w-3 h-3" />
+                  </button>
+                </span>
+              )}
+              {sysTypeFilter !== 'ALL' && (
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-amber-100 text-amber-900 font-bold text-[11px] border border-amber-300">
+                  <span>
+                    Type Système: {generalSystemTypes.find((t) => t.id === sysTypeFilter)?.name || sysTypeFilter}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setSysTypeFilter('ALL')}
+                    className="hover:text-rose-600 cursor-pointer"
+                    title="Supprimer ce filtre"
+                  >
+                    <X className="w-3 h-3" />
+                  </button>
+                </span>
+              )}
+              {mchFamilyFilter !== 'ALL' && (
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-cyan-50 text-cyan-800 font-bold text-[11px] border border-cyan-200">
+                  <span>Famille: {families.find((f) => f.id_family === mchFamilyFilter)?.libelle || mchFamilyFilter}</span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setMchFamilyFilter('ALL');
+                      setMchTemplateFilter('ALL');
+                    }}
+                    className="hover:text-rose-600 cursor-pointer"
+                    title="Supprimer ce filtre"
+                  >
+                    <X className="w-3 h-3" />
+                  </button>
+                </span>
+              )}
+              {mchTemplateFilter !== 'ALL' && (
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-amber-50 text-amber-800 font-bold text-[11px] border border-amber-200">
+                  <span>Template: {templates.find((t) => t.id_templates === mchTemplateFilter)?.libelle || mchTemplateFilter}</span>
+                  <button
+                    type="button"
+                    onClick={() => setMchTemplateFilter('ALL')}
+                    className="hover:text-rose-600 cursor-pointer"
+                    title="Supprimer ce filtre"
+                  >
+                    <X className="w-3 h-3" />
+                  </button>
+                </span>
+              )}
+              {mchZoneFilter !== 'ALL' && (
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-purple-50 text-purple-800 font-bold text-[11px] border border-purple-200">
+                  <span>Zone: {getZoneByRef(mchZoneFilter, zones)?.libelle || mchZoneFilter}</span>
+                  <button
+                    type="button"
+                    onClick={() => setMchZoneFilter('ALL')}
+                    className="hover:text-rose-600 cursor-pointer"
+                    title="Supprimer ce filtre"
+                  >
+                    <X className="w-3 h-3" />
+                  </button>
+                </span>
+              )}
+              {(sortField !== 'id_machine_registered' || sortOrder !== 'asc') && (
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-slate-100 text-slate-700 font-semibold text-[11px] border border-slate-200">
+                  <span>Tri: {sortField} ({sortOrder === 'asc' ? 'A→Z' : 'Z→A'})</span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSortField('id_machine_registered');
+                      setSortOrder('asc');
+                    }}
+                    className="hover:text-rose-600 cursor-pointer"
+                    title="Réinitialiser le tri"
+                  >
+                    <X className="w-3 h-3" />
+                  </button>
+                </span>
+              )}
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Phase C2: Pilotage Terrain Inline Quick-Edit Batch Bar */}
+      {quickEditMode && (
+        <div
+          data-testid="machines-quick-edit-bar"
+          className="bg-amber-50/95 border border-amber-300 rounded-2xl p-3.5 flex flex-wrap items-center justify-between gap-3 shadow-sm animate-in fade-in"
+        >
+          <div className="flex items-center gap-2.5 text-xs text-amber-950">
+            <span className="w-8 h-8 rounded-xl bg-amber-500 text-white flex items-center justify-center shrink-0">
+              <Edit2 className="w-4 h-4" />
+            </span>
+            <div>
+              <div className="font-black">
+                Mode Pilotage Terrain Actif — Modifiez Statut, Technicien, Régime et Coût d&apos;Arrêt en ligne
+              </div>
+              <div className="text-[11px] text-amber-800">
+                Chaque validation déclenche le workflow de cycle de vie (suspension PM si archivée) et le journal AUDIT_EVENTS.
+              </div>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => {
+                setQuickEditDrafts({});
+                setQuickEditMode(false);
+              }}
+              className="px-3 py-1.5 rounded-xl bg-white hover:bg-slate-100 border border-slate-300 text-slate-700 font-bold text-xs cursor-pointer"
+            >
+              Annuler
+            </button>
+            <button
+              type="button"
+              data-testid="machines-quick-edit-commit"
+              disabled={pendingQuickUpdates.length === 0}
+              onClick={handleCommitQuickEdits}
+              className="px-4 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white font-black text-xs flex items-center gap-1.5 shadow-xs cursor-pointer"
+            >
+              <Check className="w-3.5 h-3.5" />
+              <span>Valider les modifications ({pendingQuickUpdates.length})</span>
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Main Table with Iconic Excel Mirror Headers */}
+      <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-[0_12px_32px_-6px_rgba(0,0,0,0.12),0_4px_12px_-2px_rgba(0,0,0,0.06)] hover:shadow-[0_16px_40px_-8px_rgba(0,0,0,0.16),0_6px_16px_-3px_rgba(0,0,0,0.08)] hover:-translate-y-0.5 transition-all duration-300 ease-out">
+        {/* Top Info Header Bar inside Card */}
+        <div className="px-5 py-3 border-b border-slate-100 flex flex-wrap items-center justify-between text-xs text-slate-500 bg-slate-50/50 gap-2">
+          <div className="font-bold text-slate-800 text-[13px] flex items-center gap-2">
+            <Factory className="w-4 h-4 text-emerald-600" />
+            <span>Tableau Machines_Registered • Ordre Excel Row 3 : B → H</span>
+          </div>
+          <div className="font-mono text-[11px] text-slate-400 hidden lg:block">
+            N° | Code Machine (B) | Désignation (C) | Mise en Service / N° Série | Famille & Template (D+E) | Zone & Technicien (F+G) | Statut (H) | Flux
+          </div>
+        </div>
+
+        <div className="max-h-[62vh] overflow-y-auto overflow-x-auto">
+          <table className="w-full text-left text-xs border-collapse min-w-[980px]">
+            <thead className="gmao-thead-header sticky top-0 bg-slate-100 text-[11px] font-bold text-slate-700 uppercase tracking-wider border-b border-slate-300 z-10 shadow-2xs select-none">
+              <tr>
+                {/* Row N° */}
+                <th className="py-3 px-3 text-center w-12 text-slate-500 font-mono text-[10px] bg-slate-200/60 border-r border-slate-300 shrink-0 select-none">
+                  N°
+                </th>
+
+                {/* CODE MACHINE (B) */}
+                <th
+                  onClick={() => handleSort('id_machine_registered')}
+                  className="py-3 px-3.5 cursor-pointer select-none hover:bg-slate-200/80 transition group border-r border-slate-300"
+                  title="Cliquer pour trier par Code Machine"
+                >
+                  <div className="flex items-center gap-1.5">
+                    <Factory className="w-3.5 h-3.5 text-slate-700 shrink-0" />
+                    <span>CODE MACHINE</span>
+                    <span className="text-slate-400 font-normal text-[10px]">(B)</span>
+                    {renderSortIcon('id_machine_registered')}
+                  </div>
+                </th>
+
+                {/* DÉSIGNATION (C) */}
+                <th
+                  onClick={() => handleSort('designation')}
+                  className="py-3 px-3.5 cursor-pointer select-none hover:bg-slate-200/80 transition group min-w-[200px] border-r border-slate-300"
+                  title="Cliquer pour trier par Désignation"
+                >
+                  <div className="flex items-center gap-1.5">
+                    <Cpu className="w-3.5 h-3.5 text-slate-700 shrink-0" />
+                    <span>DÉSIGNATION</span>
+                    <span className="text-slate-400 font-normal text-[10px]">(C)</span>
+                    {renderSortIcon('designation')}
+                  </div>
+                </th>
+
+                {/* MISE EN SERVICE / N° SÉRIE */}
+                <th
+                  onClick={() => handleSort('serial_number')}
+                  className="py-3 px-3.5 cursor-pointer select-none hover:bg-slate-200/80 transition group min-w-[170px] border-r border-slate-300"
+                  title="Cliquer pour trier par N° de Série / Mise en Service"
+                >
+                  <div className="flex items-center gap-1.5">
+                    <div className="flex items-center -space-x-1">
+                      <Hash className="w-3.5 h-3.5 text-slate-700 shrink-0" />
+                      <Calendar className="w-3.5 h-3.5 text-slate-700 shrink-0" />
+                    </div>
+                    <span>MISE EN SERVICE</span>
+                    <span className="text-slate-400 font-normal text-[10px]">(N° Série)</span>
+                    {renderSortIcon('serial_number')}
+                  </div>
+                </th>
+
+                {/* FAMILLE & TEMPLATE (D + E) */}
+                <th
+                  onClick={() => handleSort('id_family')}
+                  className="py-3 px-3.5 cursor-pointer select-none hover:bg-slate-200/80 transition group min-w-[200px] border-r border-slate-300"
+                  title="Cliquer pour trier par Famille & Modèle"
+                >
+                  <div className="flex items-center gap-1.5">
+                    <div className="flex items-center -space-x-1">
+                      <HubIcon className="w-3.5 h-3.5 text-slate-700 shrink-0" />
+                      <CategoryIcon className="w-3.5 h-3.5 text-slate-700 shrink-0" />
+                    </div>
+                    <span>FAMILLE & TEMPLATE</span>
+                    <span className="text-slate-400 font-normal text-[10px]">(D+E)</span>
+                    {renderSortIcon('id_family')}
+                  </div>
+                </th>
+
+                {/* BLUEPRINT (Plan / Schéma) */}
+                <th
+                  onClick={() => handleSort('id_blueprint')}
+                  className="py-3 px-3.5 cursor-pointer select-none hover:bg-slate-200/80 transition group min-w-[170px] border-r border-slate-300"
+                  title="Cliquer pour trier par Blueprint / Schéma"
+                >
+                  <div className="flex items-center gap-1.5">
+                    <FileText className="w-3.5 h-3.5 text-slate-700 shrink-0" />
+                    <span>BLUEPRINT</span>
+                    <span className="text-slate-400 font-normal text-[10px]">(Plan)</span>
+                    {renderSortIcon('id_blueprint')}
+                  </div>
+                </th>
+
+                {/* ZONE & TECHNICIEN (F + G) */}
+                <th
+                  onClick={() => handleSort('id_zone_default')}
+                  className="py-3 px-3.5 cursor-pointer select-none hover:bg-slate-200/80 transition group min-w-[210px] border-r border-slate-300"
+                  title="Cliquer pour trier par Zone & Technicien"
+                >
+                  <div className="flex items-center gap-1.5">
+                    <div className="flex items-center -space-x-1">
+                      <MapPin className="w-3.5 h-3.5 text-slate-700 shrink-0" />
+                      <Users className="w-3.5 h-3.5 text-slate-700 shrink-0" />
+                    </div>
+                    <span>ZONE & TECHNICIEN</span>
+                    <span className="text-slate-400 font-normal text-[10px]">(F+G)</span>
+                    {renderSortIcon('id_zone_default')}
+                  </div>
+                </th>
+
+                {/* STATUS (H) */}
+                <th
+                  onClick={() => handleSort('status')}
+                  className="py-3 px-3 text-center cursor-pointer select-none hover:bg-slate-200/80 transition group border-r border-slate-300"
+                  title="Cliquer pour trier par Statut"
+                >
+                  <div className="flex items-center justify-center gap-1">
+                    <Radio className="w-3.5 h-3.5 text-slate-700 shrink-0" />
+                    <span>STATUT</span>
+                    <span className="text-slate-400 font-normal text-[10px]">(H)</span>
+                    {renderSortIcon('status')}
+                  </div>
+                </th>
+
+                {/* INTERVENTIONS */}
+                <th
+                  onClick={() => handleSort('sorties')}
+                  className="py-3 px-3 text-right cursor-pointer select-none hover:bg-slate-200/80 transition group border-r border-slate-300"
+                  title="Cliquer pour trier par Nombre d'Interventions"
+                >
+                  <div className="flex items-center justify-end gap-1">
+                    <Activity className="w-3.5 h-3.5 text-slate-700 shrink-0" />
+                    <span>INTERVENTIONS</span>
+                    <span className="text-slate-400 font-normal text-[10px]">(Flux)</span>
+                    {renderSortIcon('sorties')}
+                  </div>
+                </th>
+
+                {/* ACTIONS (•••) */}
+                <th className="py-3 px-3 text-center font-bold text-slate-400 tracking-widest select-none w-24" title="Actions & Options">
+                  •••
+                </th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-200/80">
+              {!isTableReady ? (
+                <TableSkeletonRows cols={10} rows={7} color="emerald" />
+              ) : rawDisplayedData.length === 0 ? (
+                <tr>
+                  <td colSpan={10} className="py-12 text-center text-slate-500 font-medium">
+                    <div className="flex flex-col items-center justify-center gap-2">
+                      <Factory className="w-8 h-8 text-slate-300" />
+                      <span>Aucune machine ne correspond aux critères de recherche.</span>
+                    </div>
+                  </td>
+                </tr>
+              ) : (
+                displayedData.map((m, idx) => {
+                  const fam = families.find((f) => f.id_family === m.id_family);
+                  const tpl = templates.find((t) => t.id_templates === m.id_templates);
+                  const bp = blueprints.find((b) => b.id_blueprint === m.id_blueprint);
+                  const zn = getZoneByRef(m.id_zone_default, zones);
+                  const tech = technicians.find(
+                    (t) => t.id_technician === m.technician || t.nom === m.technician
+                  );
+                  const sysType = generalSystemTypes.find((t) => t.id === m.id_general_system_type);
+                  const isSysGeneral = getMachineAssetClass(m) === 'SYSTEM_GENERAL';
+                  const sortiesCount = sortiesCountMap[String(m.id_machine_registered || '').trim().toUpperCase()] || 0;
+                  const isArchived = isArchivedMachine(m);
+                  const isService =
+                    !isArchived && String(m.status || 'En Service').toLowerCase().includes('service');
+                  const isMaintenance =
+                    !isArchived &&
+                    (String(m.status || '').toLowerCase().includes('maint') ||
+                      String(m.status || '').toLowerCase().includes('panne'));
+
+                  return (
+                    <tr
+                      key={m.id_machine_registered}
+                      className="even:bg-slate-50/70 odd:bg-white hover:bg-emerald-50/40 border-b border-slate-200/70 transition-colors"
+                    >
+                      {/* Row N° Column */}
+                      <td className="py-3 px-3 text-center font-mono text-[11px] font-bold text-slate-400 bg-slate-100/40 border-r border-slate-200/80 shrink-0">
+                        {startIndex + idx + 1}
+                      </td>
+
+                      {/* Code Machine (B) */}
+                      <td className="py-3 px-3.5 font-mono font-bold text-slate-900 whitespace-nowrap">
+                        <div className="flex flex-col items-start gap-1">
+                          <button
+                            type="button"
+                            onClick={() => setPreventiveMachine(m)}
+                            className="px-2.5 py-1 rounded-lg bg-indigo-50 hover:bg-indigo-100 border border-indigo-200/80 text-xs font-mono font-bold text-indigo-900 shadow-2xs transition flex items-center gap-1.5 cursor-pointer group"
+                            title="Consulter le Carnet et Plan Préventif de cette machine"
+                          >
+                            <ShieldCheck className="w-3.5 h-3.5 text-indigo-600 group-hover:scale-110 transition-transform" />
+                            <span>{m.id_machine_registered}</span>
+                          </button>
+                          {isSysGeneral && (
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setAssetClassFilter('SYSTEM_GENERAL');
+                              }}
+                              className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-amber-100/90 text-amber-900 border border-amber-300 text-[9.5px] font-bold uppercase tracking-wider cursor-pointer hover:bg-amber-200/80 transition"
+                              title="Filtrer les équipements de type Système Général"
+                            >
+                              <ShieldAlert className="w-2.5 h-2.5 text-amber-700 shrink-0" />
+                              <span>Système Général</span>
+                            </button>
+                          )}
+                        </div>
+                      </td>
+
+                      {/* Désignation (C) & Hiérarchie / Rollup Parent */}
+                      <td className="py-3 px-3.5 whitespace-nowrap min-w-[220px]">
+                        {(() => {
+                          const hierarchyCtx = resolveMachineHierarchyContext(m, machines);
+                          const parentRollup = computeParentCorrectiveRollup(
+                            m.id_machine_registered,
+                            machines,
+                            correctiveInterventions
+                          );
+                          const showRollup =
+                            parentRollup.descendantCount > 0 || hierarchyCtx.level === 'LINE';
+                          const rowCodeUpper = String(m.id_machine_registered || '').trim().toUpperCase();
+                          const rowSig = cockpitMetrics.perMachineSignals[rowCodeUpper];
+                          return (
+                            <div className="flex flex-col items-start gap-1">
+                              <div className="flex items-center gap-1.5">
+                                <span className="font-bold text-slate-900 text-xs">{m.designation}</span>
+                                {hierarchyCtx.level === 'LINE' && (
+                                  <span className="px-1.5 py-0.5 rounded bg-indigo-50 text-indigo-800 border border-indigo-200 text-[9.5px] font-mono font-bold uppercase">
+                                    LIGNE MÈRE
+                                  </span>
+                                )}
+                              </div>
+                              <div className="text-[10px] text-slate-400 font-mono flex items-center gap-1.5">
+                                <span>Réf: {m.id_machine_registered}</span>
+                                {isSysGeneral && sysType && (
+                                  <span className="text-amber-700 font-semibold">
+                                    • {sysType.code || sysType.id} ({sysType.name})
+                                  </span>
+                                )}
+                              </div>
+                              {!isArchived && rowSig && (rowSig.isBadActor || rowSig.openBtCount > 0 || rowSig.isIncompleteSetup) && (
+                                <div className="flex items-center gap-1 flex-wrap">
+                                  {rowSig.isBadActor && (
+                                    <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-rose-50 text-rose-800 border border-rose-200 text-[9.5px] font-mono font-bold">
+                                      <Flame className="w-2.5 h-2.5 text-rose-600" />
+                                      {rowSig.isEconomicBerExceeded
+                                        ? `BER ${rowSig.berRatioPercent ?? 0}%`
+                                        : `Santé ${rowSig.healthScore}/100`}
+                                    </span>
+                                  )}
+                                  {rowSig.openBtCount > 0 && (
+                                    <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-indigo-50 text-indigo-800 border border-indigo-200 text-[9.5px] font-mono font-bold">
+                                      <Wrench className="w-2.5 h-2.5 text-indigo-600" />
+                                      {rowSig.openBtCount} BT ouvert(s)
+                                    </span>
+                                  )}
+                                  {rowSig.isIncompleteSetup && (
+                                    <span className="inline-flex items-center px-1.5 py-0.5 rounded bg-cyan-50 text-cyan-800 border border-cyan-200 text-[9.5px] font-semibold">
+                                      Fiche à compléter
+                                    </span>
+                                  )}
+                                </div>
+                              )}
+                              {hierarchyCtx.parentId && (
+                                <div
+                                  className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-slate-100 text-slate-700 border border-slate-200 text-[10px] font-mono font-semibold"
+                                  title={`Rattachement opérationnel ligne : ${hierarchyCtx.breadcrumbLabels.join(' ➔ ')}`}
+                                >
+                                  <span>Ligne / Mère :</span>
+                                  <strong className="text-indigo-700">{hierarchyCtx.parentId}</strong>
+                                  {hierarchyCtx.parentDesignation && (
+                                    <span className="text-slate-500 max-w-[130px] truncate">
+                                      ({hierarchyCtx.parentDesignation})
+                                    </span>
+                                  )}
+                                </div>
+                              )}
+                              {showRollup && (
+                                <div
+                                  className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-emerald-50/90 text-emerald-900 border border-emerald-200 text-[10px] font-mono font-semibold flex-wrap"
+                                  title="Agrégation corrective validée (parent + équipements enfants rattachés)"
+                                >
+                                  <Activity className="w-2.5 h-2.5 text-emerald-600 shrink-0" />
+                                  <span>Enfants: {parentRollup.descendantCount}</span>
+                                  <span>• BT validés: {parentRollup.approvedFailuresCount}</span>
+                                  <span>• Dispo: {parentRollup.availabilityRatePercent}%</span>
+                                  <span>• MTTR: {parentRollup.mttrHours}h</span>
+                                  {parentRollup.mtbfHours !== null && (
+                                    <span>• MTBF: {parentRollup.mtbfHours}h</span>
+                                  )}
+                                  {parentRollup.totalDowntimeCost > 0 && (
+                                    <span className="text-rose-700 font-bold">
+                                      • Perte arrêt: {parentRollup.totalDowntimeCost.toLocaleString('fr-FR')} DH
+                                    </span>
+                                  )}
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })()}
+                      </td>
+
+                      {/* Mise en Service & N° de Série */}
+                      <td className="py-2.5 px-3.5 whitespace-nowrap min-w-[170px]">
+                        <div className="flex flex-col gap-1 items-start">
+                          {/* N° de Série badge */}
+                          <div className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-slate-100 text-slate-800 border border-slate-200/80 text-[11px] font-mono font-bold shadow-2xs">
+                            <Hash className="w-3 h-3 text-slate-500 shrink-0" />
+                            <span>{getMachineSerialNumber(m) || '—'}</span>
+                          </div>
+                          {/* Date Mise en service */}
+                          <div className="inline-flex items-center gap-1 text-[10.5px] text-slate-500 font-medium pl-0.5">
+                            <Calendar className="w-3 h-3 text-slate-400 shrink-0" />
+                            <span>Mise en serv. : <b className="text-slate-700 font-mono">{getMachineCommissioningDate(m) || '—'}</b></span>
+                          </div>
+                          {quickEditMode && canEdit && !isArchived ? (
+                            <div className="flex items-center gap-1 pt-0.5">
+                              <select
+                                value={quickEditDrafts[m.id_machine_registered]?.regime_travail ?? (m.regime_travail || '2x8')}
+                                onChange={(e) =>
+                                  handleStageQuickDraft(m.id_machine_registered, {
+                                    regime_travail: e.target.value,
+                                  })
+                                }
+                                className="px-1.5 py-0.5 rounded border border-amber-300 bg-amber-50 text-[10.5px] font-mono font-bold text-slate-800 focus:outline-none"
+                                title="Régime de travail"
+                              >
+                                <option value="1x8">1x8</option>
+                                <option value="2x8">2x8</option>
+                                <option value="3x8">3x8</option>
+                              </select>
+                              <input
+                                type="number"
+                                min="0"
+                                step="10"
+                                value={
+                                  quickEditDrafts[m.id_machine_registered]?.cout_arret_horaire ??
+                                  Number(m.cout_arret_horaire || 0)
+                                }
+                                onChange={(e) =>
+                                  handleStageQuickDraft(m.id_machine_registered, {
+                                    cout_arret_horaire: e.target.value,
+                                  })
+                                }
+                                className="w-20 px-1.5 py-0.5 rounded border border-amber-300 bg-white text-[10.5px] font-mono font-bold text-slate-800 text-right focus:outline-none"
+                                title="Coût d'arrêt horaire (DH/h)"
+                              />
+                              <span className="text-[10px] font-mono text-slate-500">DH/h</span>
+                            </div>
+                          ) : (
+                            (Number(m.cout_arret_horaire || 0) > 0 || m.regime_travail) && (
+                              <div className="inline-flex items-center gap-1.5 text-[10px] font-mono text-amber-800 bg-amber-50 px-1.5 py-0.5 rounded border border-amber-200/70">
+                                <span>{m.regime_travail || '2x8'}</span>
+                                {Number(m.cout_arret_horaire || 0) > 0 && (
+                                  <span>• {Number(m.cout_arret_horaire).toLocaleString('fr-FR')} DH/h</span>
+                                )}
+                              </div>
+                            )
+                          )}
+                        </div>
+                      </td>
+
+                      {/* Unified Family & Template (D + E) or System General Type */}
+                      <td className="py-2.5 px-3.5 whitespace-nowrap">
+                        <div className="flex flex-col gap-1 items-start">
+                          {isSysGeneral && (
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setAssetClassFilter('SYSTEM_GENERAL');
+                                if (m.id_general_system_type) {
+                                  setSysTypeFilter(m.id_general_system_type);
+                                }
+                              }}
+                              className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-amber-50 text-amber-900 border border-amber-300/80 text-[11px] font-semibold hover:bg-amber-100 transition cursor-pointer shadow-2xs"
+                              title="Filtrer par ce Type de Système Général"
+                            >
+                              <ShieldAlert className="w-3 h-3 text-amber-600 shrink-0" />
+                              <span className="font-mono font-bold">
+                                {sysType?.code || m.id_general_system_type || 'SYS'}
+                              </span>
+                              <span className="text-amber-800 font-normal text-[10px] max-w-[140px] truncate">
+                                • {sysType?.name || 'Système Général'}
+                              </span>
+                            </button>
+                          )}
+
+                          {/* Family Badge */}
+                          {m.id_family ? (
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setMchFamilyFilter(m.id_family);
+                                setMchTemplateFilter('ALL');
+                              }}
+                              className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-cyan-50 text-cyan-800 border border-cyan-200/70 text-[11px] font-semibold hover:bg-cyan-100 hover:border-cyan-300 transition cursor-pointer shadow-2xs group"
+                              title="Filtrer par cette Famille"
+                            >
+                              <HubIcon className="w-3 h-3 text-cyan-600 shrink-0" />
+                              <span className="font-mono font-bold">{m.id_family}</span>
+                              {fam?.libelle && (
+                                <span className="text-cyan-700 font-normal text-[10px] max-w-[130px] truncate">
+                                  • {fam.libelle}
+                                </span>
+                              )}
+                            </button>
+                          ) : !isSysGeneral ? (
+                            <span className="text-[10.5px] text-slate-400 italic">— Sans famille —</span>
+                          ) : null}
+
+                          {/* Template Badge */}
+                          {m.id_templates ? (
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                if (m.id_family) setMchFamilyFilter(m.id_family);
+                                setMchTemplateFilter(m.id_templates);
+                              }}
+                              className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-amber-50 text-amber-800 border border-amber-200/70 text-[11px] font-semibold hover:bg-amber-100 hover:border-amber-300 transition cursor-pointer shadow-2xs group"
+                              title="Filtrer par ce Template Modèle"
+                            >
+                              <CategoryIcon className="w-3 h-3 text-amber-600 shrink-0" />
+                              <span className="font-mono font-bold text-[10.5px]">{m.id_templates}</span>
+                              {tpl?.libelle && (
+                                <span className="text-amber-700 font-normal text-[10px] max-w-[140px] truncate">
+                                  • {tpl.libelle}
+                                </span>
+                              )}
+                            </button>
+                          ) : isSysGeneral && !m.id_family ? (
+                            <span className="text-[10px] text-slate-400 font-mono">
+                              Hors lignée production (D/E optionnels)
+                            </span>
+                          ) : null}
+                        </div>
+                      </td>
+
+                      {/* Blueprint Column */}
+                      <td className="py-2.5 px-3.5 whitespace-nowrap">
+                        {m.id_blueprint ? (
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              onNavigateToBlueprints(m.id_family, m.id_templates);
+                            }}
+                            className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-teal-50 text-teal-800 border border-teal-200/80 text-[11px] font-semibold hover:bg-teal-100 hover:border-teal-300 transition cursor-pointer shadow-2xs group"
+                            title="Voir le schéma / plan technique dans Blueprints"
+                          >
+                            <FileText className="w-3.5 h-3.5 text-teal-600 shrink-0 group-hover:scale-110 transition-transform" />
+                            <span className="font-mono font-bold">{m.id_blueprint}</span>
+                            {bp?.revision && (
+                              <span className="text-[9.5px] px-1 py-0.2 bg-teal-200/60 text-teal-900 rounded font-bold font-mono">
+                                {bp.revision}
+                              </span>
+                            )}
+                            {bp?.libelle && (
+                              <span className="text-teal-700 font-normal text-[10px] max-w-[120px] truncate">
+                                • {bp.libelle}
+                              </span>
+                            )}
+                          </button>
+                        ) : (
+                          <span className="inline-flex items-center px-2 py-0.5 rounded text-slate-400 font-mono text-[11px] italic bg-slate-50 border border-slate-200/50">
+                            — Non sélectionné —
+                          </span>
+                        )}
+                      </td>
+
+                      {/* Unified Zone & Technicien (F + G) */}
+                      <td className="py-2.5 px-3.5 whitespace-nowrap">
+                        <div className="flex flex-col gap-1 items-start">
+                          {/* Zone Badge */}
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setMchZoneFilter(m.id_zone_default);
+                            }}
+                            className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-purple-50 text-purple-800 border border-purple-200/70 text-[11px] font-semibold hover:bg-purple-100 hover:border-purple-300 transition cursor-pointer shadow-2xs group"
+                            title="Filtrer par cette Zone"
+                          >
+                            <MapPin className="w-3 h-3 text-purple-600 shrink-0" />
+                            <span className="font-mono font-bold">{m.id_zone_default || 'ZONE-N/A'}</span>
+                            {zn?.libelle && (
+                              <span className="text-purple-700 font-normal text-[10px] max-w-[120px] truncate">
+                                • {zn.libelle}
+                              </span>
+                            )}
+                          </button>
+
+                          {/* Technician Badge / Quick-Edit Select */}
+                          {quickEditMode && canEdit && !isArchived ? (
+                            <select
+                              value={quickEditDrafts[m.id_machine_registered]?.technician ?? (m.technician || '')}
+                              onChange={(e) =>
+                                handleStageQuickDraft(m.id_machine_registered, {
+                                  technician: e.target.value,
+                                })
+                              }
+                              className="px-2 py-1 rounded-md border border-blue-300 bg-blue-50/70 text-[11px] font-bold text-slate-800 max-w-[190px] focus:outline-none"
+                              title="Réaffecter le technicien responsable"
+                            >
+                              <option value="">— Non assigné —</option>
+                              {technicians
+                                .filter((t) => t?.is_active !== false)
+                                .map((t) => (
+                                  <option key={t.id_technician || t.nom} value={t.id_technician || t.nom}>
+                                    {t.nom} ({t.id_technician || 'TECH'})
+                                  </option>
+                                ))}
+                            </select>
+                          ) : (
+                            <div className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-blue-50 text-blue-800 border border-blue-200/70 text-[11px] font-semibold shadow-2xs">
+                              <Users className="w-3 h-3 text-blue-600 shrink-0" />
+                              <span className="font-bold text-slate-800">
+                                {tech ? tech.nom : m.technician || 'Non assigné'}
+                              </span>
+                              {tech?.id_technician && (
+                                <span className="font-mono text-[10px] text-blue-600 bg-blue-100/70 px-1 rounded">
+                                  {tech.id_technician}
+                                </span>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      </td>
+
+                      {/* Status (H) */}
+                      <td className="py-3 px-3 text-center whitespace-nowrap">
+                        {quickEditMode && canEdit && !isArchived ? (
+                          <select
+                            value={quickEditDrafts[m.id_machine_registered]?.status ?? (m.status || 'En Service')}
+                            onChange={(e) =>
+                              handleStageQuickDraft(m.id_machine_registered, {
+                                status: e.target.value,
+                              })
+                            }
+                            className="px-2 py-1 rounded-lg border border-amber-300 bg-white text-[11px] font-bold text-slate-900 focus:outline-none shadow-2xs"
+                            title="Basculer le statut opérationnel en 1 clic"
+                          >
+                            <option value="En Service">En Service</option>
+                            <option value="En Maintenance">En Maintenance</option>
+                            <option value="Arrêt">Arrêt</option>
+                          </select>
+                        ) : (
+                          <span
+                            className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-bold border shadow-2xs ${
+                              isArchived
+                                ? 'bg-slate-200 text-slate-700 border-slate-300'
+                                : isService
+                                  ? 'bg-emerald-50 text-emerald-800 border-emerald-300'
+                                  : isMaintenance
+                                    ? 'bg-amber-50 text-amber-800 border-amber-300'
+                                    : 'bg-rose-50 text-rose-800 border-rose-300'
+                            }`}
+                          >
+                            {isArchived ? (
+                              <RotateCcw className="w-3.5 h-3.5 text-slate-600 shrink-0" />
+                            ) : isService ? (
+                              <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                            ) : isMaintenance ? (
+                              <AlertTriangle className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+                            ) : (
+                              <AlertTriangle className="w-3.5 h-3.5 text-rose-600 shrink-0" />
+                            )}
+                            <span>{isArchived ? 'ARCHIVEE' : m.status || 'En Service'}</span>
+                          </span>
+                        )}
+                      </td>
+
+                      {/* Interventions Count */}
+                      <td className="py-3 px-3 text-right whitespace-nowrap">
+                        <span
+                          className={`inline-flex items-center gap-1 font-mono font-bold text-xs px-2.5 py-1 rounded-lg border ${
+                            sortiesCount > 0
+                              ? 'bg-indigo-50 text-indigo-800 border-indigo-200 shadow-2xs'
+                              : 'bg-slate-50 text-slate-400 border-slate-200/60'
+                          }`}
+                        >
+                          <Activity className="w-3 h-3 text-indigo-500 shrink-0" />
+                          <span>{sortiesCount} {sortiesCount > 1 ? 'sorties' : 'sortie'}</span>
+                        </span>
+                      </td>
+
+                      {/* Actions (•••) */}
+                      <td className="py-3 px-3.5 text-center whitespace-nowrap">
+                        <div className="relative inline-flex items-center justify-center action-menu-container">
+                          <div className="inline-flex rounded-xl border border-slate-200 bg-white shadow-2xs overflow-hidden">
+                            {/* Primary Quick Action Button: Dossier Technique 360° */}
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setPassport360Machine(m);
+                                setActiveActionMenuId(null);
+                              }}
+                              className="p-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 hover:text-indigo-900 transition flex items-center justify-center cursor-pointer border-r border-slate-200 group"
+                              title={`Dossier Technique 360° (Passeport Santé, TCO & Historique) pour ${m.id_machine_registered} (${m.designation})`}
+                            >
+                              <ShieldCheck className="w-3.5 h-3.5 text-indigo-600 group-hover:scale-110 transition-transform" />
+                            </button>
+
+                            {/* Secondary Quick Action Button: Sortie Rapide / Intervention (1-clic) */}
+                            <button
+                              type="button"
+                              onClick={() => {
+                                onNavigateToQuickSortie(m);
+                                setActiveActionMenuId(null);
+                              }}
+                              className="p-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 hover:text-emerald-900 transition flex items-center justify-center cursor-pointer border-r border-slate-200 group"
+                              title={`Sortie Rapide / Intervention (1-clic) pour ${m.id_machine_registered} (${m.designation})`}
+                            >
+                              <Wrench className="w-3.5 h-3.5 text-emerald-600 group-hover:scale-110 transition-transform" />
+                            </button>
+
+                            {/* Quick Action Button: Fiche Terrain / DI Express (Poste partagé 1-clic) */}
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setQrMachine({ machine: m, mode: 'FICHE_TERRAIN' });
+                                setActiveActionMenuId(null);
+                              }}
+                              className="p-1.5 bg-rose-50 hover:bg-rose-100 text-rose-700 hover:text-rose-900 transition flex items-center justify-center cursor-pointer border-r border-slate-200 group"
+                              title={`Fiche Terrain Atelier (Signaler DI / Clôture 3-Clics / Préventif) pour ${m.id_machine_registered}`}
+                            >
+                              <Smartphone className="w-3.5 h-3.5 text-rose-600 group-hover:scale-110 transition-transform" />
+                            </button>
+
+                            {/* Quick Action Button: Étiquette QR & Fiche Terrain Offline */}
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setQrMachine({ machine: m, mode: 'ETIQUETTE' });
+                                setActiveActionMenuId(null);
+                              }}
+                              className="p-1.5 bg-cyan-50 hover:bg-cyan-100 text-cyan-800 hover:text-cyan-950 transition flex items-center justify-center cursor-pointer border-r border-slate-200 group"
+                              title={`Étiquette QR Offline & Fiche Terrain Mobile pour ${m.id_machine_registered}`}
+                            >
+                              <QrCode className="w-3.5 h-3.5 text-cyan-700 group-hover:scale-110 transition-transform" />
+                            </button>
+
+                            {isSysGeneral && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setActiveActionMenuId(null);
+                                  navigateToEquipmentForMachine(m.id_machine_registered);
+                                }}
+                                className="px-2 py-1 bg-amber-50 hover:bg-amber-100 text-amber-800 hover:text-amber-950 transition flex items-center gap-1 cursor-pointer border-r border-slate-200 text-[10px] font-bold"
+                                title={`Gérer ${m.id_machine_registered} dans la page Équipements (Système Général)`}
+                              >
+                                <ShieldAlert className="w-3 h-3 text-amber-600 shrink-0" />
+                                <span className="hidden xl:inline">Gérer dans Équipements</span>
+                              </button>
+                            )}
+
+                            {/* 3-dots Toggle Button */}
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setActiveActionMenuId(activeActionMenuId === m.id_machine_registered ? null : m.id_machine_registered);
+                              }}
+                              className={`p-1.5 hover:bg-slate-100 transition cursor-pointer ${
+                                activeActionMenuId === m.id_machine_registered
+                                  ? 'bg-slate-100 text-indigo-700 font-bold'
+                                  : 'text-slate-500 hover:text-slate-800'
+                              }`}
+                              title="Actions et options de la machine"
+                            >
+                              <MoreVertical className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+
+                          {/* Popover Action Menu Card */}
+                          {activeActionMenuId === m.id_machine_registered && (
+                            <div className="absolute right-0 top-full mt-1.5 w-64 bg-white rounded-2xl shadow-xl border border-slate-200 z-50 p-1.5 text-left animate-in fade-in slide-in-from-top-2 duration-150 space-y-1">
+                              <div className="px-3 py-2 border-b border-slate-100 mb-1 bg-slate-50/80 rounded-xl">
+                                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">
+                                  Actions Machine
+                                </span>
+                                <span className="font-mono text-xs font-bold text-indigo-700 block truncate">
+                                  {m.id_machine_registered} • {m.designation}
+                                </span>
+                              </div>
+
+                              {/* Option 0: Dossier Technique 360° */}
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setActiveActionMenuId(null);
+                                  setPassport360Machine(m);
+                                }}
+                                className="w-full px-3 py-2 text-xs font-semibold text-indigo-900 bg-indigo-50/80 hover:bg-indigo-100 rounded-xl transition flex items-center gap-2.5 cursor-pointer border border-indigo-200/70 shadow-2xs"
+                              >
+                                <ShieldCheck className="w-3.5 h-3.5 text-indigo-600 shrink-0" />
+                                <div className="flex flex-col items-start leading-tight">
+                                  <span>Dossier Technique 360°</span>
+                                  <span className="text-[10px] text-indigo-600 font-normal">Passeport Santé, TCO & Historique</span>
+                                </div>
+                              </button>
+
+                              {/* Option 1: Sortie Rapide (1-clic) */}
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setActiveActionMenuId(null);
+                                  onNavigateToQuickSortie(m);
+                                }}
+                                className="w-full px-3 py-2 text-xs font-semibold text-emerald-800 bg-emerald-50/80 hover:bg-emerald-100 rounded-xl transition flex items-center gap-2.5 cursor-pointer border border-emerald-200/70 shadow-2xs"
+                              >
+                                <Wrench className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                                <div className="flex flex-col items-start leading-tight">
+                                  <span>Sortie Rapide / Intervention</span>
+                                  <span className="text-[10px] text-emerald-600 font-normal">Pré-remplissage 1-clic</span>
+                                </div>
+                              </button>
+
+                              {/* Option 1b: Étiquette QR & Fiche Terrain Mobile */}
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setActiveActionMenuId(null);
+                                  setQrMachine({ machine: m, mode: 'ETIQUETTE' });
+                                }}
+                                className="w-full px-3 py-2 text-xs font-semibold text-cyan-900 bg-cyan-50/80 hover:bg-cyan-100 rounded-xl transition flex items-center gap-2.5 cursor-pointer border border-cyan-200/70 shadow-2xs"
+                              >
+                                <QrCode className="w-3.5 h-3.5 text-cyan-700 shrink-0" />
+                                <div className="flex flex-col items-start leading-tight">
+                                  <span>Étiquette QR & Fiche Terrain</span>
+                                  <span className="text-[10px] text-cyan-700 font-normal">Impression QR & Actions Mobiles</span>
+                                </div>
+                              </button>
+
+                              {/* Option 2: Carnet & Plan Préventif */}
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setActiveActionMenuId(null);
+                                  setPreventiveMachine(m);
+                                }}
+                                className="w-full px-3 py-2 text-xs font-semibold text-indigo-900 bg-indigo-50/80 hover:bg-indigo-100 rounded-xl transition flex items-center gap-2.5 cursor-pointer border border-indigo-200/70 shadow-2xs"
+                              >
+                                <ShieldCheck className="w-3.5 h-3.5 text-indigo-600 shrink-0" />
+                                <div className="flex flex-col items-start leading-tight">
+                                  <span>Carnet & Plan Préventif</span>
+                                  <span className="text-[10px] text-indigo-600 font-normal">Planning, Historique & Échéances</span>
+                                </div>
+                              </button>
+
+                              {/* Option 2: Modifier la machine (Production) ou Gérer dans Équipements (Système Général) */}
+                              {isSysGeneral ? (
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setActiveActionMenuId(null);
+                                    navigateToEquipmentForMachine(m.id_machine_registered);
+                                  }}
+                                  className="w-full px-3 py-2 text-xs font-bold text-amber-900 bg-amber-50 hover:bg-amber-100 rounded-xl transition flex items-center gap-2.5 cursor-pointer border border-amber-200/80"
+                                >
+                                  <ShieldAlert className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+                                  <span>Gérer dans Équipements ➔</span>
+                                </button>
+                              ) : (
+                                canEdit && (
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setActiveActionMenuId(null);
+                                      setToEdit({ ...m });
+                                    }}
+                                    className="w-full px-3 py-2 text-xs font-medium text-slate-700 hover:bg-indigo-50 hover:text-indigo-800 rounded-xl transition flex items-center gap-2.5 cursor-pointer"
+                                  >
+                                    <Edit2 className="w-3.5 h-3.5 text-indigo-600 shrink-0" />
+                                    <span>Modifier cette machine</span>
+                                  </button>
+                                )
+                              )}
+
+                              {/* Option 3: Consulter Blueprint si disponible */}
+                              {m.id_blueprint && (
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setActiveActionMenuId(null);
+                                    onNavigateToBlueprints(m.id_family, m.id_templates);
+                                  }}
+                                  className="w-full px-3 py-2 text-xs font-medium text-teal-700 hover:bg-teal-50 rounded-xl transition flex items-center gap-2.5 cursor-pointer"
+                                >
+                                  <FileText className="w-3.5 h-3.5 text-teal-600 shrink-0" />
+                                  <span>Voir le Blueprint ({m.id_blueprint})</span>
+                                </button>
+                              )}
+
+                              {/* Option 3b: Liaisons Référentiel (Famille / Template / Zone) */}
+                              {m.id_family && (
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setActiveActionMenuId(null);
+                                    onNavigateToFamily(m.id_family);
+                                  }}
+                                  className="w-full px-3 py-1.5 text-xs font-medium text-cyan-800 hover:bg-cyan-50 rounded-xl transition flex items-center gap-2.5 cursor-pointer"
+                                >
+                                  <HubIcon className="w-3.5 h-3.5 text-cyan-600 shrink-0" />
+                                  <span>Ouvrir Famille ({m.id_family})</span>
+                                </button>
+                              )}
+
+                              {m.id_templates && (
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setActiveActionMenuId(null);
+                                    onNavigateToTemplate(m.id_family || 'ALL');
+                                  }}
+                                  className="w-full px-3 py-1.5 text-xs font-medium text-amber-800 hover:bg-amber-50 rounded-xl transition flex items-center gap-2.5 cursor-pointer"
+                                >
+                                  <CategoryIcon className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+                                  <span>Ouvrir Template ({m.id_templates})</span>
+                                </button>
+                              )}
+
+                              {m.id_zone_default && (
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setActiveActionMenuId(null);
+                                    onNavigateToZone(m.id_zone_default);
+                                  }}
+                                  className="w-full px-3 py-1.5 text-xs font-medium text-purple-800 hover:bg-purple-50 rounded-xl transition flex items-center gap-2.5 cursor-pointer"
+                                >
+                                  <MapPin className="w-3.5 h-3.5 text-purple-600 shrink-0" />
+                                  <span>Ouvrir Zone ({m.id_zone_default})</span>
+                                </button>
+                              )}
+
+                              {/* Option 4: Réactiver ou Archiver / Supprimer la machine */}
+                              {isArchived ? (
+                                canEdit && (
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setActiveActionMenuId(null);
+                                      onUpdateMachine(m.id_machine_registered, {
+                                        ...m,
+                                        status: 'En Service',
+                                        statut: 'En Service',
+                                        is_active: true,
+                                        actif: true,
+                                        archived: false,
+                                      });
+                                    }}
+                                    className="w-full px-3 py-2 text-xs font-semibold text-emerald-700 hover:bg-emerald-50 rounded-xl transition flex items-center gap-2.5 cursor-pointer"
+                                  >
+                                    <RotateCcw className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                                    <span>Réactiver la machine (En Service)</span>
+                                  </button>
+                                )
+                              ) : (
+                                canDelete && (
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setActiveActionMenuId(null);
+                                      setToDelete(m);
+                                    }}
+                                    className="w-full px-3 py-2 text-xs font-medium text-rose-600 hover:bg-rose-50 rounded-xl transition flex items-center gap-2.5 cursor-pointer"
+                                  >
+                                    <Trash2 className="w-3.5 h-3.5 text-rose-500 shrink-0" />
+                                    <span>Archiver / Supprimer la machine</span>
+                                  </button>
+                                )
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {/* Pagination Footer */}
+      <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-[0_12px_32px_-6px_rgba(0,0,0,0.12),0_4px_12px_-2px_rgba(0,0,0,0.06)] hover:shadow-[0_16px_40px_-8px_rgba(0,0,0,0.16),0_6px_16px_-3px_rgba(0,0,0,0.08)] hover:-translate-y-0.5 transition-all duration-300 ease-out flex flex-col md:flex-row items-center justify-between gap-4 mt-4">
+        <div className="flex items-center gap-3">
+          <span className="text-xs font-semibold text-slate-600">Lignes par page :</span>
+          <div className="flex bg-slate-100 rounded-lg p-0.5 border border-slate-200">
+            {[25, 50, 100, 200, 0].map((size) => (
+              <button
+                key={size}
+                onClick={() => {
+                  setPageSize(size);
+                  setCurrentPage(1);
+                }}
+                className={`px-3 py-1 rounded-md text-xs font-bold transition-all cursor-pointer ${
+                  pageSize === size
+                    ? 'bg-white text-accent-dark shadow-[0_12px_32px_-6px_rgba(0,0,0,0.12),0_4px_12px_-2px_rgba(0,0,0,0.06)] hover:shadow-[0_16px_40px_-8px_rgba(0,0,0,0.16),0_6px_16px_-3px_rgba(0,0,0,0.08)] hover:-translate-y-0.5 transition-all duration-300 ease-out border border-slate-200/50'
+                    : 'text-slate-500 hover:text-slate-700 hover:bg-slate-200/50'
+                }`}
+              >
+                {size === 0 ? 'Tout' : size}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div className="flex items-center gap-4">
+          <div className="text-xs font-semibold text-slate-500">
+            Affichage <b className="text-slate-900">{totalItems === 0 ? 0 : startIndex + 1}</b> à{' '}
+            <b className="text-slate-900">{Math.min(startIndex + effectivePageSize, totalItems)}</b>{' '}
+            sur <b className="text-slate-900">{totalItems}</b>
+          </div>
+          {pageSize !== 0 && totalPages > 1 && (
+            <div className="flex items-center gap-1.5">
+              <button
+                onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                disabled={currentPage === 1}
+                className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-white border border-slate-200 text-slate-700 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed text-xs font-semibold transition cursor-pointer"
+              >
+                <ChevronLeft className="w-3.5 h-3.5" />
+                Précédent
+              </button>
+              <span className="px-2 font-mono text-xs font-bold text-slate-600">
+                {currentPage} / {totalPages}
+              </span>
+              <button
+                onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+                disabled={currentPage === totalPages}
+                className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-white border border-slate-200 text-slate-700 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed text-xs font-semibold transition cursor-pointer"
+              >
+                Suivant
+                <ChevronRight className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          )}
+        </div>
+      </div>
+
+      <MachinesRegisteredModals
+        toEdit={toEdit}
+        setToEdit={setToEdit}
+        toDelete={toDelete}
+        setToDelete={setToDelete}
+        showFormulasModal={showFormulasModal}
+        setShowFormulasModal={setShowFormulasModal}
+        preventiveMachine={preventiveMachine}
+        setPreventiveMachine={setPreventiveMachine}
+        machines={machines}
+        families={families}
+        templates={templates}
+        blueprints={blueprints}
+        zones={zones}
+        technicians={technicians}
+        preventiveTasks={preventiveTasks}
+        preventiveExecutions={preventiveExecutions}
+        correctiveInterventions={correctiveInterventions}
+        mouvements={mouvements}
+        machineElementsLedger={machineElementsLedger}
+        sortiesExterne={sortiesExterne}
+        sortieDemands={sortieDemands}
+        warehouseItems={warehouseItems}
+        onUpdateMachine={onUpdateMachine}
+        onDeleteMachine={onDeleteMachine}
+        navigateToEquipmentForMachine={navigateToEquipmentForMachine}
+        onNavigateToPreventive={onNavigateToPreventive}
+        getMachineSerialNumber={getMachineSerialNumber}
+        getMachineCommissioningDate={getMachineCommissioningDate}
+        getZoneByRef={getZoneByRef}
+      />
+
+      {qrMachine && (
+        <MachineQrFieldModal
+          machine={qrMachine.machine}
+          initialMode={qrMachine.mode}
+          onClose={() => setQrMachine(null)}
+          onNavigateToPreventive={onNavigateToPreventive}
+          onNavigateToQuickSortie={onNavigateToQuickSortie}
+          showToast={showToast}
+        />
+      )}
+
+      {passport360Machine && (
+        <MachinePassport360Modal
+          machine={passport360Machine}
+          onClose={() => setPassport360Machine(null)}
+          onNavigateToPreventive={onNavigateToPreventive}
+          onNavigateToQuickSortie={onNavigateToQuickSortie}
+          onOpenQrSticker={(m) => {
+            setPassport360Machine(null);
+            setQrMachine({ machine: m, mode: 'ETIQUETTE' });
+          }}
+        />
+      )}
+
+      {showBatchQrModal && (
+        <BatchQrPrintModal
+          machines={sortedData}
+          zones={zones}
+          onClose={() => setShowBatchQrModal(false)}
+        />
+      )}
+    </AnimatedPage>
+  );
+}
+export { MachinesRegisteredView };

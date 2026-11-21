@@ -1,0 +1,2008 @@
+import { useState, useMemo, useCallback, useDeferredValue } from 'react';
+import {
+  Search,
+  Calendar,
+  CalendarDays,
+  Grid,
+  List,
+  CheckCircle2,
+  Printer,
+  Activity,
+  Clock,
+  AlertTriangle,
+  RotateCcw,
+  SlidersHorizontal,
+  User,
+  DollarSign,
+  X,
+  FileSpreadsheet,
+  MapPin,
+  Factory,
+  Wrench,
+  Filter,
+  CalendarRange,
+  FingerprintPattern,
+  Lock,
+  Layers,
+  ClipboardCheck,
+  Gauge,
+  BarChart3,
+  ChevronDown,
+  ChevronUp,
+} from 'lucide-react';
+import CustomSelect from '../../../components/common/CustomSelect';
+import { GmaoKpiCard, GmaoKpiGrid } from '../../../components/common/GmaoKpiCard';
+import { useI18n } from '../../../../i18n/I18nContext';
+import MonthlyCalendarView from './MonthlyCalendarView';
+import GroupedMachinesView from './GroupedMachinesView';
+import MatrixWeeksView from './MatrixWeeksView';
+import DetailedTaskListView from './DetailedTaskListView';
+import PreventiveAnalyticsView from './PreventiveAnalyticsView';
+import MonthlyDayMatrixView from './MonthlyDayMatrixView';
+import PreventiveExecutionsHistoryView from './PreventiveExecutionsHistoryView';
+import PreventiveMetersView from './PreventiveMetersView';
+import PreventiveWeeklyCockpit from './PreventiveWeeklyCockpit';
+import TabMainModals from './TabMainModals';
+import PreventiveService from '../../../../application/services/PreventiveService';
+import {
+  sanitizeCsvCell,
+  computeTaskCycleStatus,
+  resolvePreventiveLaborRate,
+} from '../../../../domain/preventive/preventiveScheduleEngine';
+import { computePreventiveAnalytics } from '../../../../domain/preventive/preventiveAnalyticsEngine';
+import { multiTokenSearch } from '../../../../utils/searchUtils';
+import { dataIntegrityService } from '../../../../services/dataIntegrityService';
+import {
+  doesTaskMatchBlueprint,
+  rankStockItemsByMachineBom,
+  buildConsumablePdrInventory,
+} from '../../../../core/domain';
+import { isWarehouseComponent, isWarehousePart } from '../../../../core/domain/EntrepotItem';
+import { useGmaoStore } from '../../../../store/useGmaoStore';
+import { useAuth } from '../../../../context/AuthContext';
+import {
+  isTechnicianRole,
+  matchesTechnicianRecord,
+  getTechnicianDisplayName,
+  getTechnicianBadgeLabel,
+} from '../../../../core/security/technicianScope';
+import { AuthorizationService } from '../../../../core/security/AuthorizationService';
+import { getMachineAssetClass } from '../../../../utils/activeMachines';
+import { reconcileFieldClaim } from '../../../../core/security/validationReconciliation';
+import { hasPreventiveExecutionAnomaly } from '../../../../application/services/MachineHealthPassportService';
+import { storageService } from '../../../../utils/storageService';
+import { STORAGE_KEYS } from '../../../../infrastructure/persistence/storageKeys';
+
+export { buildConsumablePdrInventory };
+
+const ACTION_PILL_MAP = {
+  C: { bg: 'bg-blue-500/10 text-blue-800 border-blue-200/80', dot: 'bg-blue-600', label: 'Contrôle' },
+  N: { bg: 'bg-emerald-500/10 text-emerald-800 border-emerald-200/80', dot: 'bg-emerald-600', label: 'Nettoyage' },
+  G: { bg: 'bg-amber-500/10 text-amber-800 border-amber-200/80', dot: 'bg-amber-600', label: 'Graissage' },
+  V: { bg: 'bg-indigo-500/10 text-indigo-800 border-indigo-200/80', dot: 'bg-indigo-600', label: 'Vidange' },
+  R: { bg: 'bg-purple-500/10 text-purple-800 border-purple-200/80', dot: 'bg-purple-600', label: 'Réglage' },
+  S: { bg: 'bg-rose-500/10 text-rose-800 border-rose-200/80', dot: 'bg-rose-600', label: 'Sécurité' },
+  L: { bg: 'bg-cyan-500/10 text-cyan-800 border-cyan-200/80', dot: 'bg-cyan-600', label: 'Lubrification' },
+};
+
+export default function TabMainView({
+  tasks = [],
+  executions = [],
+  machines = [],
+  blueprints = [],
+  zones = [],
+  technicians = [],
+  actions = [],
+  _guides = [],
+  stockItems = [],
+  warehouseItems = [],
+  meterReadings = [],
+  onRecordReading = null,
+  onBatchRecordReadings = null,
+  overdueCounterTasksCount = 0,
+  viewMode: controlledViewMode,
+  onViewModeChange,
+  onMarkTaskDone,
+  onReviewPreventiveExecution = null,
+  showToast = null,
+  onDeleteExecution,
+  _onDeleteTask,
+  _onUpdateTaskCounter,
+  _onUpdateTaskStatus,
+  _onNavigateToPlanBuilder,
+  onCreateCorrective,
+  _onNavigateToMachine,
+}: any) {
+  const { t } = useI18n();
+  const { user } = useAuth();
+  const isTechUser = isTechnicianRole(user);
+  const canExecutePreventive =
+    Boolean(user) &&
+    Boolean(onMarkTaskDone) &&
+    AuthorizationService.hasPermission(user, 'preventive.execute');
+  const canManagePreventive =
+    Boolean(user) &&
+    !isTechUser &&
+    AuthorizationService.hasPermission(user, 'preventive.manage');
+  const canTriggerCorrective =
+    Boolean(user) &&
+    Boolean(onCreateCorrective) &&
+    AuthorizationService.hasPermission(user, 'corrective.execute');
+  const techDisplayName = useMemo(
+    () => getTechnicianDisplayName(user, technicians),
+    [user, technicians]
+  );
+  const techBadgeLabel = useMemo(
+    () => getTechnicianBadgeLabel(user, technicians),
+    [user, technicians]
+  );
+
+  // R4 Row-Level Technician Scope: lock base tasks & executions to the logged-in technician
+  const scopedTasks = useMemo(() => {
+    if (!isTechUser) return tasks;
+    return (tasks || []).filter((task) => matchesTechnicianRecord(task, user, technicians));
+  }, [tasks, isTechUser, user, technicians]);
+
+  const scopedExecutions = useMemo(() => {
+    if (!isTechUser) return executions;
+    return (executions || []).filter((ex) => matchesTechnicianRecord(ex, user, technicians));
+  }, [executions, isTechUser, user, technicians]);
+
+  const pendingValidationExecutions = useMemo(
+    () => (scopedExecutions || []).filter((ex) => ex.validation_status === 'PENDING_VALIDATION'),
+    [scopedExecutions]
+  );
+  const needsClarificationTasks = useMemo(
+    () =>
+      (scopedTasks || []).filter(
+        (tk) => tk.validation_status === 'NEEDS_CLARIFICATION' || tk.etat === 'À clarifier'
+      ),
+    [scopedTasks]
+  );
+
+  const machineElementsLedger = useGmaoStore((s) => s.machineElementsLedger);
+  const storeMouvements = useGmaoStore((s) => s.mouvements);
+  const storeCorrectiveInterventions = useGmaoStore((s) => s.correctiveInterventions);
+  const storeSortieDemands = useGmaoStore((s) => s.sortieDemands);
+  const [internalViewMode, setInternalViewMode] = useState('matrix'); // 'matrix' | 'calendar' | 'list' | 'analytics'
+  const viewMode = controlledViewMode !== undefined ? controlledViewMode : internalViewMode;
+  const setViewMode = useCallback(
+    (mode) => {
+      if (onViewModeChange) {
+        onViewModeChange(mode);
+      }
+      setInternalViewMode(mode);
+    },
+    [onViewModeChange]
+  );
+  const [searchQuery, setSearchQuery] = useState('');
+  const deferredSearchQuery = useDeferredValue(searchQuery);
+
+  // O(1) Lookup Maps for Master Data & Filters
+  const machineMap = useMemo(() => {
+    const map = new Map();
+    if (Array.isArray(machines)) {
+      machines.forEach((m) => {
+        const id = m?.id_machine_registered || m?.id || m?.code || m?.id_machine;
+        if (id) {
+          map.set(id, m);
+          map.set(String(id).trim().toUpperCase(), m);
+        }
+      });
+    }
+    return map;
+  }, [machines]);
+
+  const taskMachineMap = useMemo(() => {
+    const map = new Map();
+    if (Array.isArray(scopedTasks)) {
+      scopedTasks.forEach((t) => {
+        if (t?.id_machine && !map.has(t.id_machine)) {
+          map.set(t.id_machine, t);
+        }
+      });
+    }
+    return map;
+  }, [scopedTasks]);
+  
+  // Filters
+  const [selectedAssetClass, setSelectedAssetClass] = useState<'ALL' | 'PRODUCTION' | 'SYSTEM_GENERAL'>('ALL');
+  const [selectedZone, setSelectedZone] = useState('ALL');
+  const [selectedMachine, setSelectedMachine] = useState(() => {
+    try {
+      const target = storageService.getItem(STORAGE_KEYS.PREVENTIVE_TARGET_MACHINE);
+      if (typeof target === 'string' && target.trim()) {
+        storageService.removeItem(STORAGE_KEYS.PREVENTIVE_TARGET_MACHINE);
+        return target.trim();
+      }
+    } catch {
+      // ignore storage errors
+    }
+    return 'ALL';
+  });
+  const [selectedBlueprint, setSelectedBlueprint] = useState('ALL');
+  const [selectedAction, setSelectedAction] = useState('ALL');
+  const [selectedFrequence, setSelectedFrequence] = useState('ALL');
+  const [selectedWeek, setSelectedWeek] = useState('ALL');
+  const [selectedStatus, setSelectedStatus] = useState('ALL');
+  const [selectedTech, setSelectedTech] = useState('ALL');
+  const [orphanFilter, setOrphanFilter] = useState('ALL'); // 'ALL' | 'ORPHAN_ONLY' | 'LINKED_ONLY'
+  const [showAdvancedFilters, setShowAdvancedFilters] = useState(false);
+
+  // Annotate tasks with orphan status
+  const tasksWithOrphanFlag = useMemo(
+    () => dataIntegrityService.annotatePreventiveOrphans(scopedTasks, machines),
+    [scopedTasks, machines]
+  );
+
+  const orphanCount = useMemo(
+    () => tasksWithOrphanFlag.filter((t) => t._isOrphan).length,
+    [tasksWithOrphanFlag]
+  );
+
+  const assetClassCounts = useMemo(() => {
+    let prod = 0;
+    let sysGen = 0;
+    tasksWithOrphanFlag.forEach((t) => {
+      const m =
+        machineMap.get(t.id_machine) ||
+        machineMap.get(String(t.id_machine || '').trim().toUpperCase());
+      if (getMachineAssetClass(m) === 'SYSTEM_GENERAL') {
+        sysGen += 1;
+      } else {
+        prod += 1;
+      }
+    });
+    return { prod, sysGen };
+  }, [tasksWithOrphanFlag, machineMap]);
+
+  // Matrix range selector
+  const [weekRange, setWeekRange] = useState('S1-S16');
+
+  // Modals state
+  const [selectedTaskForValidation, setSelectedTaskForValidation] = useState(null);
+  const [selectedTaskForBT, setSelectedTaskForBT] = useState(null);
+  const [selectedTaskForPrint, setSelectedTaskForPrint] = useState(null);
+  const [showSystemGeneralRoundModal, setShowSystemGeneralRoundModal] = useState(false);
+
+  // Validation Form State with PDR & Labor & Canonical Organ IDs (P1 + V3 Maker-Checker)
+  const [validationData, setValidationData] = useState<any>({
+    date_realisation: new Date().toISOString().split('T')[0],
+    technicien: '',
+    duree_reelle: '20 min',
+    taux_horaire: 35,
+    observations: 'Intervention préventive réalisée avec succès et conforme aux normes constructeur.',
+    usedPDR: [],
+    num_bon_saisi_par_tech: '',
+    skipStockDeduction: false,
+    createFollowUpDi: false,
+    followUpDiAnomalie: '',
+    mode_calcul_recurrence: 'FIXE',
+    compteur_releve: '',
+    id_composant: '',
+    nom_composant: '',
+    id_part: '',
+    nom_part: '',
+  });
+
+  // Custom PDR item add form inside modal
+  const [newPdrItem, setNewPdrItem] = useState<any>({
+    id_article: '',
+    designation: '',
+    reference: '',
+    quantite: 1,
+    unite: 'Pièce',
+    prix_unitaire: 0,
+  });
+
+  // BT Anomaly Form State
+  const [btData, setBtData] = useState({
+    description: '',
+    priorite: 'Haute',
+  });
+
+  // Distinct Lists for Filters connected to full Master Data
+  const machineList = useMemo(() => {
+    const set = new Set();
+    if (Array.isArray(machines)) {
+      machines.forEach((m) => {
+        if (selectedAssetClass !== 'ALL' && getMachineAssetClass(m) !== selectedAssetClass) return;
+        const id = m?.id_machine_registered || m?.id || m?.code || m?.id_machine;
+        if (id && typeof id === 'string' && id.trim()) set.add(id.trim());
+      });
+    }
+    if (Array.isArray(tasksWithOrphanFlag)) {
+      tasksWithOrphanFlag.forEach((t) => {
+        const id = t?.id_machine;
+        if (!id || typeof id !== 'string' || !id.trim()) return;
+        const m = machineMap.get(id) || machineMap.get(id.trim().toUpperCase());
+        if (selectedAssetClass !== 'ALL' && getMachineAssetClass(m) !== selectedAssetClass) return;
+        set.add(id.trim());
+      });
+    }
+    const sorted = Array.from(set).sort((a: any, b: any) => a.localeCompare(b, undefined, { numeric: true }));
+    return ['ALL', ...sorted];
+  }, [machines, tasksWithOrphanFlag, selectedAssetClass, machineMap]);
+
+  const zoneList = useMemo(() => {
+    const set = new Set<string>();
+    if (Array.isArray(zones)) {
+      zones.forEach((z: any) => {
+        const name = typeof z === 'string' ? z : (z?.id_zone || z?.nom_zone || z?.libelle || z?.code_zone || z?.code || z?.name);
+        if (name && typeof name === 'string' && name.trim()) set.add(name.trim());
+      });
+    }
+    if (Array.isArray(machines)) {
+      machines.forEach((m: any) => {
+        const z = m?.id_zone_default || m?.id_zone || m?.zone;
+        if (z && typeof z === 'string' && z.trim()) set.add(z.trim());
+      });
+    }
+    if (Array.isArray(tasksWithOrphanFlag)) {
+      tasksWithOrphanFlag.forEach((t: any) => {
+        const z = t?.id_zone;
+        if (z && typeof z === 'string' && z.trim()) set.add(z.trim());
+      });
+    }
+    const sorted = Array.from(set).sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+    return ['ALL', ...sorted];
+  }, [zones, machines, tasksWithOrphanFlag]);
+
+  const techList = useMemo(() => {
+    const set = new Set<string>();
+    if (Array.isArray(technicians)) {
+      technicians.forEach((t: any) => {
+        let name = '';
+        if (typeof t === 'string') {
+          name = t;
+        } else if (t && typeof t === 'object') {
+          if (t.nom) {
+            name = `${t.nom} ${t.prenom || ''}`.trim();
+          } else {
+            name = t.nom_technicien || t.name || t.id_technician || '';
+          }
+        }
+        if (name && name.trim()) set.add(name.trim());
+      });
+    }
+    if (Array.isArray(tasksWithOrphanFlag)) {
+      tasksWithOrphanFlag.forEach((t: any) => {
+        const resp = t?.responsable;
+        if (resp && typeof resp === 'string' && resp.trim()) set.add(resp.trim());
+      });
+    }
+    const sorted = Array.from(set).sort((a, b) => a.localeCompare(b));
+    return ['ALL', ...sorted];
+  }, [technicians, tasksWithOrphanFlag]);
+
+  // Current ISO Week detection for highlighting current column
+  const currentWeekNumber = useMemo(() => {
+    const d = new Date();
+    const start = new Date(d.getFullYear(), 0, 1);
+    const days = Math.floor((d.getTime() - start.getTime()) / (24 * 60 * 60 * 1000));
+    return Math.min(52, Math.max(1, Math.ceil((days + start.getDay() + 1) / 7)));
+  }, []);
+
+  // Filtered Tasks with robust string normalization & deferred search query
+  const filteredTasks = useMemo(() => {
+    const norm = (str) => String(str || '').trim().toUpperCase().replace(/[-_\s]/g, '');
+
+    return tasksWithOrphanFlag.filter((t) => {
+      // Search query across all fields using multiTokenSearch
+      const matchSearch = multiTokenSearch(
+        t,
+        [
+          'id_machine',
+          'nom_machine',
+          'composant',
+          'id_composant',
+          'nom_composant',
+          'id_part',
+          'nom_part',
+          'code',
+          'action_code',
+          'action_libelle',
+          'id_zone',
+          'responsable',
+          'frequence',
+          'etat',
+          'ref_plan',
+          'id_bt',
+        ],
+        deferredSearchQuery
+      );
+
+      const m =
+        machineMap.get(t.id_machine) ||
+        machineMap.get(String(t.id_machine || '').trim().toUpperCase());
+      const liveMeter = m?.compteur_heures ?? m?.compteur_actuel;
+      const effectiveEtat = computeTaskCycleStatus(t, { machineCurrentMeter: liveMeter }).effectiveEtat;
+      const matchAssetClass =
+        selectedAssetClass === 'ALL' || getMachineAssetClass(m) === selectedAssetClass;
+      const effZone = m?.id_zone_default || m?.id_zone || t.id_zone;
+      const matchZone = selectedZone === 'ALL' || norm(effZone) === norm(selectedZone) || norm(t.id_zone) === norm(selectedZone);
+      const matchMach = selectedMachine === 'ALL' || norm(t.id_machine) === norm(selectedMachine);
+      const matchBlueprint = doesTaskMatchBlueprint(t, selectedBlueprint, machines);
+      const matchAct = selectedAction === 'ALL' || (t.action_code || 'C').toUpperCase() === selectedAction.toUpperCase();
+      const matchFreq = selectedFrequence === 'ALL' || norm(t.frequence) === norm(selectedFrequence);
+      const matchStat = selectedStatus === 'ALL' || effectiveEtat === selectedStatus;
+      const matchTech = selectedTech === 'ALL' || norm(t.responsable) === norm(selectedTech);
+      const matchWeek = selectedWeek === 'ALL' || (t.planning && Boolean(t.planning[selectedWeek]));
+
+      if (orphanFilter === 'ORPHAN_ONLY' && !t._isOrphan) return false;
+      if (orphanFilter === 'LINKED_ONLY' && t._isOrphan) return false;
+
+      return matchSearch && matchAssetClass && matchZone && matchMach && matchBlueprint && matchAct && matchFreq && matchStat && matchTech && matchWeek;
+    });
+  }, [tasksWithOrphanFlag, deferredSearchQuery, selectedAssetClass, selectedZone, selectedMachine, selectedBlueprint, machines, selectedAction, selectedFrequence, selectedStatus, selectedTech, selectedWeek, machineMap, orphanFilter]);
+
+  const stats = useMemo(() => {
+    const analytics = computePreventiveAnalytics({
+      tasks: scopedTasks,
+      executions: scopedExecutions,
+      machines,
+    });
+    const fallbackTaskCost = scopedTasks.reduce((acc, curr) => acc + Number(curr.cout_cumule || 0), 0);
+    const realizedTotalCost =
+      analytics.punctuality.approvedExecutionsCount > 0
+        ? analytics.costs.totalCost
+        : Math.round(fallbackTaskCost * 100) / 100;
+
+    return {
+      total: analytics.overview.totalTasks,
+      aFaire: analytics.overview.todoCount,
+      fait: analytics.overview.doneCount,
+      enRetard: analytics.overview.overdueCount,
+      complianceRate: analytics.overview.dynamicComplianceRate,
+      totalCost: realizedTotalCost,
+      sparesCost: analytics.costs.totalSparesCost,
+      laborCost: analytics.costs.totalLaborCost,
+    };
+  }, [scopedTasks, scopedExecutions, machines]);
+
+  const activeFiltersCount = useMemo(() => {
+    let count = 0;
+    if (searchQuery.trim()) count++;
+    if (selectedAssetClass !== 'ALL') count++;
+    if (selectedZone !== 'ALL') count++;
+    if (selectedMachine !== 'ALL') count++;
+    if (selectedBlueprint !== 'ALL') count++;
+    if (selectedAction !== 'ALL') count++;
+    if (selectedFrequence !== 'ALL') count++;
+    if (selectedWeek !== 'ALL') count++;
+    if (selectedStatus !== 'ALL') count++;
+    if (selectedTech !== 'ALL') count++;
+    if (orphanFilter !== 'ALL') count++;
+    return count;
+  }, [searchQuery, selectedAssetClass, selectedZone, selectedMachine, selectedBlueprint, selectedAction, selectedFrequence, selectedWeek, selectedStatus, selectedTech, orphanFilter]);
+
+  const hasActiveFilters = activeFiltersCount > 0;
+
+  const clearAllFilters = useCallback(() => {
+    setSearchQuery('');
+    setSelectedAssetClass('ALL');
+    setSelectedZone('ALL');
+    setSelectedMachine('ALL');
+    setSelectedBlueprint('ALL');
+    setSelectedAction('ALL');
+    setSelectedFrequence('ALL');
+    setSelectedWeek('ALL');
+    setSelectedStatus('ALL');
+    setSelectedTech('ALL');
+    setOrphanFilter('ALL');
+  }, []);
+
+  // Formatted Option arrays for CustomSelect with master data integration
+  const zoneOptions = useMemo(() => [
+    {
+      value: 'ALL',
+      label: `${t('preventive.filters.all_zones', 'Toutes Zones')} (${Math.max(0, zoneList.length - 1)})`,
+      badge: t('common.all', 'Global'),
+      badgeColor: 'bg-slate-100 text-slate-700',
+    },
+    ...zoneList.filter((z) => z !== 'ALL').map((z) => {
+      const machCountInZone = Array.isArray(machines)
+        ? machines.filter((m) => (m.id_zone_default || m.id_zone || m.zone) === z).length
+        : 0;
+      return {
+        value: z,
+        label: `${t('common.zone', 'Zone')} ${z}`,
+        sublabel: machCountInZone > 0 ? `${machCountInZone} ${t('preventive.filters.badges.equip', 'équipement(s)')}` : undefined,
+        badge: t('preventive.filters.badges.site', 'Site'),
+        badgeColor: 'bg-emerald-50 text-emerald-800 border border-emerald-200/80',
+      };
+    }),
+  ], [zoneList, machines, t]);
+
+  const machineOptions = useMemo(() => [
+    {
+      value: 'ALL',
+      label: `${t('preventive.filters.all_machines', 'Toutes Machines')} (${Math.max(0, machineList.length - 1)})`,
+      badge: t('common.all', 'Global'),
+      badgeColor: 'bg-slate-100 text-slate-700',
+    },
+    ...machineList.filter((m) => m !== 'ALL').map((mId) => {
+      const masterMachine = machineMap.get(mId);
+      const relatedTask = taskMachineMap.get(mId);
+      const machineName = masterMachine?.designation || masterMachine?.nom_machine || masterMachine?.nom || relatedTask?.nom_machine || '';
+      const zoneName = masterMachine?.id_zone_default || masterMachine?.id_zone || masterMachine?.zone || relatedTask?.id_zone;
+      const familyName = masterMachine?.id_family || masterMachine?.family;
+      return {
+        value: mId,
+        label: machineName ? `${mId} · ${machineName}` : mId,
+        sublabel: zoneName ? `${t('common.zone', 'Zone')}: ${zoneName}${familyName ? ` · ${familyName}` : ''}` : undefined,
+        badge: t('preventive.filters.badges.equip', 'Équip.'),
+        badgeColor: 'bg-blue-50 text-blue-800 border border-blue-200/80',
+      };
+    }),
+  ], [machineList, machineMap, taskMachineMap, t]);
+
+  const blueprintOptions = useMemo(() => [
+    {
+      value: 'ALL',
+      label: `Tous (${Array.isArray(blueprints) ? blueprints.length : 0})`,
+      badge: 'Plan',
+      badgeColor: 'bg-slate-100 text-slate-700',
+    },
+    ...(Array.isArray(blueprints) ? blueprints : [])
+      .filter((bp) => bp && bp.id_blueprint)
+      .map((bp) => ({
+        value: bp.id_blueprint,
+        label: bp.libelle ? `${bp.id_blueprint} · ${bp.libelle}` : bp.id_blueprint,
+        sublabel: Array.isArray(bp.preventivePlanItems) && bp.preventivePlanItems.length > 0
+          ? `${bp.preventivePlanItems.length} opération(s) standard`
+          : undefined,
+        badge: 'BOM',
+        badgeColor: 'bg-teal-50 text-teal-800 border border-teal-200/80',
+      })),
+  ], [blueprints]);
+
+  const actionOptions = useMemo(() => [
+    { value: 'ALL', label: `${t('preventive.filters.all_actions', 'Toutes Actions')} (${actions.length})`, badge: 'AFNOR', badgeColor: 'bg-slate-100 text-slate-700' },
+    ...actions.map((a) => ({
+      value: a.code,
+      label: `${a.code} - ${a.libelle}`,
+      sublabel: a.description || undefined,
+      badge: a.code,
+      badgeColor: ACTION_PILL_MAP[a.code]?.bg || 'bg-indigo-50 text-indigo-800',
+    })),
+  ], [actions, t]);
+
+  const frequenceOptions = useMemo(() => [
+    { value: 'ALL', label: t('preventive.filters.all_frequences', 'Toutes Fréquences'), badge: t('preventive.filters.badges.period', 'Période'), badgeColor: 'bg-slate-100 text-slate-700' },
+    { value: 'Quotidien', label: 'Quotidien (Journalier)', sublabel: 'Chaque jour', badge: '1J', badgeColor: 'bg-cyan-50 text-cyan-800 border border-cyan-200' },
+    { value: 'Hebdo', label: 'Hebdomadaire (Hebdo)', sublabel: 'Toutes les semaines', badge: '7J', badgeColor: 'bg-blue-50 text-blue-800 border border-blue-200' },
+    { value: 'Bimensuel', label: 'Bimensuel (15 Jours)', sublabel: 'Toutes les 2 semaines', badge: '15J', badgeColor: 'bg-indigo-50 text-indigo-800 border border-indigo-200' },
+    { value: 'Mensuel', label: 'Mensuel (Mois)', sublabel: 'Toutes les 4 semaines', badge: '30J', badgeColor: 'bg-teal-50 text-teal-800 border border-teal-200' },
+    { value: 'Trimestriel', label: 'Trimestriel (3 Mois)', sublabel: 'Toutes les 12 semaines', badge: '90J', badgeColor: 'bg-amber-50 text-amber-800 border border-amber-200' },
+    { value: 'Semestriel', label: 'Semestriel (6 Mois)', sublabel: 'Toutes les 26 semaines', badge: '180J', badgeColor: 'bg-purple-50 text-purple-800 border border-purple-200' },
+    { value: 'Annuel', label: 'Annuel (1 An)', sublabel: '1 fois par an (52 semaines)', badge: '365J', badgeColor: 'bg-rose-50 text-rose-800 border border-rose-200' },
+  ], [t]);
+
+  const weekOptions = useMemo(() => [
+    { value: 'ALL', label: `${t('preventive.filters.all_weeks', 'Toutes Semaines')} (S1-S52)`, badge: '52S', badgeColor: 'bg-slate-100 text-slate-700' },
+    ...Array.from({ length: 52 }, (_, i) => {
+      const weekNum = i + 1;
+      const s = `S${weekNum}`;
+      const isCurrent = weekNum === Number(currentWeekNumber);
+      return {
+        value: s,
+        label: isCurrent ? `${t('preventive.filters.iso_week', 'Semaine')} ${s} (En cours)` : `${t('preventive.filters.iso_week', 'Semaine')} ${s}`,
+        sublabel: isCurrent ? 'Semaine active' : undefined,
+        badge: isCurrent ? 'ACTIF' : s,
+        badgeColor: isCurrent
+          ? 'bg-emerald-100 text-emerald-900 border border-emerald-300 font-black'
+          : 'bg-slate-100 text-slate-700',
+      };
+    }),
+  ], [currentWeekNumber, t]);
+
+  const techOptions = useMemo(() => [
+    {
+      value: 'ALL',
+      label: `${t('preventive.filters.all_technicians', 'Tous Techniciens')} (${Math.max(0, techList.length - 1)})`,
+      badge: t('common.technician', 'Équipe'),
+      badgeColor: 'bg-slate-100 text-slate-700',
+    },
+    ...techList.filter((tName) => tName !== 'ALL').map((tName) => {
+      const masterTech = Array.isArray(technicians)
+        ? technicians.find((tech) => {
+            const full = typeof tech === 'string' ? tech : (tech?.nom ? `${tech.nom} ${tech.prenom || ''}`.trim() : (tech?.nom_technicien || tech?.name || tech?.id_technician));
+            return full === tName;
+          })
+        : null;
+      return {
+        value: tName,
+        label: tName,
+        sublabel: (masterTech && typeof masterTech === 'object' && masterTech.specialite) ? masterTech.specialite : undefined,
+        badge: t('preventive.filters.badges.assigned', 'Tech'),
+        badgeColor: 'bg-purple-50 text-purple-800 border border-purple-200',
+      };
+    }),
+  ], [techList, technicians, t]);
+
+  // P7.1 ADR-09: Available consumable inventory comes exclusively from Stock PDR Magasin (`stockItems`)
+  const availableInventory = useMemo(() => buildConsumablePdrInventory(stockItems), [stockItems]);
+
+  // Machine components & structural parts from Entrepôt for the task being validated (P1)
+  const validationMachineComponents = useMemo(() => {
+    if (!selectedTaskForValidation?.id_machine || !Array.isArray(warehouseItems)) return [];
+    const code = String(selectedTaskForValidation.id_machine).trim().toUpperCase();
+    return warehouseItems.filter((w) => {
+      const wMach = String(w.id_machine_registered || w.id_machine || w.machine_id || '').trim().toUpperCase();
+      return (wMach === code || wMach.includes(code)) && isWarehouseComponent(w);
+    });
+  }, [selectedTaskForValidation?.id_machine, warehouseItems]);
+
+  const validationMachineParts = useMemo(() => {
+    if (!selectedTaskForValidation?.id_machine || !Array.isArray(warehouseItems)) return [];
+    const code = String(selectedTaskForValidation.id_machine).trim().toUpperCase();
+    return warehouseItems.filter((w) => {
+      const wMach = String(w.id_machine_registered || w.id_machine || w.machine_id || '').trim().toUpperCase();
+      return (wMach === code || wMach.includes(code)) && isWarehousePart(w);
+    });
+  }, [selectedTaskForValidation?.id_machine, warehouseItems]);
+
+  // P2 & N1: Smart BOM-ranked inventory for the validation modal
+  const rankedValidationInventory = useMemo(() => {
+    if (!selectedTaskForValidation) return availableInventory;
+    return rankStockItemsByMachineBom(
+      selectedTaskForValidation.id_machine,
+      availableInventory,
+      machines,
+      blueprints,
+      validationData.id_composant ||
+        validationData.nom_composant ||
+        validationData.id_part ||
+        validationData.nom_part ||
+        selectedTaskForValidation.composant,
+      selectedTaskForValidation,
+      machineElementsLedger
+    );
+  }, [
+    selectedTaskForValidation,
+    availableInventory,
+    machines,
+    blueprints,
+    validationData.id_composant,
+    validationData.nom_composant,
+    validationData.id_part,
+    validationData.nom_part,
+    machineElementsLedger,
+  ]);
+
+  // Open Validation Modal with prefilled recommended PDR (or proposed PDR on clarification) & auto-resolved id_composant / id_part
+  const handleOpenValidate = (task) => {
+    if (!canExecutePreventive) return;
+    setSelectedTaskForValidation(task);
+    const hasPriorProposed =
+      (task.validation_status === 'NEEDS_CLARIFICATION' ||
+        task.validation_status === 'REJECTED' ||
+        task.validation_status === 'PENDING_VALIDATION') &&
+      Array.isArray(task.pieces_proposees) &&
+      task.pieces_proposees.length > 0;
+
+    const rawRecommended = hasPriorProposed
+      ? task.pieces_proposees
+      : PreventiveService.getRecommendedPDRForAction(task.action_code, task.composant, task);
+
+    const enrichedRecommended = (rawRecommended || []).map((rec) => {
+      const ref = String(rec.reference || rec.ref || '').trim();
+      const stockMatch = availableInventory.find(
+        (item) => item.ref.toLowerCase() === ref.toLowerCase()
+      );
+      return {
+        id_article: stockMatch?.id_article || rec.id_article || `PDR-${ref || 'STD'}`,
+        designation: stockMatch?.designation || rec.designation || rec.nom || ref || 'Pièce PDR',
+        reference: stockMatch?.ref || ref || 'STD',
+        quantite: Math.max(1, Number(rec.quantite || rec.qty || 1)),
+        unite: stockMatch?.unite || rec.unite || rec.unit || 'Pièce',
+        prix_unitaire: Number(stockMatch?.prix_unitaire ?? rec.prix_unitaire ?? rec.unitPrice ?? 0),
+      };
+    });
+
+    // Auto-resolve canonical id_composant or id_part from warehouseItems if task only has text `composant`
+    let resolvedIdComp = task.id_composant || '';
+    let resolvedNomComp = task.nom_composant || '';
+    let resolvedIdPart = task.id_part || '';
+    let resolvedNomPart = task.nom_part || '';
+
+    if (!resolvedIdComp && !resolvedIdPart && task.composant && task.id_machine && Array.isArray(warehouseItems)) {
+      const mCode = String(task.id_machine).trim().toUpperCase();
+      const compText = String(task.composant).trim().toUpperCase();
+      if (compText && compText !== 'MACHINE ENTIÈRE' && compText !== 'MACHINE ENTIERE') {
+        const machItems = warehouseItems.filter((w) => {
+          const wMach = String(w.id_machine_registered || w.id_machine || w.machine_id || '').trim().toUpperCase();
+          return wMach === mCode || wMach.includes(mCode);
+        });
+        const matchedW = machItems.find((w) => {
+          const wId = String(w.id_warehouse_item || w.id || '').trim().toUpperCase();
+          const wDesig = String(w.designation || w.designation_part || w.nom_composant || w.nom || '').trim().toUpperCase();
+          return wId === compText || wDesig === compText || wDesig.includes(compText) || compText.includes(wDesig);
+        });
+        if (matchedW) {
+          const wId = String(matchedW.id_warehouse_item || matchedW.id || '');
+          const wName = String(matchedW.designation || matchedW.designation_part || matchedW.nom_composant || matchedW.nom || wId);
+          if (isWarehousePart(matchedW)) {
+            resolvedIdPart = wId;
+            resolvedNomPart = wName;
+          } else {
+            resolvedIdComp = wId;
+            resolvedNomComp = wName;
+          }
+        }
+      }
+    }
+
+    const initialObs =
+      task.observations ||
+      `Intervention préventive ${task.action_code} sur ${task.composant || resolvedNomComp || resolvedNomPart || 'Machine'} (${task.id_machine}) exécutée conformément.`;
+    const rec = reconcileFieldClaim({
+      claimType: 'PREVENTIVE',
+      claimId: String(task.id || ''),
+      numBonSaisi: task.num_bon_saisi_par_tech || '',
+      machineCode: task.id_machine,
+      proposedSpares: enrichedRecommended.map((p) => ({
+        ref: p.reference,
+        designation: p.designation,
+        qty: p.quantite,
+      })),
+      stockItems,
+      mouvements: storeMouvements,
+      correctiveInterventions: storeCorrectiveInterventions,
+      preventiveExecutions: executions,
+      sortieDemands: storeSortieDemands,
+    });
+    const hasAnom = hasPreventiveExecutionAnomaly({ notes: initialObs });
+
+    const resolvedTech = isTechUser
+      ? techDisplayName || task.responsable || ''
+      : task.responsable || '';
+    const resolvedLaborRate = resolvePreventiveLaborRate(technicians, resolvedTech);
+    const taskMach =
+      machineMap.get(task.id_machine) ||
+      machineMap.get(String(task.id_machine || '').trim().toUpperCase());
+    const liveMachineMeter =
+      taskMach?.compteur_heures ??
+      task.pending_compteur_releve ??
+      task.compteur_actuel ??
+      task.dernier_releve ??
+      '';
+
+    setValidationData({
+      date_realisation: new Date().toISOString().split('T')[0],
+      technicien: resolvedTech,
+      duree_reelle: task.duree_estimee || '15 min',
+      taux_horaire: resolvedLaborRate,
+      observations: initialObs,
+      usedPDR: enrichedRecommended,
+      num_bon_saisi_par_tech: task.num_bon_saisi_par_tech || '',
+      skipStockDeduction: Boolean(rec?.exactMovementMatch),
+      createFollowUpDi: !isTechUser && hasAnom,
+      followUpDiAnomalie: initialObs,
+      mode_calcul_recurrence: task.mode_calcul_recurrence || 'FIXE',
+      compteur_releve: liveMachineMeter,
+      id_composant: resolvedIdComp,
+      nom_composant: resolvedNomComp,
+      id_part: resolvedIdPart,
+      nom_part: resolvedNomPart,
+    });
+  };
+
+  // Add PDR to validation list
+  const handleAddPdrToValidation = (item) => {
+    if (!item || !item.designation) return;
+    setValidationData((prev) => ({
+      ...prev,
+      usedPDR: [
+        ...prev.usedPDR,
+        {
+          id_article: item.id_article || `PDR-${Date.now().toString().slice(-4)}`,
+          designation: item.designation,
+          reference: item.reference || item.ref || item.code || 'STD',
+          quantite: Number(item.quantite || 1),
+          unite: item.unite || 'Pièce',
+          prix_unitaire: Number(item.prix_unitaire || item.prix_achat_ht || item.prix || 0),
+        },
+      ],
+    }));
+    setNewPdrItem({
+      id_article: '',
+      designation: '',
+      reference: '',
+      quantite: 1,
+      unite: 'Pièce',
+      prix_unitaire: 0,
+    });
+  };
+
+  const handleRemovePdrFromValidation = (idx) => {
+    setValidationData((prev) => ({
+      ...prev,
+      usedPDR: prev.usedPDR.filter((_, i) => i !== idx),
+    }));
+  };
+
+  const handleConfirmValidation = (e) => {
+    e.preventDefault();
+    if (!selectedTaskForValidation) return;
+    onMarkTaskDone(selectedTaskForValidation.id, validationData);
+    setSelectedTaskForValidation(null);
+  };
+
+  // Phase C: 1-Click Fast Execution from Today & This Week Cockpit
+  const handleQuickValidateTask = useCallback(
+    (task, overrideTechName?: string) => {
+      if (!canExecutePreventive || !task) return;
+      const executorName =
+        overrideTechName ||
+        (isTechUser ? techDisplayName || task.responsable || '' : task.responsable || 'Technicien');
+      const resolvedRate = resolvePreventiveLaborRate(technicians, executorName);
+      const taskMach =
+        machineMap.get(task.id_machine) ||
+        machineMap.get(String(task.id_machine || '').trim().toUpperCase());
+      const liveMachineMeter =
+        taskMach?.compteur_heures ??
+        task.pending_compteur_releve ??
+        task.compteur_actuel ??
+        task.dernier_releve ??
+        '';
+
+      onMarkTaskDone(task.id, {
+        date_realisation: new Date().toISOString().split('T')[0],
+        technicien: executorName,
+        duree_reelle: task.duree_estimee || '15 min',
+        taux_horaire: resolvedRate,
+        observations: `[VALIDATION RAPIDE S${currentWeekNumber}] Intervention préventive ${task.action_code || 'C'} sur ${task.composant || task.id_machine} réalisée conformément.`,
+        usedPDR: [],
+        num_bon_saisi_par_tech: '',
+        skipStockDeduction: false,
+        createFollowUpDi: false,
+        mode_calcul_recurrence: task.mode_calcul_recurrence || 'FIXE',
+        compteur_releve: liveMachineMeter,
+        id_composant: task.id_composant || '',
+        nom_composant: task.nom_composant || '',
+        id_part: task.id_part || '',
+        nom_part: task.nom_part || '',
+      });
+    },
+    [
+      canExecutePreventive,
+      isTechUser,
+      techDisplayName,
+      technicians,
+      machineMap,
+      onMarkTaskDone,
+      currentWeekNumber,
+    ]
+  );
+
+  const isPlanningWorkspace =
+    viewMode === 'matrix' ||
+    viewMode === 'list' ||
+    viewMode === 'monthly_grid' ||
+    viewMode === 'grouped' ||
+    viewMode === 'calendar';
+  const isHistoryOrAnalyticsWorkspace =
+    viewMode === 'executions' || viewMode === 'analytics';
+
+  // Open Corrective Trigger Modal
+  const handleOpenCorrective = (task) => {
+    if (!canTriggerCorrective) return;
+    setSelectedTaskForBT(task);
+    setBtData({
+      description: `Anomalie décelée lors du contrôle ${task.action_code} sur ${task.composant} (${task.id_machine}) : Nécessite une intervention corrective immédiate.`,
+      priorite: 'Haute',
+    });
+  };
+
+  const handleConfirmCorrective = (e) => {
+    e.preventDefault();
+    if (!selectedTaskForBT) return;
+    onCreateCorrective(selectedTaskForBT, btData);
+    setSelectedTaskForBT(null);
+  };
+
+  // Export Full Matrix & Tasks to CSV / Excel
+  const handleExportCSV = () => {
+    const allWeeks = Array.from({ length: 52 }, (_, i) => `S${i + 1}`);
+    const headers = [
+      'Code Tâche',
+      'Machine ID',
+      'Nom Machine',
+      'Zone',
+      'Composant',
+      'Action Code',
+      'Type Intervention',
+      'Fréquence',
+      'Responsable',
+      'Durée Estimée',
+      'Statut',
+      'Prochaine Échéance',
+      'Dernière Réalisation',
+      'Coût Cumulé (MAD)',
+      ...allWeeks,
+      'Consignes / Remarques',
+    ];
+
+    const rows = filteredTasks.map((t) => {
+      const weekCols = allWeeks.map((w) => (t.planning && t.planning[w]) ? t.planning[w] : '');
+      return [
+        sanitizeCsvCell(t.code || ''),
+        sanitizeCsvCell(t.id_machine || ''),
+        sanitizeCsvCell(t.nom_machine || ''),
+        sanitizeCsvCell(t.id_zone || ''),
+        sanitizeCsvCell(t.composant || ''),
+        sanitizeCsvCell(t.action_code || ''),
+        sanitizeCsvCell(t.type_intervention || ''),
+        sanitizeCsvCell(t.frequence || ''),
+        sanitizeCsvCell(t.responsable || ''),
+        sanitizeCsvCell(t.duree_estimee || ''),
+        sanitizeCsvCell(t.etat || ''),
+        sanitizeCsvCell(t.prochaine_echeance || ''),
+        sanitizeCsvCell(t.derniere_realisation || ''),
+        sanitizeCsvCell(Number(t.cout_cumule || 0).toFixed(2)),
+        ...weekCols.map((val) => sanitizeCsvCell(val)),
+        sanitizeCsvCell(t.consigne || t.observations || ''),
+      ];
+    });
+
+    const csvContent =
+      '\uFEFF' +
+      [headers.map((h) => sanitizeCsvCell(h)).join(';'), ...rows.map((r) => r.join(';'))].join('\r\n');
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.setAttribute('href', url);
+    link.setAttribute('download', `GMAO_Matrice_Preventive_S1_S52_${new Date().toISOString().split('T')[0]}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  };
+
+  return (
+    <div className="space-y-5">
+      {/* V3 MAKER-CHECKER ALERT BANNERS */}
+      {canManagePreventive && pendingValidationExecutions.length > 0 && (
+        <div className="bg-purple-50/90 border border-purple-300 rounded-2xl p-4 shadow-xs flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-purple-600 text-white flex items-center justify-center shrink-0 font-black font-mono text-sm">
+              {pendingValidationExecutions.length}
+            </div>
+            <div>
+              <div className="text-xs font-black text-purple-950 uppercase tracking-wider">
+                Exécutions préventives à valider (Maker-Checker)
+              </div>
+              <p className="text-[11.5px] text-purple-800 mt-0.5">
+                {pendingValidationExecutions.length} déclaration(s) terrain en attente de contrôle responsable avant validation finale et déstockage PDR.
+              </p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => setViewMode('executions')}
+            className="px-3.5 py-2 rounded-xl bg-purple-700 hover:bg-purple-800 text-white text-xs font-bold shadow-xs cursor-pointer shrink-0 transition"
+          >
+            Ouvrir la file À valider ({pendingValidationExecutions.length})
+          </button>
+        </div>
+      )}
+
+      {isTechUser && needsClarificationTasks.length > 0 && (
+        <div className="bg-rose-50/90 border border-rose-300 rounded-2xl p-4 shadow-xs flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-rose-600 text-white flex items-center justify-center shrink-0 font-black font-mono text-sm">
+              {needsClarificationTasks.length}
+            </div>
+            <div>
+              <div className="text-xs font-black text-rose-950 uppercase tracking-wider">
+                Tâche(s) préventive(s) à clarifier ({needsClarificationTasks.length})
+              </div>
+              <p className="text-[11.5px] text-rose-800 mt-0.5">
+                Le responsable a demandé une clarification sur vos pièces ou observations ({needsClarificationTasks.map((tk) => tk.id_machine).join(', ')}). Aucun stock n&apos;a été déduit.
+              </p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => handleOpenValidate(needsClarificationTasks[0])}
+            className="px-3.5 py-2 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold shadow-xs cursor-pointer shrink-0 transition"
+          >
+            Corriger & Re-soumettre
+          </button>
+        </div>
+      )}
+
+      {/* UNIFIED 4-TIER LIGHT EXCEL KPI CARDS BAR (5-COLUMN) */}
+      <GmaoKpiGrid columns={5}>
+        {/* Card 1: Total Tasks */}
+        <GmaoKpiCard
+          title={t('preventive.kpis.total_program', 'Total Programme')}
+          value={stats.total}
+          unit="tâches"
+          icon={Calendar}
+          color="indigo"
+          valueColored={false}
+          isActive={selectedStatus === 'ALL'}
+          onClick={() => setSelectedStatus('ALL')}
+          badgeText={t('preventive.kpis.weeks_range', 'S1-S52')}
+          footerLabel="Parc couvert :"
+          footerValue={t('preventive.kpis.registered_machines', {
+            count: Math.max(0, machineList.length - 1),
+          })}
+        />
+
+        {/* Card 2: À Faire */}
+        <GmaoKpiCard
+          title={t('preventive.kpis.to_do', 'À Réaliser')}
+          value={stats.aFaire}
+          unit="tâches"
+          icon={Clock}
+          color="blue"
+          isActive={selectedStatus === 'À faire'}
+          onClick={() => setSelectedStatus(selectedStatus === 'À faire' ? 'ALL' : 'À faire')}
+          badgeText={t('preventive.kpis.planned', 'Planifiées')}
+          footerLabel="Statut :"
+          footerValue={t('preventive.kpis.waiting_execution', "En attente d'exécution")}
+        />
+
+        {/* Card 3: Fait & Conforme */}
+        <GmaoKpiCard
+          title={t('preventive.kpis.done_compliant', 'Fait & Conforme')}
+          value={stats.fait}
+          unit="validées"
+          icon={CheckCircle2}
+          color="emerald"
+          isActive={selectedStatus === 'Fait'}
+          onClick={() => setSelectedStatus(selectedStatus === 'Fait' ? 'ALL' : 'Fait')}
+          badgeText={`${stats.complianceRate}% conforme`}
+          footerLabel="Taux conformité :"
+          footerValue={`${stats.complianceRate}%`}
+          progressBarPercent={stats.complianceRate}
+        />
+
+        {/* Card 4: En Retard / Alertes */}
+        <GmaoKpiCard
+          title={t('preventive.kpis.overdue', 'En Retard')}
+          value={stats.enRetard}
+          unit="retards"
+          icon={AlertTriangle}
+          color="rose"
+          isActive={selectedStatus === 'En retard'}
+          onClick={() => setSelectedStatus(selectedStatus === 'En retard' ? 'ALL' : 'En retard')}
+          badgeText={
+            stats.enRetard > 0
+              ? t('preventive.kpis.action_required', 'Action Requise')
+              : t('preventive.kpis.none', 'Aucun')
+          }
+          pulseBadge={stats.enRetard > 0}
+          footerLabel="Escalade :"
+          footerValue={t('preventive.kpis.trigger_wo', 'Déclenchement BT')}
+        />
+
+        {/* Card 5: Coût Réalisé Préventif (MO + PDR) */}
+        <GmaoKpiCard
+          title={t('preventive.kpis.pdr_budget', 'Coût Réel Préventif')}
+          value={stats.totalCost.toFixed(2)}
+          unit="DH"
+          icon={DollarSign}
+          color="amber"
+          valueColored={false}
+          badgeText={`PDR ${stats.sparesCost.toFixed(0)} DH`}
+          footerLabel="Répartition :"
+          footerValue={`MO ${stats.laborCost.toFixed(0)} DH · PDR ${stats.sparesCost.toFixed(0)} DH`}
+          className="col-span-2 lg:col-span-1"
+        />
+      </GmaoKpiGrid>
+
+      {/* PHASE C: TODAY & THIS WEEK COCKPIT (لوحة اليوم والأسبوع) */}
+      <PreventiveWeeklyCockpit
+        tasks={tasksWithOrphanFlag}
+        machines={machines}
+        technicians={technicians}
+        currentWeekNumber={currentWeekNumber}
+        isTechUser={isTechUser}
+        techDisplayName={techDisplayName}
+        canExecutePreventive={canExecutePreventive}
+        onOpenValidate={canExecutePreventive ? handleOpenValidate : null}
+        onQuickValidateTask={canExecutePreventive ? handleQuickValidateTask : null}
+        onOpenRoundModal={canExecutePreventive ? () => setShowSystemGeneralRoundModal(true) : null}
+        onFilterOverdue={() => {
+          setSelectedStatus(selectedStatus === 'En retard' ? 'ALL' : 'En retard');
+          if (!isPlanningWorkspace) setViewMode('list');
+        }}
+        onFilterThisWeek={() => {
+          const currentW = `S${currentWeekNumber}`;
+          setSelectedWeek(selectedWeek === currentW ? 'ALL' : currentW);
+          if (!isPlanningWorkspace) setViewMode('list');
+        }}
+      />
+
+      {/* FILTER TOOLBAR CARD (Tactile Elevation & CustomSelect Dropdowns) */}
+      <div className="bg-white border border-slate-200 rounded-2xl p-4 md:p-5 shadow-[0_12px_32px_-6px_rgba(0,0,0,0.12),0_4px_12px_-2px_rgba(0,0,0,0.06)] hover:shadow-[0_16px_40px_-8px_rgba(0,0,0,0.16),0_6px_16px_-3px_rgba(0,0,0,0.08)] hover:-translate-y-0.5 transition-all duration-300 ease-out space-y-4">
+        {/* Top Header Row inside Filter Card: 4 Clear Primary Workspaces */}
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-100">
+          <div className="flex items-center gap-2.5">
+            <div className="w-8 h-8 rounded-xl bg-amber-500/10 border border-amber-200/80 flex items-center justify-center text-amber-700 shadow-2xs">
+              <SlidersHorizontal className="w-4 h-4 text-amber-700" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-black uppercase tracking-wider text-slate-900">
+                  {t('common.filters.title')}
+                </span>
+                <span className="px-2 py-0.5 rounded-full text-[10px] font-mono font-bold bg-amber-50 text-amber-800 border border-amber-200/70">
+                  {filteredTasks.length} / {scopedTasks.length}
+                </span>
+                {activeFiltersCount > 0 && (
+                  <span className="px-1.5 py-0.2 rounded-md text-[9.5px] font-bold bg-amber-100 text-amber-800 border border-amber-300 animate-pulse">
+                    {activeFiltersCount}
+                  </span>
+                )}
+              </div>
+              <p className="text-[10.5px] text-slate-400 font-medium">
+                {t('preventive.filters.subtitle', '4 Espaces Opérationnels : Planning · Compteurs · Historique & Coûts · Plans')}
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2 flex-wrap self-end sm:self-auto">
+            {/* 4 Consolidated Primary Workspaces (Phase C Small-Factory Simplification) */}
+            <div
+              data-testid="preventive-4-workspaces-bar"
+              className="flex items-center flex-wrap bg-slate-100/90 rounded-xl p-1 border border-slate-200/80 shadow-2xs gap-0.5"
+            >
+              {/* Workspace 1: Planning & Exécution (العمل الأسبوعي والجدول) */}
+              <button
+                type="button"
+                onClick={() => {
+                  if (!isPlanningWorkspace) setViewMode('matrix');
+                }}
+                className={`px-3 py-1.5 rounded-lg text-xs font-black transition-all flex items-center gap-1.5 cursor-pointer ${
+                  isPlanningWorkspace
+                    ? 'bg-white text-indigo-950 shadow-xs border border-indigo-200/70'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+                title="Espace 1 : Planning & Exécution Hebdomadaire (Liste, Matrice S1-S52, Grille J1-J31, Par Machine, Calendrier)"
+              >
+                <Calendar className="w-3.5 h-3.5 text-indigo-600" />
+                <span>Planning &amp; Exécution</span>
+                <span className="px-1.5 py-0.2 rounded-full bg-indigo-50 text-indigo-800 border border-indigo-200 text-[9.5px] font-mono font-bold">
+                  {filteredTasks.length}
+                </span>
+              </button>
+
+              {/* Workspace 2: Compteurs & Horomètres (العدادات والساعات) */}
+              <button
+                type="button"
+                onClick={() => setViewMode('meters')}
+                className={`px-3 py-1.5 rounded-lg text-xs font-black transition-all flex items-center gap-1.5 cursor-pointer ${
+                  viewMode === 'meters'
+                    ? 'bg-white text-cyan-950 shadow-xs border border-cyan-200/70'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+                title="Espace 2 : Tournée de Relevé Rapide des Horomètres & Alertes Compteurs"
+              >
+                <Gauge
+                  className={`w-3.5 h-3.5 ${
+                    overdueCounterTasksCount > 0 ? 'text-rose-600' : 'text-cyan-600'
+                  }`}
+                />
+                <span>Compteurs &amp; Heures</span>
+                {overdueCounterTasksCount > 0 && (
+                  <span className="px-1.5 py-0.2 rounded-full bg-rose-100 text-rose-800 border border-rose-300 text-[9.5px] font-mono font-black">
+                    {overdueCounterTasksCount}
+                  </span>
+                )}
+              </button>
+
+              {/* Workspace 3: Historique & Analytics (السجل والتحليلات) */}
+              <button
+                type="button"
+                onClick={() => {
+                  if (!isHistoryOrAnalyticsWorkspace) setViewMode('executions');
+                }}
+                className={`px-3 py-1.5 rounded-lg text-xs font-black transition-all flex items-center gap-1.5 cursor-pointer ${
+                  isHistoryOrAnalyticsWorkspace
+                    ? 'bg-white text-emerald-950 shadow-xs border border-emerald-200/70'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+                title="Espace 3 : Journal des Exécutions (Maker-Checker) & Tableaux de Bord / Coûts"
+              >
+                <BarChart3 className="w-3.5 h-3.5 text-emerald-600" />
+                <span>Historique &amp; Analytics</span>
+                <span
+                  className={`px-1.5 py-0.2 rounded-full text-[9.5px] font-mono font-bold ${
+                    pendingValidationExecutions.length > 0
+                      ? 'bg-purple-600 text-white font-black'
+                      : 'bg-emerald-50 text-emerald-800 border border-emerald-200'
+                  }`}
+                >
+                  {pendingValidationExecutions.length > 0
+                    ? `${pendingValidationExecutions.length} À valider`
+                    : scopedExecutions?.length || 0}
+                </span>
+              </button>
+
+              {/* Workspace 4: Plans & Guides (الخطط والأدلة) */}
+              {canManagePreventive && Boolean(_onNavigateToPlanBuilder) && (
+                <button
+                  type="button"
+                  onClick={() => _onNavigateToPlanBuilder()}
+                  className="px-3 py-1.5 rounded-lg text-xs font-black transition-all flex items-center gap-1.5 cursor-pointer text-slate-600 hover:text-indigo-900 hover:bg-white/70"
+                  title="Espace 4 : Concepteur de Plans, Fiches Guides & Catalogue Actions"
+                >
+                  <Wrench className="w-3.5 h-3.5 text-amber-600" />
+                  <span>Plans &amp; Guides</span>
+                </button>
+              )}
+            </div>
+
+            {/* Export Excel / CSV */}
+            <button
+              type="button"
+              onClick={handleExportCSV}
+              className="h-8 px-3 rounded-xl border border-emerald-300/90 bg-emerald-50 hover:bg-emerald-100 text-emerald-900 text-xs font-bold transition flex items-center gap-1.5 cursor-pointer shadow-2xs active:scale-95"
+              title="Type B : Export externe de la matrice préventive (consultation uniquement, non réimportable)"
+            >
+              <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-700" />
+              <span className="hidden md:inline">{t('common.filters.export_excel', 'Export Excel')} (Type B)</span>
+            </button>
+
+            {/* Print Planning */}
+            <button
+              type="button"
+              onClick={() => window.print()}
+              className="h-8 w-8 rounded-full border border-slate-200 bg-slate-50 hover:bg-slate-100 text-slate-700 flex items-center justify-center transition cursor-pointer shadow-2xs active:scale-95"
+              title="Imprimer la page ou le planning"
+            >
+              <Printer className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        </div>
+
+        {/* Sub-Switcher for Workspace 1 (Planning Views) or Workspace 3 (Historique vs Analytics) */}
+        {isPlanningWorkspace && (
+          <div className="flex items-center justify-between flex-wrap gap-2 pb-2 border-b border-slate-100 text-xs">
+            <span className="text-[10.5px] font-bold uppercase tracking-wider text-slate-400">
+              Affichage du Planning :
+            </span>
+            <div className="flex items-center flex-wrap gap-1">
+              <button
+                type="button"
+                onClick={() => setViewMode('list')}
+                className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer ${
+                  viewMode === 'list'
+                    ? 'bg-indigo-600 text-white shadow-2xs'
+                    : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                }`}
+              >
+                <List className="w-3.5 h-3.5" />
+                <span>{t('preventive.view_modes.tasks_list', 'Liste Tâches')}</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setViewMode('matrix')}
+                className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer ${
+                  viewMode === 'matrix'
+                    ? 'bg-indigo-600 text-white shadow-2xs'
+                    : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                }`}
+              >
+                <Grid className="w-3.5 h-3.5" />
+                <span>{t('preventive.view_modes.weeks_matrix', 'Matrice S1-S52')}</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setViewMode('monthly_grid')}
+                className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer ${
+                  viewMode === 'monthly_grid'
+                    ? 'bg-indigo-600 text-white shadow-2xs'
+                    : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                }`}
+              >
+                <CalendarRange className="w-3.5 h-3.5" />
+                <span>{t('preventive.view_modes.days_grid', 'Grille Jours J1-J31')}</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setViewMode('grouped')}
+                className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer ${
+                  viewMode === 'grouped'
+                    ? 'bg-indigo-600 text-white shadow-2xs'
+                    : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                }`}
+              >
+                <Factory className="w-3.5 h-3.5" />
+                <span>{t('preventive.view_modes.by_machine', 'Par Machine')}</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setViewMode('calendar')}
+                className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer ${
+                  viewMode === 'calendar'
+                    ? 'bg-indigo-600 text-white shadow-2xs'
+                    : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                }`}
+              >
+                <CalendarDays className="w-3.5 h-3.5" />
+                <span>{t('preventive.view_modes.monthly_calendar', 'Calendrier Mensuel')}</span>
+              </button>
+            </div>
+          </div>
+        )}
+
+        {isHistoryOrAnalyticsWorkspace && (
+          <div className="flex items-center justify-between flex-wrap gap-2 pb-2 border-b border-slate-100 text-xs">
+            <span className="text-[10.5px] font-bold uppercase tracking-wider text-slate-400">
+              Sous-espace Historique &amp; Rapports :
+            </span>
+            <div className="flex items-center flex-wrap gap-1.5">
+              <button
+                type="button"
+                onClick={() => setViewMode('executions')}
+                className={`px-3 py-1 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer ${
+                  viewMode === 'executions'
+                    ? 'bg-emerald-600 text-white shadow-2xs'
+                    : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                }`}
+              >
+                <CheckCircle2 className="w-3.5 h-3.5" />
+                <span>Journal des Exécutions &amp; Validation ({scopedExecutions?.length || 0})</span>
+              </button>
+
+              {!isTechUser && (
+                <button
+                  type="button"
+                  onClick={() => setViewMode('analytics')}
+                  className={`px-3 py-1 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer ${
+                    viewMode === 'analytics'
+                      ? 'bg-purple-600 text-white shadow-2xs'
+                      : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                  }`}
+                >
+                  <BarChart3 className="w-3.5 h-3.5" />
+                  <span>Analytics, Ponctualité &amp; Coûts (MO + PDR)</span>
+                </button>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* QUICK CLASSE D'ÉQUIPEMENT FILTER BAR (Production vs Système Général) */}
+        <div className="flex items-center gap-1.5 overflow-x-auto pb-0.5 text-xs no-scrollbar">
+          <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400 flex items-center gap-1 mr-1 shrink-0">
+            <Layers className="w-3 h-3 text-indigo-500" />
+            Classe d&apos;Équipement :
+          </span>
+          {[
+            {
+              key: 'ALL' as const,
+              label: 'Tous Équipements',
+              count: tasksWithOrphanFlag.length,
+              activeClass: 'bg-slate-900 text-white shadow-xs font-bold',
+            },
+            {
+              key: 'PRODUCTION' as const,
+              label: 'Machines Production',
+              count: assetClassCounts.prod,
+              activeClass: 'bg-emerald-700 text-white shadow-xs font-bold',
+            },
+            {
+              key: 'SYSTEM_GENERAL' as const,
+              label: 'Système Général (Sécurité / Utilités)',
+              count: assetClassCounts.sysGen,
+              activeClass: 'bg-indigo-700 text-white shadow-xs font-bold',
+            },
+          ].map((preset) => {
+            const isSelected = selectedAssetClass === preset.key;
+            return (
+              <button
+                key={preset.key}
+                type="button"
+                onClick={() => {
+                  setSelectedAssetClass(preset.key);
+                  setSelectedMachine('ALL');
+                }}
+                className={`h-7 px-2.5 rounded-lg text-xs transition-all flex items-center gap-1.5 cursor-pointer shrink-0 ${
+                  isSelected
+                    ? preset.activeClass
+                    : 'bg-slate-100/80 hover:bg-slate-200/80 text-slate-700 font-medium'
+                }`}
+              >
+                <span>{preset.label}</span>
+                <span
+                  className={`px-1.5 py-0.2 rounded text-[10px] font-mono font-bold ${
+                    isSelected
+                      ? 'bg-white/20 text-white'
+                      : 'bg-white text-slate-600 border border-slate-200/60'
+                  }`}
+                >
+                  {preset.count}
+                </span>
+              </button>
+            );
+          })}
+
+          {/* Mode Ronde d'Inspection Système Général Button */}
+          {canExecutePreventive && (
+            <button
+              type="button"
+              onClick={() => setShowSystemGeneralRoundModal(true)}
+              className="ml-auto h-7 px-3 rounded-lg text-xs font-black bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 text-white shadow-xs flex items-center gap-1.5 cursor-pointer shrink-0 transition active:scale-95"
+              title="Lancer une Ronde d'Inspection Groupée (Sécurité Incendie, Air Comprimé, Eau, Utilités)"
+            >
+              <ClipboardCheck className="w-3.5 h-3.5 text-indigo-100" />
+              <span>Mode Ronde (Système Général)</span>
+              <span className="px-1.5 py-0.2 rounded bg-white/20 text-white text-[10px] font-mono font-bold">
+                {assetClassCounts.sysGen}
+              </span>
+            </button>
+          )}
+        </div>
+
+        {/* QUICK ORPHAN FILTER BAR (Shown ONLY when orphanCount > 0 or orphanFilter is active) */}
+        {!isTechUser && (orphanCount > 0 || orphanFilter !== 'ALL') && (
+          <div className="flex items-center gap-1.5 overflow-x-auto pb-0.5 text-xs no-scrollbar">
+            <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400 flex items-center gap-1 mr-1 shrink-0">
+              <AlertTriangle className="w-3 h-3 text-amber-500" />
+              Intégrité Machine :
+            </span>
+            {[
+              { key: 'ALL', label: 'Toutes', count: tasksWithOrphanFlag.length },
+              { key: 'LINKED_ONLY', label: 'Liées (Actives)', count: tasksWithOrphanFlag.length - orphanCount },
+              { key: 'ORPHAN_ONLY', label: `Orphelines (${orphanCount})`, count: orphanCount, highlight: orphanCount > 0 },
+            ].map((preset) => {
+              const isSelected = orphanFilter === preset.key;
+              return (
+                <button
+                  key={preset.key}
+                  type="button"
+                  onClick={() => setOrphanFilter(preset.key)}
+                  className={`h-7 px-2.5 rounded-lg text-xs transition-all flex items-center gap-1.5 cursor-pointer shrink-0 ${
+                    isSelected
+                      ? 'bg-amber-600 text-white shadow-xs font-bold'
+                      : preset.highlight
+                      ? 'bg-amber-100 text-amber-900 border border-amber-300 font-bold animate-pulse'
+                      : 'bg-slate-100/80 hover:bg-slate-200/80 text-slate-700 font-medium'
+                  }`}
+                >
+                  <span>{preset.label}</span>
+                </button>
+              );
+            })}
+          </div>
+        )}
+
+        {/* Search Input Bar + Advanced Filters Toggle */}
+        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5">
+          <div className="relative flex-1">
+            <div className="absolute left-3.5 top-1/2 -translate-y-1/2 flex items-center gap-1.5 text-slate-400 pointer-events-none">
+              <span className="w-6 h-6 rounded-lg bg-amber-100 border border-amber-300/80 flex items-center justify-center text-amber-700 shadow-2xs">
+                <Search className="w-3.5 h-3.5" />
+              </span>
+            </div>
+            <input
+              type="text"
+              placeholder={t('preventive.filters.search_placeholder', 'Recherche multi-mots : machine (ex: FRM-01), organe, action, technicien...')}
+              value={searchQuery}
+              onChange={(e) => {
+                setSearchQuery(e.target.value);
+              }}
+              className="w-full pl-12 pr-10 py-2.5 text-xs bg-slate-50/90 border border-slate-200/90 rounded-xl focus:bg-white focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 transition-all font-medium placeholder:text-slate-400 shadow-2xs"
+            />
+            {searchQuery && (
+              <button
+                type="button"
+                onClick={() => setSearchQuery('')}
+                className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-700 p-1 cursor-pointer transition-colors"
+                title={t('common.cancel', 'Effacer la recherche')}
+              >
+                <X className="w-4 h-4" />
+              </button>
+            )}
+          </div>
+
+          <button
+            type="button"
+            onClick={() => setShowAdvancedFilters((prev) => !prev)}
+            className={`h-9 px-3 rounded-xl border text-xs font-bold transition flex items-center justify-center gap-1.5 cursor-pointer shrink-0 ${
+              showAdvancedFilters || selectedBlueprint !== 'ALL' || selectedWeek !== 'ALL'
+                ? 'bg-indigo-50 border-indigo-200 text-indigo-800 shadow-2xs'
+                : 'bg-slate-50 hover:bg-slate-100 border-slate-200 text-slate-600'
+            }`}
+            title="Afficher / masquer les filtres avancés (Semaine ISO & Blueprint)"
+          >
+            <SlidersHorizontal className="w-3.5 h-3.5 text-indigo-600" />
+            <span>Filtres avancés</span>
+            {(selectedBlueprint !== 'ALL' || selectedWeek !== 'ALL') && (
+              <span className="px-1.5 py-0.2 rounded-full bg-indigo-600 text-white text-[9.5px] font-mono font-bold">
+                {(selectedBlueprint !== 'ALL' ? 1 : 0) + (selectedWeek !== 'ALL' ? 1 : 0)}
+              </span>
+            )}
+            {showAdvancedFilters || selectedBlueprint !== 'ALL' || selectedWeek !== 'ALL' ? (
+              <ChevronUp className="w-3.5 h-3.5" />
+            ) : (
+              <ChevronDown className="w-3.5 h-3.5" />
+            )}
+          </button>
+        </div>
+
+        {/* 5 Core Operational Selector Dropdowns */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3 pt-3 border-t border-slate-100">
+          {/* 1. Zone Filter */}
+          <div>
+            <div className="flex items-center justify-between mb-1.5 text-[11px] font-bold uppercase tracking-wider text-slate-800">
+              <span>{t('common.zone', 'Zone')}</span>
+              <span className="px-1.5 py-0.2 rounded text-[9.5px] font-mono font-bold bg-emerald-50 text-emerald-700 border border-emerald-200/80">
+                {t('preventive.filters.badges.site', 'Site')}
+              </span>
+            </div>
+            <CustomSelect
+              value={selectedZone}
+              prefixIcon={
+                <span className="w-5 h-5 rounded-md bg-amber-100 border border-amber-300/80 flex items-center justify-center text-amber-700 shadow-2xs">
+                  <MapPin className="w-3 h-3" />
+                </span>
+              }
+              onChange={(val) => {
+                setSelectedZone(val);
+              }}
+              options={zoneOptions}
+              placeholder={t('preventive.filters.all_zones', 'Toutes Zones')}
+            />
+          </div>
+
+          {/* 2. Machine Filter */}
+          <div>
+            <div className="flex items-center justify-between mb-1.5 text-[11px] font-bold uppercase tracking-wider text-slate-800">
+              <span>{t('common.machine', 'Machine')}</span>
+              <span className="px-1.5 py-0.2 rounded text-[9.5px] font-mono font-bold bg-blue-50 text-blue-700 border border-blue-200/80">
+                {t('preventive.filters.badges.equip', 'Équip.')}
+              </span>
+            </div>
+            <CustomSelect
+              value={selectedMachine}
+              prefixIcon={
+                <span className="w-5 h-5 rounded-md bg-amber-100 border border-amber-300/80 flex items-center justify-center text-amber-700 shadow-2xs">
+                  <Factory className="w-3 h-3" />
+                </span>
+              }
+              onChange={(val) => {
+                setSelectedMachine(val);
+              }}
+              options={machineOptions}
+              placeholder={t('preventive.filters.all_machines', 'Toutes Machines')}
+            />
+          </div>
+
+          {/* 3. Action AFNOR Filter */}
+          <div>
+            <div className="flex items-center justify-between mb-1.5 text-[11px] font-bold uppercase tracking-wider text-slate-800">
+              <span>{t('preventive.filters.action_afnor', 'Action AFNOR')}</span>
+              <span className="px-1.5 py-0.2 rounded text-[9.5px] font-mono font-bold bg-indigo-50 text-indigo-700 border border-indigo-200/80">
+                {t('preventive.filters.badges.type', 'Type')}
+              </span>
+            </div>
+            <CustomSelect
+              value={selectedAction}
+              prefixIcon={
+                <span className="w-5 h-5 rounded-md bg-amber-100 border border-amber-300/80 flex items-center justify-center text-amber-700 shadow-2xs">
+                  <Wrench className="w-3 h-3" />
+                </span>
+              }
+              onChange={(val) => {
+                setSelectedAction(val);
+              }}
+              options={actionOptions}
+              placeholder={t('preventive.filters.all_actions', 'Toutes Actions')}
+            />
+          </div>
+
+          {/* 4. Fréquence Filter */}
+          <div>
+            <div className="flex items-center justify-between mb-1.5 text-[11px] font-bold uppercase tracking-wider text-slate-800">
+              <span>{t('preventive.matrix.frequence', 'Fréquence')}</span>
+              <span className="px-1.5 py-0.2 rounded text-[9.5px] font-mono font-bold bg-amber-50 text-amber-700 border border-amber-200/80">
+                {t('preventive.filters.badges.period', 'Période')}
+              </span>
+            </div>
+            <CustomSelect
+              value={selectedFrequence}
+              prefixIcon={
+                <span className="w-5 h-5 rounded-md bg-amber-100 border border-amber-300/80 flex items-center justify-center text-amber-700 shadow-2xs">
+                  <Clock className="w-3 h-3" />
+                </span>
+              }
+              onChange={(val) => {
+                setSelectedFrequence(val);
+              }}
+              options={frequenceOptions}
+              placeholder={t('preventive.filters.all_frequences', 'Toutes Fréquences')}
+            />
+          </div>
+
+          {/* 5. Technicien Filter */}
+          <div>
+            <div className="flex items-center justify-between mb-1.5 text-[11px] font-bold uppercase tracking-wider text-slate-800">
+              <span>{t('common.technician', 'Technicien')}</span>
+              <span className="px-1.5 py-0.2 rounded text-[9.5px] font-mono font-bold bg-purple-50 text-purple-700 border border-purple-200/80">
+                {isTechUser ? 'Verrouillé' : t('preventive.filters.badges.assigned', 'Assigné')}
+              </span>
+            </div>
+            {isTechUser ? (
+              <div
+                className="w-full h-9 px-2.5 rounded-xl bg-amber-50/70 border border-amber-200/90 flex items-center justify-between gap-2 text-xs font-bold text-amber-900 select-none"
+                title="Périmètre verrouillé sur votre session technicien"
+              >
+                <div className="flex items-center gap-2 min-w-0">
+                  <span className="w-5 h-5 rounded-md bg-amber-100 border border-amber-300/80 flex items-center justify-center text-amber-700 shrink-0">
+                    <User className="w-3 h-3" />
+                  </span>
+                  <span className="truncate">{techBadgeLabel}</span>
+                </div>
+                <Lock className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+              </div>
+            ) : (
+              <CustomSelect
+                value={selectedTech}
+                prefixIcon={
+                  <span className="w-5 h-5 rounded-md bg-amber-100 border border-amber-300/80 flex items-center justify-center text-amber-700 shadow-2xs">
+                    <User className="w-3 h-3" />
+                  </span>
+                }
+                onChange={(val) => {
+                  setSelectedTech(val);
+                }}
+                options={techOptions}
+                placeholder={t('preventive.filters.all_technicians', 'Tous Techniciens')}
+              />
+            )}
+          </div>
+        </div>
+
+        {/* Collapsible Advanced Filters (Semaine ISO & Blueprint / Plan machine) */}
+        {(showAdvancedFilters || selectedBlueprint !== 'ALL' || selectedWeek !== 'ALL') && (
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-3 border-t border-slate-100 bg-slate-50/50 p-3 rounded-xl">
+            {/* Semaine ISO Filter */}
+            <div>
+              <div className="flex items-center justify-between mb-1.5 text-[11px] font-bold uppercase tracking-wider text-slate-800">
+                <span>{t('preventive.filters.iso_week', 'Semaine ISO')}</span>
+                <span className="px-1.5 py-0.2 rounded text-[9.5px] font-mono font-bold bg-teal-50 text-teal-700 border border-teal-200/80">
+                  {t('preventive.filters.badges.weeks_range', 'S1-S52')}
+                </span>
+              </div>
+              <CustomSelect
+                value={selectedWeek}
+                prefixIcon={
+                  <span className="w-5 h-5 rounded-md bg-amber-100 border border-amber-300/80 flex items-center justify-center text-amber-700 shadow-2xs">
+                    <CalendarDays className="w-3 h-3" />
+                  </span>
+                }
+                onChange={(val) => {
+                  setSelectedWeek(val);
+                }}
+                options={weekOptions}
+                placeholder={t('preventive.filters.all_weeks', 'Toutes Semaines')}
+              />
+            </div>
+
+            {/* Blueprint / Plan machine Filter */}
+            <div>
+              <div className="flex items-center justify-between mb-1.5 text-[11px] font-bold uppercase tracking-wider text-slate-800">
+                <span>Blueprint / Plan machine</span>
+                <span className="px-1.5 py-0.2 rounded text-[9.5px] font-mono font-bold bg-teal-50 text-teal-700 border border-teal-200/80">
+                  BOM
+                </span>
+              </div>
+              <CustomSelect
+                value={selectedBlueprint}
+                prefixIcon={
+                  <span className="w-5 h-5 rounded-md bg-amber-100 border border-amber-300/80 flex items-center justify-center text-amber-700 shadow-2xs">
+                    <FingerprintPattern className="w-3 h-3" />
+                  </span>
+                }
+                onChange={(val) => {
+                  setSelectedBlueprint(val);
+                }}
+                options={blueprintOptions}
+                placeholder="Tous Blueprints"
+              />
+            </div>
+          </div>
+        )}
+
+        {/* ACTIVE FILTER TAGS BAR (Removable Chips) */}
+        {hasActiveFilters && (
+          <div className="flex items-center gap-2 flex-wrap pt-3 border-t border-slate-100 text-xs">
+            <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1">
+              <Filter className="w-3 h-3 text-indigo-500" />
+              {t('common.filters.active_filters', 'Filtres actifs :')}
+            </span>
+
+            {searchQuery && (
+              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-indigo-50 text-indigo-900 border border-indigo-200 font-medium">
+                <span>{t('common.filters.search', 'Recherche :')} <b>"{searchQuery}"</b></span>
+                <button type="button" onClick={() => setSearchQuery('')} className="text-indigo-500 hover:text-indigo-800 cursor-pointer">
+                  <X className="w-3 h-3" />
+                </button>
+              </span>
+            )}
+
+            {selectedAssetClass !== 'ALL' && (
+              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-indigo-50 text-indigo-900 border border-indigo-200 font-medium">
+                <Layers className="w-3 h-3 text-indigo-600" />
+                <span>
+                  Classe :{' '}
+                  <b>{selectedAssetClass === 'SYSTEM_GENERAL' ? 'Système Général' : 'Machines Production'}</b>
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setSelectedAssetClass('ALL')}
+                  className="text-indigo-500 hover:text-indigo-800 cursor-pointer"
+                >
+                  <X className="w-3 h-3" />
+                </button>
+              </span>
+            )}
+
+            {selectedZone !== 'ALL' && (
+              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-emerald-50 text-emerald-900 border border-emerald-200 font-medium">
+                <MapPin className="w-3 h-3 text-emerald-600" />
+                <span>{t('common.zone', 'Zone')} : <b>{selectedZone}</b></span>
+                <button type="button" onClick={() => setSelectedZone('ALL')} className="text-emerald-500 hover:text-emerald-800 cursor-pointer">
+                  <X className="w-3 h-3" />
+                </button>
+              </span>
+            )}
+
+            {selectedMachine !== 'ALL' && (
+              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-blue-50 text-blue-900 border border-blue-200 font-medium">
+                <Factory className="w-3 h-3 text-blue-600" />
+                <span>{t('common.machine', 'Machine')} : <b>{selectedMachine}</b></span>
+                <button type="button" onClick={() => setSelectedMachine('ALL')} className="text-blue-500 hover:text-blue-800 cursor-pointer">
+                  <X className="w-3 h-3" />
+                </button>
+              </span>
+            )}
+
+            {selectedBlueprint !== 'ALL' && (
+              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-teal-50 text-teal-900 border border-teal-200 font-medium">
+                <FingerprintPattern className="w-3 h-3 text-teal-600" />
+                <span>Blueprint : <b>{selectedBlueprint}</b></span>
+                <button type="button" onClick={() => setSelectedBlueprint('ALL')} className="text-teal-500 hover:text-teal-800 cursor-pointer">
+                  <X className="w-3 h-3" />
+                </button>
+              </span>
+            )}
+
+            {selectedAction !== 'ALL' && (
+              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-indigo-50 text-indigo-900 border border-indigo-200 font-medium">
+                <Wrench className="w-3 h-3 text-indigo-600" />
+                <span>{t('preventive.filters.action_afnor', 'Action')} : <b>{selectedAction}</b></span>
+                <button type="button" onClick={() => setSelectedAction('ALL')} className="text-indigo-500 hover:text-indigo-800 cursor-pointer">
+                  <X className="w-3 h-3" />
+                </button>
+              </span>
+            )}
+
+            {selectedFrequence !== 'ALL' && (
+              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-amber-50 text-amber-900 border border-amber-200 font-medium">
+                <Clock className="w-3 h-3 text-amber-600" />
+                <span>{t('preventive.matrix.frequence', 'Fréquence')} : <b>{selectedFrequence}</b></span>
+                <button type="button" onClick={() => setSelectedFrequence('ALL')} className="text-amber-500 hover:text-amber-800 cursor-pointer">
+                  <X className="w-3 h-3" />
+                </button>
+              </span>
+            )}
+
+            {selectedWeek !== 'ALL' && (
+              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-teal-50 text-teal-900 border border-teal-200 font-medium">
+                <CalendarDays className="w-3 h-3 text-teal-600" />
+                <span>{t('preventive.filters.iso_week', 'Semaine')} : <b>{selectedWeek}</b></span>
+                <button type="button" onClick={() => setSelectedWeek('ALL')} className="text-teal-500 hover:text-teal-800 cursor-pointer">
+                  <X className="w-3 h-3" />
+                </button>
+              </span>
+            )}
+
+            {selectedStatus !== 'ALL' && (
+              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-rose-50 text-rose-900 border border-rose-200 font-medium">
+                <Activity className="w-3 h-3 text-rose-600" />
+                <span>{t('common.status', 'Statut')} : <b>{selectedStatus}</b></span>
+                <button type="button" onClick={() => setSelectedStatus('ALL')} className="text-rose-500 hover:text-rose-800 cursor-pointer">
+                  <X className="w-3 h-3" />
+                </button>
+              </span>
+            )}
+
+            {selectedTech !== 'ALL' && (
+              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-purple-50 text-purple-900 border border-purple-200 font-medium">
+                <User className="w-3 h-3 text-purple-600" />
+                <span>{t('common.technician', 'Technicien')} : <b>{selectedTech}</b></span>
+                <button type="button" onClick={() => setSelectedTech('ALL')} className="text-purple-500 hover:text-purple-800 cursor-pointer">
+                  <X className="w-3 h-3" />
+                </button>
+              </span>
+            )}
+
+            {orphanFilter !== 'ALL' && (
+              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-amber-50 text-amber-900 border border-amber-200 font-medium">
+                <AlertTriangle className="w-3 h-3 text-amber-600" />
+                <span>Intégrité : <b>{orphanFilter === 'ORPHAN_ONLY' ? 'Orphelines' : 'Liées'}</b></span>
+                <button type="button" onClick={() => setOrphanFilter('ALL')} className="text-amber-500 hover:text-amber-800 cursor-pointer">
+                  <X className="w-3 h-3" />
+                </button>
+              </span>
+            )}
+
+            <button
+              type="button"
+              onClick={clearAllFilters}
+              className="ml-auto text-xs font-bold text-rose-700 hover:text-rose-900 underline flex items-center gap-1 cursor-pointer"
+            >
+              <RotateCcw className="w-3 h-3" />
+              {t('common.filters.reset_all', 'Effacer tous les filtres')}
+            </button>
+          </div>
+        )}
+      </div>
+
+      {/* VIEW 0: MONTHLY DAY-BY-DAY MATRIX (Grille Planning Mensuel Jours J1→J31) */}
+      {viewMode === 'monthly_grid' && (
+        <MonthlyDayMatrixView
+          tasks={filteredTasks}
+          executions={scopedExecutions}
+          machines={machines}
+          onOpenValidate={canExecutePreventive ? handleOpenValidate : null}
+          onOpenCorrective={canTriggerCorrective ? handleOpenCorrective : null}
+          onOpenPrint={(task) => setSelectedTaskForPrint(task)}
+          hasActiveFilters={activeFiltersCount > 0}
+          clearAllFilters={clearAllFilters}
+        />
+      )}
+
+      {/* VIEW 1: MATRIX S1-S52 (Dedicated Matrix Component) */}
+      {viewMode === 'matrix' && (
+        <MatrixWeeksView
+          tasks={filteredTasks}
+          machines={machines}
+          weekRange={weekRange}
+          onWeekRangeChange={setWeekRange}
+          currentWeekNumber={currentWeekNumber}
+          onOpenValidate={canExecutePreventive ? handleOpenValidate : null}
+          onOpenPrint={(task) => setSelectedTaskForPrint(task)}
+          hasActiveFilters={activeFiltersCount > 0}
+          clearAllFilters={clearAllFilters}
+        />
+      )}
+
+      {/* VIEW 2: GROUPED BY MACHINE VIEW (Dedicated Component) */}
+      {viewMode === 'grouped' && (
+        <GroupedMachinesView
+          tasks={filteredTasks}
+          machines={machines}
+          onOpenValidate={canExecutePreventive ? handleOpenValidate : null}
+          onOpenCorrective={canTriggerCorrective ? handleOpenCorrective : null}
+          onOpenPrint={(task) => setSelectedTaskForPrint(task)}
+          onNavigateToMachine={_onNavigateToMachine}
+        />
+      )}
+
+      {/* VIEW 3: MONTHLY CALENDAR VIEW (Dedicated Component) */}
+      {viewMode === 'calendar' && (
+        <MonthlyCalendarView
+          tasks={filteredTasks}
+          machines={machines}
+          onOpenValidate={canExecutePreventive ? handleOpenValidate : null}
+          onOpenCorrective={canTriggerCorrective ? handleOpenCorrective : null}
+          onOpenPrint={(task) => setSelectedTaskForPrint(task)}
+        />
+      )}
+
+      {/* VIEW 4: DETAILED OPERATIONAL LIST VIEW (Dedicated Component) */}
+      {viewMode === 'list' && (
+        <DetailedTaskListView
+          tasks={filteredTasks}
+          machines={machines}
+          onOpenValidate={canExecutePreventive ? handleOpenValidate : null}
+          onOpenCorrective={canTriggerCorrective ? handleOpenCorrective : null}
+          onOpenPrint={(task) => setSelectedTaskForPrint(task)}
+          hasActiveFilters={activeFiltersCount > 0}
+          clearAllFilters={clearAllFilters}
+        />
+      )}
+
+      {/* VIEW 5: ANALYTICS & HEALTH (Dedicated Component) */}
+      {viewMode === 'analytics' && (
+        <PreventiveAnalyticsView
+          tasks={filteredTasks}
+          executions={scopedExecutions}
+          machines={machines}
+          stockItems={stockItems}
+          mouvements={storeMouvements}
+          correctiveInterventions={storeCorrectiveInterventions}
+          onDeleteExecution={onDeleteExecution}
+          zones={zones}
+          actions={actions}
+        />
+      )}
+
+      {/* VIEW 6: EXECUTIONS HISTORY (P1 Event-Sourced Factory Memory + V3 Maker-Checker Queue) */}
+      {viewMode === 'executions' && (
+        <PreventiveExecutionsHistoryView
+          executions={scopedExecutions}
+          stockItems={stockItems}
+          isTechUser={isTechUser}
+          onReviewPreventiveExecution={onReviewPreventiveExecution}
+          showToast={showToast}
+          onDeleteExecution={onDeleteExecution}
+          onNavigateToMachine={_onNavigateToMachine}
+        />
+      )}
+
+      {/* VIEW 7: METERS & HOROMÈTRES (Integrated inside Unified Workspace Switcher) */}
+      {viewMode === 'meters' && (
+        <PreventiveMetersView
+          machines={machines}
+          tasks={tasks}
+          meterReadings={meterReadings}
+          onRecordReading={
+            onRecordReading ||
+            ((payload) => useGmaoStore.getState().handleRecordMeterReading(payload))
+          }
+          onBatchRecordReadings={onBatchRecordReadings}
+          onMarkTaskDone={canExecutePreventive ? onMarkTaskDone : null}
+          onOpenValidate={canExecutePreventive ? handleOpenValidate : null}
+          onNavigateToPlanBuilder={canManagePreventive ? _onNavigateToPlanBuilder : null}
+          user={user}
+          showToast={showToast}
+        />
+      )}
+
+      <TabMainModals
+        selectedTaskForValidation={selectedTaskForValidation}
+        setSelectedTaskForValidation={setSelectedTaskForValidation}
+        isTechUser={isTechUser}
+        validationData={validationData}
+        setValidationData={setValidationData}
+        handleConfirmValidation={handleConfirmValidation}
+        validationMachineComponents={validationMachineComponents}
+        validationMachineParts={validationMachineParts}
+        handleRemovePdrFromValidation={handleRemovePdrFromValidation}
+        newPdrItem={newPdrItem}
+        setNewPdrItem={setNewPdrItem}
+        rankedValidationInventory={rankedValidationInventory}
+        handleAddPdrToValidation={handleAddPdrToValidation}
+        stockItems={stockItems}
+        storeMouvements={storeMouvements}
+        storeCorrectiveInterventions={storeCorrectiveInterventions}
+        executions={executions}
+        storeSortieDemands={storeSortieDemands}
+        selectedTaskForBT={selectedTaskForBT}
+        setSelectedTaskForBT={setSelectedTaskForBT}
+        btData={btData}
+        setBtData={setBtData}
+        handleConfirmCorrective={handleConfirmCorrective}
+        selectedTaskForPrint={selectedTaskForPrint}
+        setSelectedTaskForPrint={setSelectedTaskForPrint}
+        showSystemGeneralRoundModal={showSystemGeneralRoundModal}
+        setShowSystemGeneralRoundModal={setShowSystemGeneralRoundModal}
+        scopedTasks={scopedTasks}
+        machines={machines}
+        zones={zones}
+        technicians={technicians}
+        availableInventory={availableInventory}
+        techDisplayName={techDisplayName}
+        onMarkTaskDone={onMarkTaskDone}
+        onCreateCorrective={onCreateCorrective}
+        showToast={showToast}
+      />
+    </div>
+  );
+}

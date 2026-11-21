@@ -1,0 +1,1905 @@
+import { useState, useMemo, useEffect, useRef } from 'react';
+import {
+  Wrench,
+  Play,
+  CheckCircle,
+  User,
+  Package,
+  Search,
+  SlidersHorizontal,
+  RotateCcw,
+  FileSpreadsheet,
+  ArrowUpDown,
+  ArrowUp,
+  ArrowDown,
+  X,
+  Layers,
+  Factory,
+  ChevronDown,
+  AlertTriangle,
+  FileText,
+  Radio,
+  Lock,
+  ShieldCheck,
+  Trash2,
+} from 'lucide-react';
+import { exportTypeBWorkbook } from '../../../utils/safeExcelExport';
+import { Logger } from '../../../core/logger/LoggerService';
+import CustomSelect from '../../components/common/CustomSelect';
+import GmaoIndustrialDataGrid from '../../components/common/GmaoIndustrialDataGrid';
+import { GmaoKpiCard, GmaoKpiGrid } from '../../components/common/GmaoKpiCard';
+import PeriodFilterBar from '../../components/common/PeriodFilterBar';
+import { type PeriodFilterState, isDateInPeriod } from '../../../utils/datePeriodUtils';
+import { useI18n } from '../../../i18n/I18nContext';
+import { dataIntegrityService } from '../../../services/dataIntegrityService';
+import { useAuth } from '../../../context/AuthContext';
+import { AuthorizationService } from '../../../core/security/AuthorizationService';
+import { useGmaoStore } from '../../../store/useGmaoStore';
+import {
+  isTechnicianRole,
+  matchesTechnicianRecord,
+  getTechnicianBadgeLabel,
+} from '../../../core/security/technicianScope';
+import { reconcileFieldClaim } from '../../../core/security/validationReconciliation';
+import ValidationStatusBadge, {
+  INTERVENTION_NATURE_OPTIONS,
+} from '../../components/common/ValidationStatusBadge';
+import { SortieExterneService } from '../../../application/services/SortieExterneService';
+import {
+  getLinkedWorkshopOrdersForIntervention,
+  isWorkshopOrderActive,
+  WORKSHOP_STATUS_LABELS,
+} from '../../../domain/corrective/workshopOrderService';
+import {
+  getLinkedNeedRequestsForIntervention,
+  isNeedRequestBlockingBtClosure,
+  NEED_STATUS_LABELS,
+} from '../../../domain/corrective/needRequestService';
+import {
+  canCloseWorkOrderWithLoto,
+  canStartWorkWithLoto,
+} from '../../../domain/corrective/lotoService';
+import BtValidationReviewModal from './components/BtValidationReviewModal';
+
+export default function BonsTravailTab({
+  interventions = [],
+  machines = [],
+  onStartLive,
+  onUpdateIntervention,
+  onReviewValidation,
+  onClotureIntervention: _onClotureIntervention,
+  onAddMouvement,
+  onNavigateToTab,
+  stockItems = [],
+  technicians = [],
+  intervenants = [],
+  panneCategories: _panneCategories = {},
+  actionsByPanne: _actionsByPanne = {},
+  travauxAFaire: _travauxAFaire = [],
+  showToast,
+}: any) {
+  const { t } = useI18n();
+  const { user } = useAuth();
+  const isTechUser = isTechnicianRole(user);
+  const isReadOnlyUser = AuthorizationService.isReadOnly(user);
+  const canExecuteBt = Boolean(user) && AuthorizationService.hasPermission(user, 'corrective.execute');
+  const canValidateBt = Boolean(user) && !isTechUser && !isReadOnlyUser;
+  const storeReviewValidation = useGmaoStore((s) => s.handleReviewInterventionValidation);
+  const storeMouvements = useGmaoStore((s) => s.mouvements);
+  const storePreventiveExecutions = useGmaoStore((s) => s.preventiveExecutions);
+  const sortiesExterne = useGmaoStore((s) => s.sortiesExterne);
+  const handleMarkSortieReturned = useGmaoStore((s) => s.handleMarkSortieReturned);
+  const workshopOrders = useGmaoStore((s) => s.workshopOrders || []);
+  const needRequests = useGmaoStore((s) => s.needRequests || []);
+  const techBadgeLabel = useMemo(
+    () => getTechnicianBadgeLabel(user, technicians),
+    [user, technicians]
+  );
+
+  // Maker-Checker Review Modal State (Admin / Supervisor)
+  const [reviewModalBt, setReviewModalBt] = useState<any | null>(null);
+  const [reviewActionRealisee, setReviewActionRealisee] = useState('');
+  const [reviewNature, setReviewNature] = useState('');
+  const [reviewPieces, setReviewPieces] = useState<any[]>([]);
+  const [reviewSkipStockDeduction, setReviewSkipStockDeduction] = useState(false);
+  const [reviewNote, setReviewNote] = useState('');
+
+  const reviewReconciliation = useMemo(() => {
+    if (!reviewModalBt) return null;
+    return reconcileFieldClaim({
+      claimType: 'CORRECTIVE',
+      claimId: String(reviewModalBt.id),
+      numBonSaisi: reviewModalBt.num_bon_saisi_par_tech,
+      proposedSpares: reviewPieces,
+      stockItems,
+      mouvements: storeMouvements,
+      correctiveInterventions: interventions,
+      preventiveExecutions: storePreventiveExecutions,
+    });
+  }, [
+    reviewModalBt,
+    reviewPieces,
+    stockItems,
+    storeMouvements,
+    interventions,
+    storePreventiveExecutions,
+  ]);
+
+  const openReviewModal = (bt: any) => {
+    const initialPieces =
+      Array.isArray(bt?.pieces_proposees) && bt.pieces_proposees.length > 0
+        ? bt.pieces_proposees.map((p: any) => ({ ...p }))
+        : Array.isArray(bt?.pieces_utilisees) && bt.pieces_utilisees.length > 0
+        ? bt.pieces_utilisees.map((p: any) => ({ ...p }))
+        : [];
+    const rec = reconcileFieldClaim({
+      claimType: 'CORRECTIVE',
+      claimId: String(bt?.id || ''),
+      numBonSaisi: bt?.num_bon_saisi_par_tech,
+      proposedSpares: initialPieces,
+      stockItems,
+      mouvements: storeMouvements,
+      correctiveInterventions: interventions,
+      preventiveExecutions: storePreventiveExecutions,
+    });
+    setReviewModalBt(bt);
+    setReviewActionRealisee(bt?.action_realisee || bt?.travail_a_faire || '');
+    setReviewNature(bt?.intervention_nature || '');
+    setReviewPieces(initialPieces);
+    setReviewSkipStockDeduction(Boolean(rec?.exactMovementMatch));
+    setReviewNote(bt?.validation_note || '');
+  };
+
+  const handleReviewDecision = (decision: 'APPROVED' | 'NEEDS_CLARIFICATION' | 'REJECTED') => {
+    if (!reviewModalBt) return;
+    if (
+      (decision === 'NEEDS_CLARIFICATION' || decision === 'REJECTED') &&
+      !String(reviewNote || '').trim()
+    ) {
+      showToast?.(
+        'Veuillez saisir une note pour expliquer au technicien la clarification ou le motif du rejet.',
+        'warning'
+      );
+      return;
+    }
+
+    if (
+      decision === 'APPROVED' &&
+      String(reviewNature || '').trim().toUpperCase() === 'REPLACE' &&
+      reviewPieces.length === 0
+    ) {
+      showToast?.(
+        'Un remplacement (REPLACE) nécessite au moins une pièce de rechange ou changez la nature (ex: Réparation / Nettoyage).',
+        'warning'
+      );
+      return;
+    }
+
+    if (decision === 'APPROVED') {
+      const linkedOrders = SortieExterneService.getLinkedOrdersForBt(reviewModalBt, sortiesExterne);
+      const openOrders = linkedOrders.filter((o) => SortieExterneService.isWorkshopOrderOpen(o.etat));
+      const linkedInternal = getLinkedWorkshopOrdersForIntervention(reviewModalBt, workshopOrders);
+      const openInternal = linkedInternal.filter((o) => isWorkshopOrderActive(o.statut));
+      if (openOrders.length > 0 || openInternal.length > 0) {
+        const codes = [
+          ...openInternal.map((o) => `${o.code_bon} (${o.statut})`),
+          ...openOrders.map((o) => o.code),
+        ].join(', ');
+        showToast?.(
+          `Approbation bloquée : le Bon d'Atelier / Externe [${codes}] est encore en cours. Réceptionnez le bon avant de clôturer le BT.`,
+          'warning'
+        );
+        return;
+      }
+
+      const linkedNeeds = getLinkedNeedRequestsForIntervention(reviewModalBt, needRequests);
+      const openNeeds = linkedNeeds.filter((r) => isNeedRequestBlockingBtClosure(r));
+      const explicitlySansMateriel =
+        reviewModalBt.requires_material === false || reviewModalBt.sans_materiel === true;
+      if (!explicitlySansMateriel && openNeeds.length > 0) {
+        const needCodes = openNeeds
+          .map((r) => `${r.code_demande} (${r.statut})`)
+          .join(', ');
+        showToast?.(
+          `Approbation bloquée : la Demande de Besoin [${needCodes}] n'a pas encore atteint la clôture terrain (POSE_ESSAI ➔ CLOTURE_FIELD).`,
+          'warning'
+        );
+        return;
+      }
+
+      const lotoCloseCheck = canCloseWorkOrderWithLoto(reviewModalBt);
+      if (!lotoCloseCheck.valid) {
+        showToast?.(
+          lotoCloseCheck.reason ||
+            'Approbation bloquée : le permis de consignation LOTO est encore actif ou non déconsigné.',
+          'warning'
+        );
+        return;
+      }
+    }
+
+    const reviewFn = onReviewValidation || storeReviewValidation;
+    if (typeof reviewFn === 'function') {
+      const result = reviewFn(
+        reviewModalBt.id,
+        {
+          decision,
+          action_realisee: reviewActionRealisee,
+          travail_a_faire: reviewActionRealisee,
+          intervention_nature: reviewNature || reviewModalBt.intervention_nature || '',
+          pieces_utilisees: reviewPieces,
+          pieces_proposees: reviewPieces,
+          skipStockDeduction: reviewSkipStockDeduction,
+          validation_note: reviewNote,
+          validated_by_id: user?.id || user?.code || 'admin',
+          validated_by_name: user?.name || 'Administrateur',
+        },
+        onAddMouvement
+      );
+
+      if (result === null) {
+        showToast?.(
+          'Action impossible : stock insuffisant, permis LOTO actif, bon atelier ouvert ou statut BT invalide.',
+          'warning'
+        );
+        return;
+      }
+    }
+
+    if (decision === 'APPROVED') {
+      showToast?.(
+        reviewSkipStockDeduction
+          ? `BT ${reviewModalBt.num_bt || reviewModalBt.id} validé et clôturé (coût PDR imputé sur la machine sans 2e déstockage)`
+          : `BT ${reviewModalBt.num_bt || reviewModalBt.id} validé et clôturé (${reviewPieces.length} réf. déduite(s) du stock)`,
+        'success'
+      );
+    } else if (decision === 'NEEDS_CLARIFICATION') {
+      showToast?.(
+        `Demande de clarification envoyée au technicien pour ${reviewModalBt.num_bt || reviewModalBt.id} (aucun déstockage)`,
+        'warning'
+      );
+    } else {
+      showToast?.(
+        `Déclaration ${reviewModalBt.num_bt || reviewModalBt.id} rejetée (aucun déstockage)`,
+        'info'
+      );
+    }
+
+    setReviewModalBt(null);
+  };
+
+  const resolveTechNom = (bt) => {
+    if (bt.technicien_matricule) {
+      const found = (technicians || []).find(
+        (t) => (t.id_technician || t.id) === bt.technicien_matricule
+      );
+      if (found) return found.nom;
+    }
+    return bt.intervenant || 'Non assigné';
+  };
+
+  const resolvePdrDisplay = (bt) => {
+    const ref = bt.pdr_ref || bt.pdr;
+    if (!ref) return null;
+    const item = (stockItems || []).find((s) => s.ref === ref || s.code_article === ref);
+    return {
+      ref,
+      designation: item ? (item.designation || item.nom) : (bt.pdr_designation || ref),
+    };
+  };
+  const [filterStatus, setFilterStatus] = useState('EN_COURS'); // 'ALL', 'EN_COURS', 'CLOTURE', 'WITH_PDR'
+  const [filterTech, setFilterTech] = useState('ALL');
+  const [filterMachine, setFilterMachine] = useState('ALL');
+  const [filterTypePanne, setFilterTypePanne] = useState('ALL');
+  const [orphanFilter, setOrphanFilter] = useState('ALL'); // 'ALL' | 'ORPHAN_ONLY' | 'LINKED_ONLY'
+  const [periodFilter, setPeriodFilter] = useState<PeriodFilterState>({ preset: 'ALL' });
+  const [searchTerm, setSearchTerm] = useState('');
+
+  // Sorting & Pagination State
+  const [sortField, setSortField] = useState('num_bt');
+  const [sortOrder, setSortOrder] = useState('desc');
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(20);
+  const [showSortMenu, setShowSortMenu] = useState(false);
+  const sortMenuRef = useRef(null);
+
+  useEffect(() => {
+    const handleClickOutside = (e) => {
+      if (sortMenuRef.current && !sortMenuRef.current.contains(e.target)) {
+        setShowSortMenu(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  // BTs are interventions that have a num_bt (scoped to logged-in technician when role is TECHNICIEN)
+  const bts = useMemo(() => {
+    return interventions.filter((item) => {
+      if (!item.num_bt) return false;
+      if (isTechUser && !matchesTechnicianRecord(item, user, technicians)) {
+        return false;
+      }
+      return true;
+    });
+  }, [interventions, isTechUser, user, technicians]);
+
+  // Annotate BTs with orphan status
+  const btsWithOrphan = useMemo(
+    () => dataIntegrityService.annotateCorrectiveOrphans(bts, machines),
+    [bts, machines]
+  );
+
+  const orphanCount = useMemo(
+    () => btsWithOrphan.filter((b) => b._isOrphan).length,
+    [btsWithOrphan]
+  );
+
+  // All technicians present in BTs + configured intervenants
+  const availableTechs = useMemo(() => {
+    const set = new Set();
+    bts.forEach((b) => {
+      if (b.intervenant) set.add(b.intervenant);
+    });
+    (intervenants || []).forEach((i) => {
+      const nom = i.nom || i.name;
+      if (nom) set.add(nom);
+    });
+    (technicians || []).forEach((t) => {
+      const nom = t.nom || t.name;
+      if (nom) set.add(nom);
+    });
+    return Array.from(set).sort();
+  }, [bts, intervenants, technicians]);
+
+  // All machines present in BTs + registered machines from SSOT (excluding archived for creation/selection)
+  const availableMachines = useMemo(() => {
+    const set = new Set<string>();
+    if (Array.isArray(machines)) {
+      machines
+        .filter((m: any) => {
+          const statusNorm = String(m?.status || m?.statut || '').trim().toUpperCase();
+          return (
+            statusNorm !== 'ARCHIVEE' &&
+            statusNorm !== 'ARCHIVÉE' &&
+            statusNorm !== 'ARCHIVED' &&
+            m?.is_active !== false &&
+            m?.actif !== false
+          );
+        })
+        .forEach((m: any) => {
+          const id = m.id_machine_registered || m.id || m.code;
+          if (id) set.add(String(id));
+        });
+    }
+    bts.forEach((b: any) => {
+      if (b.code_machine) set.add(String(b.code_machine));
+    });
+    return Array.from(set).sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+  }, [bts, machines]);
+
+  // All types of panne present in BTs
+  const availableTypesPanne = useMemo(() => {
+    const set = new Set<string>();
+    bts.forEach((b: any) => {
+      if (b.type_panne) set.add(String(b.type_panne));
+    });
+    return Array.from(set).sort();
+  }, [bts]);
+
+  // KPI Metrics
+  const kpiStats = useMemo(() => {
+    const total = bts.length;
+    const inProgress = bts.filter(
+      (b) => b.statut === 'EN_COURS' || b.statut === 'BT_PLANIFIE' || b.statut === 'EN_ATTENTE_PDR'
+    ).length;
+    const waitingPdr = bts.filter((b) => b.statut === 'EN_ATTENTE_PDR').length;
+    const pendingValidation = bts.filter(
+      (b) => b.statut !== 'CLOTURE' && b.validation_status === 'PENDING_VALIDATION'
+    ).length;
+    const needsClarification = bts.filter(
+      (b) => b.statut !== 'CLOTURE' && b.validation_status === 'NEEDS_CLARIFICATION'
+    ).length;
+    const rejected = bts.filter(
+      (b) => b.statut !== 'CLOTURE' && b.validation_status === 'REJECTED'
+    ).length;
+    const closed = bts.filter((b) => b.statut === 'CLOTURE').length;
+    const validatedEdited = bts.filter(
+      (b) => b.statut === 'CLOTURE' && Boolean(b.validated_with_edits)
+    ).length;
+    const withPdr = bts.filter((b) =>
+      Boolean(
+        b.pdr ||
+          b.pdr_ref ||
+          (Array.isArray(b.pieces_proposees) && b.pieces_proposees.length > 0)
+      )
+    ).length;
+
+    return {
+      total,
+      inProgress,
+      waitingPdr,
+      pendingValidation,
+      needsClarification,
+      rejected,
+      closed,
+      validatedEdited,
+      withPdr,
+    };
+  }, [bts]);
+
+  // Filtered BTs
+  const filteredBts = useMemo(() => {
+    return btsWithOrphan.filter((bt) => {
+      if (
+        filterStatus === 'EN_COURS' &&
+        bt.statut !== 'EN_COURS' &&
+        bt.statut !== 'BT_PLANIFIE' &&
+        bt.statut !== 'EN_ATTENTE_PDR'
+      )
+        return false;
+      if (filterStatus === 'EN_ATTENTE_PDR' && bt.statut !== 'EN_ATTENTE_PDR') return false;
+      if (
+        filterStatus === 'PENDING_VALIDATION' &&
+        (bt.statut === 'CLOTURE' || bt.validation_status !== 'PENDING_VALIDATION')
+      )
+        return false;
+      if (
+        filterStatus === 'NEEDS_CLARIFICATION' &&
+        (bt.statut === 'CLOTURE' || bt.validation_status !== 'NEEDS_CLARIFICATION')
+      )
+        return false;
+      if (
+        filterStatus === 'REJECTED' &&
+        (bt.statut === 'CLOTURE' || bt.validation_status !== 'REJECTED')
+      )
+        return false;
+      if (filterStatus === 'CLOTURE' && bt.statut !== 'CLOTURE') return false;
+      if (
+        filterStatus === 'VALIDATED_EDITED' &&
+        (bt.statut !== 'CLOTURE' || !bt.validated_with_edits)
+      )
+        return false;
+      if (
+        filterStatus === 'WITH_PDR' &&
+        !bt.pdr &&
+        !bt.pdr_ref &&
+        !(Array.isArray(bt.pieces_proposees) && bt.pieces_proposees.length > 0)
+      )
+        return false;
+
+      if (filterTech !== 'ALL' && bt.intervenant !== filterTech) return false;
+      if (filterMachine !== 'ALL' && bt.code_machine !== filterMachine) return false;
+      if (filterTypePanne !== 'ALL' && bt.type_panne !== filterTypePanne) return false;
+      if (orphanFilter === 'ORPHAN_ONLY' && !bt._isOrphan) return false;
+      if (orphanFilter === 'LINKED_ONLY' && bt._isOrphan) return false;
+
+      // Period Filter (P1 Factory Memory)
+      const btDate = bt.date_demande || bt.date || bt.date_cloture || bt.created_at;
+      if (!isDateInPeriod(btDate, periodFilter)) return false;
+
+      if (searchTerm) {
+        const term = searchTerm.toLowerCase();
+        const num = String(bt.num_bt || '').toLowerCase();
+        const machine = String(bt.code_machine || '').toLowerCase();
+        const anom = String(bt.anomalie || '').toLowerCase();
+        const desc = String(bt.travail_a_faire || bt.action_realisee || '').toLowerCase();
+        const tech = String(bt.intervenant || '').toLowerCase();
+        const pdr = String(bt.pdr || bt.pdr_ref || '').toLowerCase();
+        if (
+          !num.includes(term) &&
+          !machine.includes(term) &&
+          !anom.includes(term) &&
+          !desc.includes(term) &&
+          !tech.includes(term) &&
+          !pdr.includes(term)
+        ) {
+          return false;
+        }
+      }
+      return true;
+    });
+  }, [btsWithOrphan, filterStatus, filterTech, filterMachine, filterTypePanne, orphanFilter, periodFilter, searchTerm]);
+
+  // Available dates for PeriodFilterBar
+  const availableBtDates = useMemo(() => {
+    return bts.map((b) => b.date_demande || b.date || b.date_cloture || b.created_at);
+  }, [bts]);
+
+  // Sorting
+  const sortedBts = useMemo(() => {
+    const list = [...filteredBts];
+    list.sort((a, b) => {
+      let valA = a[sortField] || '';
+      let valB = b[sortField] || '';
+
+      if (typeof valA === 'string') valA = valA.toLowerCase();
+      if (typeof valB === 'string') valB = valB.toLowerCase();
+
+      if (valA < valB) return sortOrder === 'asc' ? -1 : 1;
+      if (valA > valB) return sortOrder === 'asc' ? 1 : -1;
+      return 0;
+    });
+    return list;
+  }, [filteredBts, sortField, sortOrder]);
+
+  // Pagination
+  const totalItems = sortedBts.length;
+  const effectivePageSize = pageSize === 0 ? totalItems : pageSize;
+  const startIndex = (currentPage - 1) * effectivePageSize;
+  const rawDisplayedBts =
+    pageSize === 0 ? sortedBts : sortedBts.slice(startIndex, startIndex + effectivePageSize);
+
+  const displayedBts = rawDisplayedBts;
+
+  const toggleSort = (field) => {
+    if (sortField === field) {
+      setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc');
+    } else {
+      setSortField(field);
+      setSortOrder('asc');
+    }
+  };
+
+  const renderSortIcon = (field) => {
+    if (sortField !== field) {
+      return <ArrowUpDown className="w-3 h-3 text-slate-300 group-hover:text-slate-500 transition shrink-0" />;
+    }
+    return sortOrder === 'asc' ? (
+      <ArrowUp className="w-3 h-3 text-blue-700 shrink-0 font-bold" />
+    ) : (
+      <ArrowDown className="w-3 h-3 text-blue-700 shrink-0 font-bold" />
+    );
+  };
+
+  const hasActiveFilters =
+    filterStatus !== 'ALL' ||
+    filterTech !== 'ALL' ||
+    filterMachine !== 'ALL' ||
+    filterTypePanne !== 'ALL' ||
+    orphanFilter !== 'ALL' ||
+    periodFilter.preset !== 'ALL' ||
+    Boolean(searchTerm);
+
+  const clearAllFilters = () => {
+    setFilterStatus('ALL');
+    setFilterTech('ALL');
+    setFilterMachine('ALL');
+    setFilterTypePanne('ALL');
+    setOrphanFilter('ALL');
+    setPeriodFilter({ preset: 'ALL' });
+    setSearchTerm('');
+    setCurrentPage(1);
+  };
+
+  const handleStartLiveIntervention = (bt) => {
+    const lotoStartCheck = canStartWorkWithLoto(bt);
+    onStartLive(bt.id);
+    if (!lotoStartCheck.valid) {
+      showToast?.(
+        `Permis LOTO requis pour ${bt.num_bt || bt.code_machine} : consignez l'équipement dans la console Live avant de démarrer les travaux.`,
+        'warning'
+      );
+    } else {
+      showToast?.(`Intervention Live démarrée pour ${bt.num_bt} (${bt.code_machine})`, 'success');
+    }
+    if (onNavigateToTab) {
+      onNavigateToTab('corrective_live');
+    }
+  };
+
+  const handleExportFilteredExcel = () => {
+    try {
+      const headers = [
+        'N° BT (B)',
+        'Machine (A)',
+        'Intervenant (D)',
+        'Date Demande (C)',
+        'Heure Début (E)',
+        'Type Panne (I)',
+        'Anomalie (J)',
+        'Travail à Faire (K)',
+        'PDR (L)',
+        'Statut',
+      ];
+      const dataRows = filteredBts.map((item) => [
+        item.num_bt || '',
+        item.code_machine || '',
+        item.intervenant || '',
+        item.date_demande || '',
+        item.heure_debut || '',
+        item.type_panne || '',
+        item.anomalie || '',
+        item.travail_a_faire || '',
+        item.pdr || item.pdr_ref || '',
+        item.statut || '',
+      ]);
+
+      exportTypeBWorkbook({
+        filename: `Bons_de_Travail_Export_${new Date().toISOString().split('T')[0]}.xlsx`,
+        screenName: 'Bons de Travail (Correctif)',
+        sheets: [
+          {
+            name: 'Bons_de_Travail',
+            headers,
+            rows: dataRows,
+          },
+        ],
+      });
+
+      showToast?.('Export Excel des Bons de Travail généré avec succès (.xlsx)', 'success');
+    } catch (err) {
+      Logger.error(err);
+      showToast?.('Erreur lors de l\'export Excel', 'error');
+    }
+  };
+
+  const btColumns = useMemo(
+    () => [
+      {
+        key: 'num_bt',
+        label: 'N° BT',
+        colLetter: 'Col B',
+        icon: Wrench,
+        sortable: true,
+        render: (bt) => (
+          <div className="flex items-center gap-2 whitespace-nowrap">
+            <span className="w-7 h-7 rounded-lg bg-blue-500/10 text-blue-700 flex items-center justify-center font-black text-[10px] border border-blue-200/60 shadow-2xs font-mono">
+              BT
+            </span>
+            <span className="font-bold text-blue-900 font-mono">{bt.num_bt}</span>
+          </div>
+        ),
+      },
+      {
+        key: 'code_machine',
+        label: 'Machine',
+        colLetter: 'Col A',
+        icon: Factory,
+        sortable: true,
+        render: (bt) => (
+          <div className="flex items-center gap-1.5 flex-wrap">
+            <span className="px-2 py-0.5 rounded bg-slate-100 text-slate-800 border border-slate-200 text-xs font-mono font-bold whitespace-nowrap">
+              {bt.code_machine}
+            </span>
+            {bt._isOrphan && (
+              <span className="inline-flex items-center gap-0.5 text-[10px] px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 border border-amber-200 font-bold" title="Machine introuvable ou archivée">
+                Orphelin
+              </span>
+            )}
+          </div>
+        ),
+      },
+      {
+        key: 'intervenant',
+        label: 'Intervenant',
+        colLetter: 'Col D',
+        icon: User,
+        sortable: true,
+        render: (bt) => (
+          <div className="flex items-center gap-1.5 whitespace-nowrap min-w-[150px]">
+            <User className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+            <span className="font-semibold text-slate-800">{resolveTechNom(bt)}</span>
+          </div>
+        ),
+      },
+      {
+        key: 'type_panne',
+        label: 'Type',
+        colLetter: 'Col I',
+        icon: Layers,
+        sortable: true,
+        render: (bt) => (
+          <span className="px-2.5 py-1 rounded-md font-mono font-bold text-xs bg-slate-100 text-slate-800 border border-slate-200 shadow-2xs">
+            {bt.type_panne || 'M'}
+          </span>
+        ),
+      },
+      {
+        key: 'anomalie',
+        label: 'Anomalie',
+        colLetter: 'Col J',
+        icon: AlertTriangle,
+        sortable: true,
+        render: (bt) => (
+          <span className="font-bold text-slate-900 max-w-xs truncate block" title={bt.anomalie}>
+            {bt.anomalie || t('corrective.common.unspecified', '—')}
+          </span>
+        ),
+      },
+      {
+        key: 'travail_a_faire',
+        label: 'Travail à Faire',
+        colLetter: 'Col K',
+        icon: FileText,
+        render: (bt) => (
+          <span className="text-slate-700 max-w-xs truncate block" title={bt.travail_a_faire}>
+            {bt.travail_a_faire || bt.action_realisee || 'Intervention standard'}
+          </span>
+        ),
+      },
+      {
+        key: 'pdr',
+        label: 'PDR & Atelier',
+        colLetter: 'Col L',
+        icon: Package,
+        render: (bt) => {
+          const pdrObj = resolvePdrDisplay(bt);
+          const linkedWorkshop = SortieExterneService.getLinkedOrdersForBt(bt, sortiesExterne);
+          const primaryWorkshop = linkedWorkshop[0] || null;
+          const linkedInternal = getLinkedWorkshopOrdersForIntervention(bt, workshopOrders);
+          const primaryInternal = linkedInternal[0] || null;
+
+          const workshopCode =
+            primaryInternal?.code_bon ||
+            bt.code_bon_atelier ||
+            primaryWorkshop?.code ||
+            bt.code_sortie_atelier ||
+            '';
+          const internalStatut = primaryInternal?.statut || bt.statut_bon_atelier || '';
+          const workshopOpen = primaryInternal
+            ? isWorkshopOrderActive(primaryInternal.statut)
+            : primaryWorkshop
+            ? SortieExterneService.isWorkshopOrderOpen(primaryWorkshop.etat)
+            : false;
+
+          const workshopBadge = workshopCode ? (
+            <span
+              className={`inline-flex items-center gap-1 px-2 py-0.5 rounded border text-[10.5px] font-mono font-bold shadow-2xs ${
+                workshopOpen
+                  ? 'bg-amber-50 text-amber-900 border-amber-300'
+                  : 'bg-indigo-50 text-indigo-900 border-indigo-200'
+              }`}
+              title={
+                primaryInternal
+                  ? `Atelier Mécanique: ${primaryInternal.code_bon} (${primaryInternal.type_demande}) — ${
+                      WORKSHOP_STATUS_LABELS[primaryInternal.statut] || primaryInternal.statut
+                    }`
+                  : `${primaryWorkshop?.nature_travail || bt.nature_travail_atelier || 'Bon Atelier'} (${
+                      primaryWorkshop?.etat || 'Lié'
+                    })`
+              }
+            >
+              <Wrench className="w-3 h-3 shrink-0" />
+              <span className="truncate">
+                {internalStatut ? `Atelier: ${workshopCode} (${internalStatut})` : workshopCode}
+              </span>
+              {!primaryInternal && Number(primaryWorkshop?.cout_bobinage ?? bt.cout_atelier ?? 0) > 0 && (
+                <span className="text-[9.5px] opacity-80">
+                  • {Number(primaryWorkshop?.cout_bobinage ?? bt.cout_atelier ?? 0)} DH
+                </span>
+              )}
+            </span>
+          ) : null;
+
+          const linkedNeeds = getLinkedNeedRequestsForIntervention(bt, needRequests);
+          const primaryNeed = linkedNeeds[0] || null;
+          const needBlocking = primaryNeed ? isNeedRequestBlockingBtClosure(primaryNeed) : false;
+
+          const needBadge = primaryNeed ? (
+            <span
+              className={`inline-flex items-center gap-1 px-2 py-0.5 rounded border text-[10px] font-mono font-bold shadow-2xs ${
+                needBlocking
+                  ? 'bg-purple-50 text-purple-900 border-purple-300'
+                  : 'bg-emerald-50 text-emerald-900 border-emerald-300'
+              }`}
+              title={`Demande de besoin: ${primaryNeed.code_demande} (${
+                NEED_STATUS_LABELS[primaryNeed.statut] || primaryNeed.statut
+              })`}
+            >
+              <Package className="w-3 h-3 shrink-0" />
+              <span className="truncate">
+                Besoin: {primaryNeed.code_demande} ({primaryNeed.statut})
+                {primaryNeed.canal_appro ? ` · ${primaryNeed.canal_appro}` : ''}
+              </span>
+            </span>
+          ) : null;
+
+          if (pdrObj) {
+            return (
+              <div className="flex flex-col gap-1 items-start">
+                <span
+                  className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-cyan-50 text-cyan-800 border border-cyan-200 text-xs font-mono font-bold shadow-2xs"
+                  title={pdrObj.designation}
+                >
+                  <Package className="w-3 h-3 text-cyan-600 shrink-0" />
+                  <span className="truncate">{pdrObj.ref}</span>
+                </span>
+                {workshopBadge}
+                {needBadge}
+              </div>
+            );
+          }
+          if (Array.isArray(bt.pieces_proposees) && bt.pieces_proposees.length > 0) {
+            const first = bt.pieces_proposees[0];
+            const extra = bt.pieces_proposees.length > 1 ? ` +${bt.pieces_proposees.length - 1}` : '';
+            return (
+              <div className="flex flex-col gap-0.5 items-start">
+                <span
+                  className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-purple-50 text-purple-900 border border-purple-200 text-[11px] font-mono font-bold shadow-2xs"
+                  title={`Proposition terrain: ${first.ref} × ${first.quantite}`}
+                >
+                  <Package className="w-3 h-3 text-purple-600 shrink-0" />
+                  <span className="truncate">
+                    Proposée: {first.ref} ×{first.quantite}
+                    {extra}
+                  </span>
+                </span>
+                {bt.num_bon_saisi_par_tech && (
+                  <span className="text-[10px] font-mono text-slate-500">
+                    Bon saisi: {bt.num_bon_saisi_par_tech}
+                  </span>
+                )}
+                {workshopBadge}
+                {needBadge}
+              </div>
+            );
+          }
+          if (workshopBadge || needBadge) {
+            return (
+              <div className="flex flex-col gap-1 items-start">
+                {workshopBadge}
+                {needBadge}
+              </div>
+            );
+          }
+          if (bt.num_bon_saisi_par_tech) {
+            return (
+              <span className="text-[10.5px] font-mono text-purple-800 bg-purple-50 px-2 py-0.5 rounded border border-purple-200">
+                Bon: {bt.num_bon_saisi_par_tech}
+              </span>
+            );
+          }
+          return <span className="text-slate-300 font-mono text-[11px]">—</span>;
+        },
+      },
+      {
+        key: 'statut',
+        label: 'Statut & Validation',
+        icon: Radio,
+        align: 'center',
+        sortable: true,
+        render: (bt) => {
+          const isClosed = bt.statut === 'CLOTURE';
+          const isWaitingPdr = bt.statut === 'EN_ATTENTE_PDR';
+          const valStatus = bt.validation_status;
+
+          if (
+            isClosed ||
+            valStatus === 'PENDING_VALIDATION' ||
+            valStatus === 'NEEDS_CLARIFICATION' ||
+            valStatus === 'REJECTED'
+          ) {
+            return (
+              <div className="flex flex-col items-center gap-0.5">
+                <ValidationStatusBadge record={bt} showStockEffect />
+                {valStatus === 'PENDING_VALIDATION' && bt.submitted_by_name && (
+                  <span className="text-[9.5px] font-mono text-amber-800 truncate max-w-[130px]">
+                    Par {bt.submitted_by_name}
+                  </span>
+                )}
+              </div>
+            );
+          }
+          if (isWaitingPdr) {
+            const linkedInternal = getLinkedWorkshopOrdersForIntervention(bt, workshopOrders);
+            const hasInternalAtelier =
+              linkedInternal.length > 0 || Boolean(bt.code_bon_atelier || bt.id_bon_atelier);
+            const linkedExt = SortieExterneService.getLinkedOrdersForBt(bt, sortiesExterne);
+            const hasExtAtelier =
+              linkedExt.length > 0 || Boolean(bt.code_sortie_atelier || bt.id_sortie_atelier);
+            const linkedNeeds = getLinkedNeedRequestsForIntervention(bt, needRequests);
+            const primaryNeed = linkedNeeds[0] || null;
+
+            if (
+              hasInternalAtelier ||
+              hasExtAtelier ||
+              primaryNeed?.canal_appro === 'ATELIER' ||
+              primaryNeed?.canal_appro === 'EXTERNE'
+            ) {
+              return (
+                <span
+                  className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full font-bold text-[10.5px] bg-indigo-100 text-indigo-900 border border-indigo-300 font-mono shadow-2xs"
+                  title="BT en attente de réalisation / rectification à l'atelier mécanique ou retour externe"
+                >
+                  <Wrench className="w-3 h-3 text-indigo-700 shrink-0" />
+                  <span>ATTENTE ATELIER</span>
+                </span>
+              );
+            }
+            if (primaryNeed?.canal_appro === 'STOCK' || primaryNeed?.canal_appro === 'ACHAT') {
+              return (
+                <span
+                  className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full font-bold text-[10.5px] bg-cyan-100 text-cyan-900 border border-cyan-300 font-mono shadow-2xs"
+                  title={`BT en attente d'approvisionnement magasin/achat (${primaryNeed.canal_appro})`}
+                >
+                  <Package className="w-3 h-3 text-cyan-700 shrink-0" />
+                  <span>ATTENTE APPRO / PDR</span>
+                </span>
+              );
+            }
+            return (
+              <span className="px-2.5 py-1 rounded-full font-bold text-[10.5px] bg-amber-100 text-amber-900 border border-amber-300 font-mono shadow-2xs">
+                ATTENTE PDR
+              </span>
+            );
+          }
+          if (bt.statut === 'BT_PLANIFIE') {
+            return (
+              <span className="px-2.5 py-1 rounded-full font-bold text-[10.5px] bg-sky-100 text-sky-900 border border-sky-300 font-mono shadow-2xs">
+                BT PLANIFIÉ
+              </span>
+            );
+          }
+          if (bt.statut === 'ANNULE') {
+            return (
+              <span className="px-2.5 py-1 rounded-full font-bold text-[10.5px] bg-slate-200 text-slate-700 border border-slate-300 font-mono shadow-2xs">
+                ANNULÉ
+              </span>
+            );
+          }
+          return (
+            <span className="px-2.5 py-1 rounded-full font-bold text-[10.5px] bg-blue-100 text-blue-900 border border-blue-300 font-mono animate-pulse shadow-2xs">
+              EN COURS
+            </span>
+          );
+        },
+      },
+      {
+        key: 'actions',
+        label: 'Action Directe',
+        icon: Play,
+        align: 'center',
+        headerClassName: 'w-52 text-center whitespace-nowrap',
+        render: (bt) => {
+          const isClosed = bt.statut === 'CLOTURE';
+          const isWaitingPdr = bt.statut === 'EN_ATTENTE_PDR';
+          const isPendingVal = bt.validation_status === 'PENDING_VALIDATION';
+          const isRejectedVal = bt.validation_status === 'REJECTED';
+          const isClarif =
+            bt.validation_status === 'NEEDS_CLARIFICATION' || isRejectedVal;
+
+          return !isClosed ? (
+            <div className="flex items-center justify-center gap-1.5 flex-wrap">
+              {canValidateBt && isPendingVal && (
+                <button
+                  type="button"
+                  data-testid={`review-bt-${bt.id}`}
+                  onClick={() => openReviewModal(bt)}
+                  className="px-2.5 py-1.5 rounded-xl bg-purple-600 hover:bg-purple-700 text-white font-bold text-xs transition flex items-center justify-center gap-1 cursor-pointer shadow-2xs active:scale-95"
+                  title="Examiner la déclaration du technicien, ajuster si besoin et valider la clôture"
+                >
+                  <ShieldCheck className="w-3.5 h-3.5" />
+                  <span>Valider</span>
+                </button>
+              )}
+
+              {canExecuteBt && (
+                <button
+                  type="button"
+                  onClick={() => handleStartLiveIntervention(bt)}
+                  className={`px-2.5 py-1.5 rounded-xl font-bold text-xs transition flex items-center justify-center gap-1 cursor-pointer shadow-2xs active:scale-95 ${
+                    isClarif
+                      ? 'bg-rose-600 hover:bg-rose-700 text-white'
+                      : isPendingVal && isTechUser
+                      ? 'bg-purple-100 hover:bg-purple-200 text-purple-900 border border-purple-300'
+                      : 'bg-amber-600 hover:bg-amber-700 text-white'
+                  }`}
+                  title={
+                    isRejectedVal
+                      ? 'Soumettre une nouvelle déclaration après rejet'
+                      : isClarif
+                      ? 'Corriger et renvoyer après demande de clarification'
+                      : 'Lancer ou reprendre le Chrono Live'
+                  }
+                >
+                  <Play className="w-3.5 h-3.5 fill-current" />
+                  <span>
+                    {isRejectedVal
+                      ? 'Nouvelle déclaration'
+                      : isClarif
+                      ? 'Corriger'
+                      : isPendingVal && isTechUser
+                      ? 'Modifier'
+                      : isWaitingPdr
+                      ? 'Reprendre'
+                      : 'Chrono Live'}
+                  </span>
+                </button>
+              )}
+
+              {canExecuteBt && typeof onUpdateIntervention === 'function' && !isPendingVal && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    const nextStatus = isWaitingPdr ? 'EN_COURS' : 'EN_ATTENTE_PDR';
+                    const ok = onUpdateIntervention(bt.id, { statut: nextStatus });
+                    if (ok === false) {
+                      showToast?.(
+                        `Transition refusée pour ${bt.num_bt} : vérifiez le permis LOTO ou le statut actuel du BT.`,
+                        'warning'
+                      );
+                      return;
+                    }
+                    showToast?.(
+                      isWaitingPdr
+                        ? `BT ${bt.num_bt} remis EN COURS`
+                        : `BT ${bt.num_bt} placé EN ATTENTE PDR`,
+                      'info'
+                    );
+                  }}
+                  className={`px-2 py-1.5 rounded-xl border font-bold text-[10.5px] transition cursor-pointer ${
+                    isWaitingPdr
+                      ? 'bg-blue-50 hover:bg-blue-100 text-blue-800 border-blue-200'
+                      : 'bg-slate-100 hover:bg-amber-50 text-slate-700 hover:text-amber-900 border-slate-200'
+                  }`}
+                  title={isWaitingPdr ? 'Remettre en cours' : 'Suspendre en attente de pièce (EN_ATTENTE_PDR)'}
+                >
+                  {isWaitingPdr ? 'Activer' : 'Att. PDR'}
+                </button>
+              )}
+
+              {!canExecuteBt && !canValidateBt && (
+                <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-slate-100 border border-slate-200 text-slate-600 font-mono font-bold text-[10.5px]">
+                  <Lock className="w-3 h-3 text-slate-400" />
+                  Lecture seule
+                </span>
+              )}
+            </div>
+          ) : (
+            <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-900 font-mono font-bold text-xs shadow-2xs">
+              <CheckCircle className="w-3 h-3 text-emerald-600" />
+              {bt.temps_intervention_calc || bt.temps_intervention || '00:00'}
+            </span>
+          );
+        },
+      },
+    ],
+    [technicians, stockItems, onUpdateIntervention, isTechUser, canExecuteBt, canValidateBt, t, workshopOrders, sortiesExterne, needRequests]
+  );
+
+  return (
+    <div className="space-y-6">
+      {/* 1. Top 4 Primary KPI Metrics Bar */}
+      <GmaoKpiGrid columns={4}>
+        {/* Total BTs */}
+        <GmaoKpiCard
+          title="Total Bons de Travail (BT)"
+          value={kpiStats.total}
+          unit="ordres"
+          icon={Wrench}
+          color="blue"
+          valueColored={false}
+          isActive={filterStatus === 'ALL'}
+          onClick={() => setFilterStatus('ALL')}
+          badgeText="Col B Excel"
+          footerLabel="Historique usine :"
+          footerValue="Complet"
+        />
+
+        {/* BTs En Cours */}
+        <GmaoKpiCard
+          title={t('corrective.bt.title')}
+          value={kpiStats.inProgress}
+          unit="interventions"
+          icon={Play}
+          color="amber"
+          isActive={filterStatus === 'EN_COURS'}
+          onClick={() => setFilterStatus('EN_COURS')}
+          badgeText="Chrono Live disponible"
+          pulseBadge={true}
+          footerLabel="Techniciens mobilisés :"
+          footerValue={`${availableTechs.length} actifs`}
+        />
+
+        {/* BTs Clôturés */}
+        <GmaoKpiCard
+          title="BTs Clôturés & Validés"
+          value={kpiStats.closed}
+          unit="dépannages OK"
+          icon={CheckCircle}
+          color="emerald"
+          isActive={filterStatus === 'CLOTURE'}
+          onClick={() => setFilterStatus('CLOTURE')}
+          badgeText="Temps calculé & PDR déstockée"
+          footerLabel="Taux résolution :"
+          footerValue={`${kpiStats.total ? Math.round((kpiStats.closed / kpiStats.total) * 100) : 0}%`}
+        />
+
+        {/* Avec PDR */}
+        <GmaoKpiCard
+          title="Consommation PDR"
+          value={kpiStats.withPdr}
+          unit="avec pièces"
+          icon={Package}
+          color="cyan"
+          isActive={filterStatus === 'WITH_PDR'}
+          onClick={() => setFilterStatus('WITH_PDR')}
+          badgeText="Liaison Stock Automatique"
+          footerLabel="Impact magasin :"
+          footerValue="Sorties PDR"
+        />
+      </GmaoKpiGrid>
+
+      {/* Maker-Checker Validation Queue Banner (Admin) & Clarification Alert Banner (Technician) */}
+      {canValidateBt && kpiStats.pendingValidation > 0 && (
+        <div
+          data-testid="bt-admin-validation-queue-banner"
+          className="bg-purple-50/90 border border-purple-300 rounded-2xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-xs"
+        >
+          <div className="flex items-start sm:items-center gap-3 text-xs text-purple-950">
+            <div className="w-9 h-9 rounded-xl bg-purple-600 text-white flex items-center justify-center shrink-0 shadow-xs">
+              <ShieldCheck className="w-5 h-5" />
+            </div>
+            <div>
+              <div className="font-black uppercase tracking-wider text-purple-900">
+                File d’attente de Validation Terrain ({kpiStats.pendingValidation} BT à valider)
+              </div>
+              <p className="text-purple-800 font-medium mt-0.5">
+                Des techniciens ont soumis leurs rapports et propositions PDR. Vérifiez et validez pour clôturer officiellement et déduire le stock.
+              </p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => {
+              setFilterStatus('PENDING_VALIDATION');
+              setCurrentPage(1);
+            }}
+            className="px-3.5 py-2 rounded-xl bg-purple-600 hover:bg-purple-700 text-white font-bold text-xs transition cursor-pointer shrink-0 shadow-xs active:scale-95"
+          >
+            Afficher À Valider ({kpiStats.pendingValidation})
+          </button>
+        </div>
+      )}
+
+      {isTechUser && (kpiStats.needsClarification > 0 || kpiStats.rejected > 0) && (
+        <div
+          data-testid="bt-tech-clarification-banner"
+          className="bg-rose-50/90 border border-rose-300 rounded-2xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-xs"
+        >
+          <div className="flex items-start sm:items-center gap-3 text-xs text-rose-950">
+            <div className="w-9 h-9 rounded-xl bg-rose-600 text-white flex items-center justify-center shrink-0 shadow-xs">
+              <AlertTriangle className="w-5 h-5" />
+            </div>
+            <div>
+              <div className="font-black uppercase tracking-wider text-rose-900">
+                Suivi de vos Déclarations Terrain ({kpiStats.needsClarification} à clarifier · {kpiStats.rejected} rejeté(s))
+              </div>
+              <p className="text-rose-800 font-medium mt-0.5">
+                Consultez la note du responsable et cliquez sur « Corriger » ou « Nouvelle déclaration » pour ajuster votre saisie et resoumettre (aucun déstockage tant que non approuvé).
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2 shrink-0 flex-wrap">
+            {kpiStats.needsClarification > 0 && (
+              <button
+                type="button"
+                onClick={() => {
+                  setFilterStatus('NEEDS_CLARIFICATION');
+                  setCurrentPage(1);
+                }}
+                className="px-3.5 py-2 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs transition cursor-pointer shrink-0 shadow-xs active:scale-95"
+              >
+                Voir À Clarifier ({kpiStats.needsClarification})
+              </button>
+            )}
+            {kpiStats.rejected > 0 && (
+              <button
+                type="button"
+                onClick={() => {
+                  setFilterStatus('REJECTED');
+                  setCurrentPage(1);
+                }}
+                className="px-3.5 py-2 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs transition cursor-pointer shrink-0 shadow-xs active:scale-95"
+              >
+                Voir Rejetés ({kpiStats.rejected})
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* 1.5. Period Filter Bar (P1 Factory Memory) */}
+      <PeriodFilterBar
+        value={periodFilter}
+        onChange={(next) => {
+          setPeriodFilter(next);
+          setCurrentPage(1);
+        }}
+        availableDates={availableBtDates}
+        filteredCount={sortedBts.length}
+        totalCount={bts.length}
+      />
+
+      {/* 2. Filter & Search Card (Unified Mature Light UI Design System) */}
+      <div className="relative z-30 bg-white border border-slate-200 rounded-2xl p-4 md:p-5 shadow-[0_12px_32px_-6px_rgba(0,0,0,0.12),0_4px_12px_-2px_rgba(0,0,0,0.06)] hover:shadow-[0_16px_40px_-8px_rgba(0,0,0,0.16),0_6px_16px_-3px_rgba(0,0,0,0.08)] hover:-translate-y-0.5 transition-all duration-300 ease-out space-y-4">
+        {/* Top Header */}
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-100">
+          <div className="flex items-center gap-2.5">
+            <div className="w-8 h-8 rounded-xl bg-amber-500/10 border border-amber-200/80 flex items-center justify-center text-amber-700 shadow-2xs">
+              <SlidersHorizontal className="w-4 h-4 text-amber-700" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="text-xs font-black uppercase tracking-wider text-slate-900">
+                  {t('common.filters.title')}
+                </span>
+                <span className="bg-amber-50 text-amber-800 px-3 py-1 rounded-lg text-xs font-bold border border-amber-200/70 shadow-2xs">
+                  {filteredBts.length} BT{filteredBts.length > 1 ? 's' : ''} affiché{filteredBts.length > 1 ? 's' : ''} / {bts.length}
+                </span>
+              </div>
+              <p className="text-[11px] text-slate-400">
+                Ordres de Réparation • Lancement direct du Chronomètre d'Atelier
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2 self-end sm:self-auto">
+            <button
+              type="button"
+              onClick={handleExportFilteredExcel}
+              className="h-8 px-3 rounded-xl border border-emerald-200 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 text-xs font-bold transition flex items-center gap-1.5 cursor-pointer shadow-2xs active:scale-95"
+              title="Exporter les BTs filtrés vers Excel (.xlsx) — Type B : Export externe (non réimportable)"
+            >
+              <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-600" />
+              <span className="hidden sm:inline">Export Excel (Type B)</span>
+            </button>
+
+            {hasActiveFilters && (
+              <button
+                type="button"
+                onClick={clearAllFilters}
+                className="w-8 h-8 rounded-full border border-rose-200/80 bg-rose-50 hover:bg-rose-100 text-rose-700 transition flex items-center justify-center cursor-pointer shadow-2xs active:scale-95 animate-in fade-in"
+                title="Réinitialiser tous les filtres actifs"
+              >
+                <RotateCcw className="w-3.5 h-3.5" />
+              </button>
+            )}
+          </div>
+        </div>
+
+        {/* Quick Status Presets */}
+        <div className="flex items-center gap-2 flex-wrap text-xs">
+          <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400 flex items-center gap-1 mr-1">
+            <Wrench className="w-3 h-3 text-slate-400" />
+            État BT :
+          </span>
+          {[
+            {
+              key: 'ALL',
+              label: 'Tous les BTs',
+              count: bts.length,
+              activeBg: 'bg-slate-900 text-white shadow-xs',
+              colorDot: null,
+            },
+            {
+              key: 'EN_COURS',
+              label: 'En Cours',
+              count: kpiStats.inProgress,
+              activeBg: 'bg-amber-600 text-white shadow-xs',
+              colorDot: 'bg-amber-500',
+            },
+            {
+              key: 'PENDING_VALIDATION',
+              label: 'À Valider (Centre)',
+              count: kpiStats.pendingValidation,
+              activeBg: 'bg-amber-600 text-white shadow-xs',
+              colorDot: 'bg-amber-500',
+            },
+            {
+              key: 'NEEDS_CLARIFICATION',
+              label: 'À Clarifier',
+              count: kpiStats.needsClarification,
+              activeBg: 'bg-orange-600 text-white shadow-xs',
+              colorDot: 'bg-orange-500',
+            },
+            {
+              key: 'REJECTED',
+              label: 'Rejetés (Sans stock)',
+              count: kpiStats.rejected,
+              activeBg: 'bg-rose-600 text-white shadow-xs',
+              colorDot: 'bg-rose-500',
+            },
+            {
+              key: 'EN_ATTENTE_PDR',
+              label: 'Attente PDR',
+              count: kpiStats.waitingPdr,
+              activeBg: 'bg-purple-600 text-white shadow-xs',
+              colorDot: 'bg-purple-500',
+            },
+            {
+              key: 'CLOTURE',
+              label: 'Clôturés & Validés',
+              count: kpiStats.closed,
+              activeBg: 'bg-emerald-600 text-white shadow-xs',
+              colorDot: 'bg-emerald-500',
+            },
+            {
+              key: 'VALIDATED_EDITED',
+              label: 'Validés (Ajustés Admin)',
+              count: kpiStats.validatedEdited,
+              activeBg: 'bg-blue-600 text-white shadow-xs',
+              colorDot: 'bg-blue-500',
+            },
+            {
+              key: 'WITH_PDR',
+              label: 'Avec PDR',
+              count: kpiStats.withPdr,
+              activeBg: 'bg-cyan-600 text-white shadow-xs',
+              colorDot: 'bg-cyan-500',
+            },
+          ].map((preset) => {
+            const isActive = filterStatus === preset.key;
+            return (
+              <button
+                key={preset.key}
+                type="button"
+                onClick={() => {
+                  setFilterStatus(preset.key);
+                  setCurrentPage(1);
+                }}
+                className={`px-2.5 py-1 rounded-lg text-xs font-semibold transition-all flex items-center gap-1.5 cursor-pointer ${
+                  isActive
+                    ? preset.activeBg
+                    : 'bg-slate-100/80 hover:bg-slate-200/80 text-slate-700 border border-slate-200/60'
+                }`}
+              >
+                {preset.colorDot && (
+                  <span
+                    className={`w-2 h-2 rounded-full ${preset.colorDot} ${
+                      isActive ? 'ring-2 ring-white/50' : ''
+                    }`}
+                  />
+                )}
+                <span>{preset.label}</span>
+                <span
+                  className={`px-1.5 py-0.2 rounded text-[10px] font-mono font-bold ${
+                    isActive ? 'bg-white/20 text-white' : 'bg-white text-slate-600 border border-slate-200/60'
+                  }`}
+                >
+                  {preset.count}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+
+        {/* Orphan Filter Bar (Admin / Engineering only) */}
+        {!isTechUser && (
+          <div className="flex items-center gap-1.5 overflow-x-auto pb-0.5 text-xs no-scrollbar pt-2 border-t border-slate-100">
+            <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400 flex items-center gap-1 mr-1 shrink-0">
+              <AlertTriangle className="w-3 h-3 text-amber-500" />
+              Intégrité Machine :
+            </span>
+            {[
+              { key: 'ALL', label: 'Toutes', count: btsWithOrphan.length },
+              { key: 'LINKED_ONLY', label: 'Liées (Actives)', count: btsWithOrphan.length - orphanCount },
+              { key: 'ORPHAN_ONLY', label: `Orphelines (${orphanCount})`, count: orphanCount, highlight: orphanCount > 0 },
+            ].map((preset) => {
+              const isSelected = orphanFilter === preset.key;
+              return (
+                <button
+                  key={preset.key}
+                  type="button"
+                  onClick={() => {
+                    setOrphanFilter(preset.key);
+                    setCurrentPage(1);
+                  }}
+                  className={`h-7 px-2.5 rounded-lg text-xs transition-all flex items-center gap-1.5 cursor-pointer shrink-0 ${
+                    isSelected
+                      ? preset.highlight
+                        ? 'bg-amber-600 text-white font-bold shadow-xs'
+                        : 'bg-blue-600 text-white font-bold shadow-xs'
+                      : 'bg-slate-100/80 hover:bg-slate-200 text-slate-700 border border-slate-200/60 font-medium'
+                  }`}
+                >
+                  <span>{preset.label}</span>
+                  <span className={`px-1.5 py-0.2 rounded text-[10px] font-mono font-bold ${
+                    isSelected ? 'bg-white/20 text-white' : 'bg-white text-slate-600 border border-slate-200/60'
+                  }`}>
+                    {preset.count}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        )}
+
+        {/* 5-Column Multi-Criteria Filter Grid */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3.5 items-end">
+          {/* 1. Omni-Text Search */}
+          <div className="w-full sm:col-span-2 lg:col-span-1">
+            <div className="flex items-center justify-between mb-1.5 text-[11px] font-bold uppercase tracking-wider text-slate-800">
+              <span>Recherche</span>
+              <span className="px-1.5 py-0.2 rounded text-[9.5px] font-mono font-bold bg-slate-100 text-slate-600 border border-slate-200/80">
+                Col. B+A
+              </span>
+            </div>
+            <div className="relative">
+              <div className="absolute left-2.5 top-1/2 -translate-y-1/2 w-5 h-5 rounded-md bg-amber-100 border border-amber-300/80 flex items-center justify-center text-amber-700 shadow-2xs pointer-events-none">
+                <Search className="w-3 h-3" />
+              </div>
+              <input
+                type="text"
+                placeholder="N° BT, machine, PDR..."
+                value={searchTerm}
+                onChange={(e) => {
+                  setSearchTerm(e.target.value);
+                  setCurrentPage(1);
+                }}
+                className="w-full h-9 pl-9 pr-7 rounded-xl border border-slate-200 bg-slate-50/70 text-xs font-semibold focus:bg-white focus:outline-none focus:ring-1 focus:ring-amber-500 transition-colors"
+              />
+              {searchTerm && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSearchTerm('');
+                    setCurrentPage(1);
+                  }}
+                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-rose-600 cursor-pointer"
+                  title="Effacer la recherche"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              )}
+            </div>
+          </div>
+
+          {/* 2. Technicien Filter (Col. D) */}
+          <div>
+            <div className="flex items-center justify-between mb-1.5 text-[11px] font-bold uppercase tracking-wider text-slate-800">
+              <span>Intervenant</span>
+              <span className="px-1.5 py-0.2 rounded text-[9.5px] font-mono font-bold bg-blue-50 text-blue-700 border border-blue-200/80">
+                {isTechUser ? 'Verrouillé' : 'Col. D'}
+              </span>
+            </div>
+            {isTechUser ? (
+              <div
+                className="w-full h-9 px-2.5 rounded-xl bg-amber-50/70 border border-amber-200/90 flex items-center justify-between gap-2 text-xs font-bold text-amber-900 select-none"
+                title="Périmètre BT verrouillé sur votre session technicien"
+              >
+                <div className="flex items-center gap-2 min-w-0">
+                  <span className="w-5 h-5 rounded-md bg-amber-100 border border-amber-300/80 flex items-center justify-center text-amber-700 shrink-0">
+                    <User className="w-3 h-3" />
+                  </span>
+                  <span className="truncate">{techBadgeLabel}</span>
+                </div>
+                <Lock className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+              </div>
+            ) : (
+              <CustomSelect
+                value={filterTech}
+                prefixIcon={
+                  <span className="w-5 h-5 rounded-md bg-amber-100 border border-amber-300/80 flex items-center justify-center text-amber-700 shadow-2xs">
+                    <User className="w-3 h-3" />
+                  </span>
+                }
+                onChange={(val) => {
+                  setFilterTech(val);
+                  setCurrentPage(1);
+                }}
+                searchable
+                options={[
+                  { value: 'ALL', label: `Tous les Techniciens (${availableTechs.length})` },
+                  ...availableTechs.map((tech) => ({
+                    value: tech,
+                    label: tech,
+                  })),
+                ]}
+              />
+            )}
+          </div>
+
+          {/* 3. Machine Filter (Col. A) */}
+          <div>
+            <div className="flex items-center justify-between mb-1.5 text-[11px] font-bold uppercase tracking-wider text-slate-800">
+              <span>Machine</span>
+              <span className="px-1.5 py-0.2 rounded text-[9.5px] font-mono font-bold bg-amber-50 text-amber-700 border border-amber-200/80">
+                Col. A
+              </span>
+            </div>
+            <CustomSelect
+              value={filterMachine}
+              prefixIcon={
+                <span className="w-5 h-5 rounded-md bg-amber-100 border border-amber-300/80 flex items-center justify-center text-amber-700 shadow-2xs">
+                  <Factory className="w-3 h-3" />
+                </span>
+              }
+              onChange={(val) => {
+                setFilterMachine(val);
+                setCurrentPage(1);
+              }}
+              searchable
+              options={[
+                { value: 'ALL', label: `Toutes les Machines (${availableMachines.length})` },
+                ...availableMachines.map((m) => ({
+                  value: m,
+                  label: m,
+                })),
+              ]}
+            />
+          </div>
+
+          {/* 4. Type Panne Filter (Col. I) */}
+          <div>
+            <div className="flex items-center justify-between mb-1.5 text-[11px] font-bold uppercase tracking-wider text-slate-800">
+              <span>Type de Panne</span>
+              <span className="px-1.5 py-0.2 rounded text-[9.5px] font-mono font-bold bg-cyan-50 text-cyan-700 border border-cyan-200/80">
+                Col. I
+              </span>
+            </div>
+            <CustomSelect
+              value={filterTypePanne}
+              prefixIcon={
+                <span className="w-5 h-5 rounded-md bg-amber-100 border border-amber-300/80 flex items-center justify-center text-amber-700 shadow-2xs">
+                  <Layers className="w-3 h-3" />
+                </span>
+              }
+              onChange={(val) => {
+                setFilterTypePanne(val);
+                setCurrentPage(1);
+              }}
+              options={[
+                { value: 'ALL', label: `Tous Types (${availableTypesPanne.length})` },
+                ...availableTypesPanne.map((cat) => ({
+                  value: cat,
+                  label: `Type ${cat}`,
+                })),
+              ]}
+            />
+          </div>
+
+          {/* 5. Sort Menu Button & Popover */}
+          <div className="relative" ref={sortMenuRef}>
+            <div className="flex items-center justify-between mb-1.5 text-[11px] font-bold uppercase tracking-wider text-slate-800">
+              <span>Tri & Ordre</span>
+              <span className="px-1.5 py-0.2 rounded text-[9.5px] font-mono font-bold bg-indigo-50 text-indigo-700 border border-indigo-200/80">
+                Col. B→L
+              </span>
+            </div>
+            <button
+              type="button"
+              onClick={() => setShowSortMenu(!showSortMenu)}
+              className={`w-full h-9 px-2.5 rounded-xl border text-xs font-semibold transition flex items-center justify-between cursor-pointer ${
+                showSortMenu || sortField !== 'num_bt' || sortOrder !== 'desc'
+                  ? 'bg-amber-50/80 text-amber-950 border-amber-300 ring-1 ring-amber-200'
+                  : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
+              }`}
+            >
+              <div className="flex items-center gap-2 truncate">
+                <span className="w-5 h-5 rounded-md bg-amber-100 border border-amber-300/80 flex items-center justify-center text-amber-700 shrink-0 shadow-2xs">
+                  <ArrowUpDown className="w-3 h-3" />
+                </span>
+                <span className="truncate">
+                  Tri : <b className="font-mono text-slate-900">{sortField.slice(0, 10).toUpperCase()}</b> (
+                  {sortOrder === 'asc' ? 'A→Z' : 'Z→A'})
+                </span>
+              </div>
+              <ChevronDown
+                className={`w-3 h-3 text-slate-400 transition-transform shrink-0 ${showSortMenu ? 'rotate-180' : ''}`}
+              />
+            </button>
+
+            {/* Sort Popover Menu */}
+            {showSortMenu && (
+              <div className="absolute right-0 mt-1 w-64 bg-white rounded-2xl border border-slate-200 shadow-xl z-50 p-2.5 space-y-1.5 animate-in fade-in slide-in-from-top-2 duration-150">
+                <div className="flex items-center justify-between pb-1.5 border-b border-slate-100 text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+                  <span>Sélectionner la Colonne de Tri</span>
+                  <span>B→L</span>
+                </div>
+                <div className="grid grid-cols-1 gap-1 text-xs max-h-60 overflow-y-auto pr-0.5">
+                  {[
+                    { key: 'num_bt', label: 'N° BT (Col. B)' },
+                    { key: 'code_machine', label: 'Machine (Col. A)' },
+                    { key: 'intervenant', label: 'Intervenant (Col. D)' },
+                    { key: 'date_demande', label: 'Date Demande (Col. C)' },
+                    { key: 'heure_debut', label: 'Heure Début (Col. E)' },
+                    { key: 'type_panne', label: 'Type Panne (Col. I)' },
+                    { key: 'anomalie', label: 'Anomalie (Col. J)' },
+                    { key: 'travail_a_faire', label: 'Travail à Faire (Col. K)' },
+                    { key: 'pdr', label: 'PDR Utilisée (Col. L)' },
+                    { key: 'statut', label: 'Statut BT' },
+                  ].map((col) => (
+                    <button
+                      key={col.key}
+                      type="button"
+                      onClick={() => {
+                        toggleSort(col.key);
+                        setShowSortMenu(false);
+                      }}
+                      className={`px-2.5 py-1.5 rounded-lg border text-left font-medium text-[11px] flex items-center justify-between transition cursor-pointer ${
+                        sortField === col.key
+                          ? 'bg-amber-50 text-amber-950 border-amber-300 font-bold'
+                          : 'bg-slate-50 text-slate-700 border-slate-200/80 hover:bg-slate-100'
+                      }`}
+                    >
+                      <span>{col.label}</span>
+                      {sortField === col.key && (
+                        sortOrder === 'asc' ? (
+                          <ArrowUp className="w-3.5 h-3.5 text-amber-700" />
+                        ) : (
+                          <ArrowDown className="w-3.5 h-3.5 text-amber-700" />
+                        )
+                      )}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Active Filter Chips Bar */}
+        {hasActiveFilters && (
+          <div className="pt-2.5 border-t border-slate-100 flex items-center justify-between text-xs text-slate-500 flex-wrap gap-2">
+            <div className="flex items-center gap-1.5 flex-wrap">
+              <span className="font-bold text-slate-400 text-[11px] uppercase tracking-wider">
+                Filtres actifs :
+              </span>
+              {searchTerm && (
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-slate-100 text-slate-800 font-bold text-[11px] border border-slate-200">
+                  <span>Recherche: &quot;{searchTerm}&quot;</span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSearchTerm('');
+                      setCurrentPage(1);
+                    }}
+                    className="hover:text-rose-600 cursor-pointer"
+                  >
+                    <X className="w-3 h-3" />
+                  </button>
+                </span>
+              )}
+              {filterStatus !== 'ALL' && (
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-blue-50 text-blue-800 font-bold text-[11px] border border-blue-200">
+                  <span>Statut: {filterStatus}</span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setFilterStatus('ALL');
+                      setCurrentPage(1);
+                    }}
+                    className="hover:text-blue-950 cursor-pointer"
+                  >
+                    <X className="w-3 h-3" />
+                  </button>
+                </span>
+              )}
+              {filterTech !== 'ALL' && (
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-indigo-50 text-indigo-700 font-bold text-[11px] border border-indigo-200">
+                  <span>Tech: {filterTech}</span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setFilterTech('ALL');
+                      setCurrentPage(1);
+                    }}
+                    className="hover:text-indigo-900 cursor-pointer"
+                  >
+                    <X className="w-3 h-3" />
+                  </button>
+                </span>
+              )}
+              {filterMachine !== 'ALL' && (
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-amber-50 text-amber-700 font-bold text-[11px] border border-amber-200">
+                  <span>Machine: {filterMachine}</span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setFilterMachine('ALL');
+                      setCurrentPage(1);
+                    }}
+                    className="hover:text-amber-900 cursor-pointer"
+                  >
+                    <X className="w-3 h-3" />
+                  </button>
+                </span>
+              )}
+              {filterTypePanne !== 'ALL' && (
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-cyan-50 text-cyan-700 font-bold text-[11px] border border-cyan-200">
+                  <span>Type: {filterTypePanne}</span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setFilterTypePanne('ALL');
+                      setCurrentPage(1);
+                    }}
+                    className="hover:text-cyan-900 cursor-pointer"
+                  >
+                    <X className="w-3 h-3" />
+                  </button>
+                </span>
+              )}
+            </div>
+
+            <button
+              type="button"
+              onClick={clearAllFilters}
+              className="text-slate-400 hover:text-rose-600 font-semibold text-[11px] transition cursor-pointer flex items-center gap-1"
+            >
+              <RotateCcw className="w-3 h-3" />
+              <span>Tout effacer</span>
+            </button>
+          </div>
+        )}
+      </div>
+
+      {/* 3. Unified Dual-Mode Industrial Data Grid (Excel Table ⇄ Operational Cards) */}
+      <GmaoIndustrialDataGrid
+        title="Tableau Bons_de_Travail • Ordre Excel Row 3 : B → L"
+        icon={<FileSpreadsheet className="w-4 h-4 text-blue-600" />}
+        excelMapping="N° | N° BT (B) | Machine (A) | Intervenant (D) | Type (I) | Anomalie (J) | Travail (K) | PDR (L) | Statut | Action"
+        bannerColor="blue"
+        columns={btColumns}
+        data={displayedBts}
+        sortField={sortField}
+        sortOrder={sortOrder}
+        onSort={toggleSort}
+        renderSortIcon={renderSortIcon}
+        startIndex={startIndex}
+        showRowNumber={true}
+        cardGridClassName="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4"
+        renderCard={(bt, _idx, rowNumber) => {
+          const isClosed = bt.statut === 'CLOTURE';
+          const isWaitingPdr = bt.statut === 'EN_ATTENTE_PDR';
+          const isPendingVal = bt.validation_status === 'PENDING_VALIDATION';
+          const isRejectedVal = bt.validation_status === 'REJECTED';
+          const isClarif = bt.validation_status === 'NEEDS_CLARIFICATION' || isRejectedVal;
+          const pdrObj = resolvePdrDisplay(bt);
+          const linkedInternal = getLinkedWorkshopOrdersForIntervention(bt, workshopOrders);
+          const primaryInternal = linkedInternal[0] || null;
+          const workshopCode = primaryInternal?.code_bon || bt.code_bon_atelier || '';
+
+          return (
+            <div
+              key={bt.id || rowNumber}
+              className="bg-white rounded-2xl border border-slate-200/90 p-4 shadow-2xs hover:shadow-md transition-all flex flex-col justify-between group"
+            >
+              <div className="space-y-3">
+                {/* Card Header: Num BT + Machine + Status */}
+                <div className="flex items-start justify-between gap-2">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <span className="px-2.5 py-1 rounded-xl bg-blue-50 text-blue-900 border border-blue-200 font-mono font-black text-xs shadow-2xs">
+                      {bt.num_bt || `BT-${rowNumber}`}
+                    </span>
+                    <span className="px-2 py-0.5 rounded-lg bg-slate-100 text-slate-800 border border-slate-200 font-mono font-bold text-xs truncate">
+                      {bt.code_machine}
+                    </span>
+                  </div>
+
+                  <span className="px-2 py-0.5 rounded font-mono font-bold text-[10px] bg-slate-100 text-slate-700 border border-slate-200 shrink-0">
+                    Type {bt.type_panne || 'M'}
+                  </span>
+                </div>
+
+                {/* Technician & Anomaly */}
+                <div className="p-2.5 rounded-xl bg-slate-50 border border-slate-200/70 space-y-1.5">
+                  <div className="flex items-center justify-between gap-2 text-[11px]">
+                    <span className="flex items-center gap-1 font-bold text-slate-700 truncate">
+                      <User className="w-3.5 h-3.5 text-blue-600 shrink-0" />
+                      <span className="truncate">{resolveTechNom(bt)}</span>
+                    </span>
+                    <span className="font-mono text-[10px] text-slate-400 shrink-0">
+                      {bt.date_demande || bt.date || '—'}
+                    </span>
+                  </div>
+
+                  <div className="font-black text-slate-900 text-xs leading-snug line-clamp-2" title={bt.anomalie}>
+                    {bt.anomalie || t('corrective.common.unspecified', '—')}
+                  </div>
+
+                  <div className="text-[11px] text-slate-600 line-clamp-2">
+                    {bt.travail_a_faire || bt.action_realisee || 'Intervention standard'}
+                  </div>
+                </div>
+
+                {/* PDR & Linked Workshop Badges */}
+                {(pdrObj || workshopCode) && (
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    {pdrObj && (
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-cyan-50 text-cyan-800 border border-cyan-200 text-[10.5px] font-mono font-bold">
+                        <Package className="w-3 h-3 text-cyan-600 shrink-0" />
+                        <span className="truncate">{pdrObj.ref}</span>
+                      </span>
+                    )}
+                    {workshopCode && (
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-amber-50 text-amber-900 border border-amber-300 text-[10.5px] font-mono font-bold">
+                        <Wrench className="w-3 h-3 text-amber-600 shrink-0" />
+                        <span>Atelier: {workshopCode}</span>
+                      </span>
+                    )}
+                  </div>
+                )}
+              </div>
+
+              {/* Card Footer: Status Badge & Direct Action */}
+              <div className="mt-3.5 pt-3 border-t border-slate-100 flex items-center justify-between gap-2 flex-wrap">
+                <div>
+                  {isClosed || isPendingVal || isClarif ? (
+                    <ValidationStatusBadge record={bt} compact />
+                  ) : isWaitingPdr ? (
+                    <span className="px-2.5 py-1 rounded-full font-bold text-[10px] bg-amber-100 text-amber-900 border border-amber-300 font-mono">
+                      {workshopCode ? 'ATTENTE ATELIER' : 'ATTENTE PDR'}
+                    </span>
+                  ) : (
+                    <span className="px-2.5 py-1 rounded-full font-bold text-[10px] bg-blue-100 text-blue-900 border border-blue-300 font-mono">
+                      EN COURS
+                    </span>
+                  )}
+                </div>
+
+                <div className="flex items-center gap-1.5">
+                  {!isClosed && canValidateBt && isPendingVal && (
+                    <button
+                      type="button"
+                      onClick={() => openReviewModal(bt)}
+                      className="px-2.5 py-1.5 rounded-xl bg-purple-600 hover:bg-purple-700 text-white font-bold text-xs transition flex items-center gap-1 cursor-pointer shadow-2xs active:scale-95"
+                    >
+                      <ShieldCheck className="w-3.5 h-3.5" />
+                      <span>Valider</span>
+                    </button>
+                  )}
+
+                  {!isClosed && canExecuteBt && (
+                    <button
+                      type="button"
+                      onClick={() => handleStartLiveIntervention(bt)}
+                      className="px-2.5 py-1.5 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs transition flex items-center gap-1 cursor-pointer shadow-2xs active:scale-95"
+                    >
+                      <Play className="w-3.5 h-3.5 fill-current" />
+                      <span>{isWaitingPdr ? 'Reprendre' : 'Chrono Live'}</span>
+                    </button>
+                  )}
+
+                  {isClosed && (
+                    <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-900 font-mono font-bold text-xs">
+                      <CheckCircle className="w-3 h-3 text-emerald-600" />
+                      {bt.temps_intervention_calc || bt.temps_intervention || '00:00'}
+                    </span>
+                  )}
+                </div>
+              </div>
+            </div>
+          );
+        }}
+        emptyIcon={<Wrench className="w-8 h-8 text-slate-300" />}
+        emptyMessage="Aucun Bon de Travail (BT) trouvé pour les filtres sélectionnés."
+        pagination={{
+          currentPage,
+          setCurrentPage,
+          pageSize,
+          setPageSize,
+          totalItems,
+          pageSizeOptions: [20, 25, 50, 100, 200, 0],
+          color: 'blue',
+          itemLabel: 'bons',
+        }}
+      />
+
+      {/* Admin Maker-Checker Review & Validation Modal */}
+      <BtValidationReviewModal
+        reviewModalBt={reviewModalBt}
+        setReviewModalBt={setReviewModalBt}
+        resolveTechNom={resolveTechNom}
+        reviewReconciliation={reviewReconciliation}
+        reviewNature={reviewNature}
+        setReviewNature={setReviewNature}
+        reviewActionRealisee={reviewActionRealisee}
+        setReviewActionRealisee={setReviewActionRealisee}
+        reviewPieces={reviewPieces}
+        setReviewPieces={setReviewPieces}
+        stockItems={stockItems}
+        reviewSkipStockDeduction={reviewSkipStockDeduction}
+        setReviewSkipStockDeduction={setReviewSkipStockDeduction}
+        sortiesExterne={sortiesExterne}
+        handleMarkSortieReturned={handleMarkSortieReturned}
+        showToast={showToast}
+        reviewNote={reviewNote}
+        setReviewNote={setReviewNote}
+        handleReviewDecision={handleReviewDecision}
+      />
+    </div>
+  );
+}

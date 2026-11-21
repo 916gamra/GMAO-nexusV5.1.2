@@ -1,0 +1,128 @@
+[
+  {
+    "id_type": "TYP-RLM-BILLE",
+    "libelle": "Roulement à billes",
+    "id_group": "GRP-ROUL",
+    "is_active": true
+  },
+  {
+    "id_type": "TYP-RLM-ROUL",
+    "libelle": "Roulement à rouleaux",
+    "id_group": "GRP-ROUL",
+    "is_active": true
+  },
+  {
+    "id_type": "TYP-PALIER",
+    "libelle": "Palier complet",
+    "id_group": "GRP-ROUL",
+    "is_active": true
+  },
+  {
+    "id_type": "TYP-JNT-TOR",
+    "libelle": "Joint torique",
+    "id_group": "GRP-ETAN",
+    "is_active": true
+  },
+  {
+    "id_type": "TYP-JNT-SPI",
+    "libelle": "Joint à lèvre (SPI)",
+    "id_group": "GRP-ETAN",
+    "is_active": true
+  },
+  {
+    "id_type": "TYP-GARN-ETAN",
+    "libelle": "Garniture & Ruban d'étanchéité",
+    "id_group": "GRP-ETAN",
+    "is_active": true
+  },
+  {
+    "id_type": "TYP-COURROIE",
+    "libelle": "Courroie trapézoïdale / synchrone",
+    "id_group": "GRP-TRAN",
+    "is_active": true
+  },
+  {
+    "id_type": "TYP-CHAINE",
+    "libelle": "Chaîne à rouleaux",
+    "id_group": "GRP-TRAN",
+    "is_active": true
+  },
+  {
+    "id_type": "TYP-ACCOUP",
+    "libelle": "Accouplement élastique",
+    "id_group": "GRP-TRAN",
+    "is_active": true
+  },
+  {
+    "id_type": "TYP-RACCORD",
+    "libelle": "Raccord pneumatique / hydraulique",
+    "id_group": "GRP-HYDR",
+    "is_active": true
+  },
+  {
+    "id_type": "TYP-DISTRIB",
+    "libelle": "Distributeur & Électrovanne",
+    "id_group": "GRP-HYDR",
+    "is_active": true
+  },
+  {
+    "id_type": "TYP-FILTRE-HYD",
+    "libelle": "Filtre & Ventouse pneumatique",
+    "id_group": "GRP-HYDR",
+    "is_active": true
+  },
+  {
+    "id_type": "TYP-CAPTEUR",
+    "libelle": "Capteur inductif & Fin de course",
+    "id_group": "GRP-ELEC",
+    "is_active": true
+  },
+  {
+    "id_type": "TYP-ALIM-ELEC",
+    "libelle": "Alimentation & Module électrique",
+    "id_group": "GRP-ELEC",
+    "is_active": true
+  },
+  {
+    "id_type": "TYP-VENTIL-ELEC",
+    "libelle": "Refroidissement & Radiateur armoire",
+    "id_group": "GRP-ELEC",
+    "is_active": true
+  },
+  {
+    "id_type": "TYP-VISSERIE",
+    "libelle": "Visserie CHC / TH",
+    "id_group": "GRP-FIXA",
+    "is_active": true
+  },
+  {
+    "id_type": "TYP-CHEVILLE",
+    "libelle": "Cheville & Goujon d'ancrage",
+    "id_group": "GRP-FIXA",
+    "is_active": true
+  },
+  {
+    "id_type": "TYP-GOUPILLE",
+    "libelle": "Circlips, Goupilles & Clavettes",
+    "id_group": "GRP-FIXA",
+    "is_active": true
+  },
+  {
+    "id_type": "TYP-OUTIL-COUPE",
+    "libelle": "Outillage de coupe & Pastilles",
+    "id_group": "GRP-DIV",
+    "is_active": true
+  },
+  {
+    "id_type": "TYP-PERCAGE",
+    "libelle": "Forets & Tarauds d'atelier",
+    "id_group": "GRP-DIV",
+    "is_active": true
+  },
+  {
+    "id_type": "TYP-CONSOM",
+    "libelle": "Consommable standard d'atelier",
+    "id_group": "GRP-DIV",
+    "is_active": true
+  }
+]

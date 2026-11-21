@@ -1,0 +1,1189 @@
+import { useState, useEffect, useMemo } from 'react';
+import {
+  QrCode,
+  Printer,
+  Smartphone,
+  Wrench,
+  ShieldCheck,
+  AlertTriangle,
+  CheckCircle2,
+  X,
+  Copy,
+  Check,
+  MapPin,
+  Factory,
+  Clock,
+  Layers,
+  Package,
+  ExternalLink,
+  Hash,
+  Zap,
+} from 'lucide-react';
+import { networkConfigService } from '../../../../services/networkConfigService';
+import { useGmaoStore } from '../../../../store/useGmaoStore';
+import { useAuth } from '../../../../context/AuthContext';
+import { isTechnicianRole, getTechnicianDisplayName } from '../../../../core/security/technicianScope';
+import { getMachineAssetClass } from '../../../../utils/activeMachines';
+import {
+  computeMachineHealthPassport,
+  buildMachineActivityLedger,
+} from '../../../../application/services/MachineHealthPassportService';
+import type { IBlueprint, IMachine, IWarehouseItem } from '../../../../types/domain';
+import type {
+  CorrectiveInterventionItem,
+  MachineElement,
+  PreventiveTaskItem,
+} from '../../../../types/store';
+
+interface MachineQrFieldModalProps {
+  machine: IMachine | null;
+  initialMode?: 'ETIQUETTE' | 'FICHE_TERRAIN';
+  onClose: () => void;
+  onNavigateToPreventive?: (machineCode: string) => void;
+  onNavigateToQuickSortie?: (machine: IMachine) => void;
+  showToast?: (msg: string, type?: 'success' | 'error' | 'warning' | 'info') => void;
+}
+
+export default function MachineQrFieldModal({
+  machine,
+  initialMode = 'ETIQUETTE',
+  onClose,
+  onNavigateToPreventive,
+  onNavigateToQuickSortie,
+  showToast,
+}: MachineQrFieldModalProps) {
+  const { user } = useAuth();
+  const isTechUser = isTechnicianRole(user);
+
+  const technicians = useGmaoStore((s) => s.technicians) || [];
+  const preventiveTasks = useGmaoStore((s) => s.preventiveTasks) || [];
+  const preventiveExecutions = useGmaoStore((s) => s.preventiveExecutions) || [];
+  const correctiveInterventions = useGmaoStore((s) => s.correctiveInterventions) || [];
+  const sortiesExterne = useGmaoStore((s) => s.sortiesExterne) || [];
+  const warehouseItems = useGmaoStore((s) => s.warehouseItems) || [];
+  const machineElementsLedger = useGmaoStore((s) => s.machineElementsLedger) || [];
+  const blueprints = useGmaoStore((s) => s.blueprints) || [];
+  const generalSystemTypes = useGmaoStore((s) => s.generalSystemTypes) || [];
+  const handleAddDemandeIntervention = useGmaoStore((s) => s.handleAddDemandeIntervention);
+  const handleMarkTaskDone = useGmaoStore((s) => s.handleMarkTaskDone);
+  const handleSubmitInterventionForValidation = useGmaoStore(
+    (s) => s.handleSubmitInterventionForValidation
+  );
+  const handleClotureIntervention = useGmaoStore((s) => s.handleClotureIntervention);
+
+  const [mode, setMode] = useState<'ETIQUETTE' | 'FICHE_TERRAIN'>(initialMode);
+  const [activeFieldTab, setActiveFieldTab] = useState<
+    'SIGNALER_DI' | 'PREVENTIF_DU' | 'HISTORIQUE_BOM' | 'EXPRESS_3CLICS'
+  >('SIGNALER_DI');
+  const [expressSelectedBtId, setExpressSelectedBtId] = useState<string>('');
+  const [expressQuickAction, setExpressQuickAction] = useState<string>(
+    'Remplacement pièce & remise en service nominale'
+  );
+  const [expressClosedMsg, setExpressClosedMsg] = useState<string>('');
+  const [hostBaseUrl, setHostBaseUrl] = useState<string>(() => {
+    if (typeof window !== 'undefined' && window.location?.origin) {
+      return window.location.origin;
+    }
+    return 'http://192.168.1.100:3000';
+  });
+  const [copiedUrl, setCopiedUrl] = useState(false);
+
+  // DI quick form state
+  const defaultRequester = useMemo(
+    () => getTechnicianDisplayName(user, technicians) || user?.name || user?.nom || 'Opérateur Terrain',
+    [user, technicians]
+  );
+  const [diAnomalie, setDiAnomalie] = useState('');
+  const [diTravail, setDiTravail] = useState('');
+  const [diPriorite, setDiPriorite] = useState<'URGENTE' | 'HAUTE' | 'NORMALE'>('HAUTE');
+  const [diArretMachine, setDiArretMachine] = useState<'OUI' | 'NON'>('NON');
+  const [diDemandeur, setDiDemandeur] = useState(defaultRequester);
+  const [diSuccessMsg, setDiSuccessMsg] = useState('');
+
+  useEffect(() => {
+    setMode(initialMode);
+  }, [initialMode, machine?.id_machine_registered]);
+
+  useEffect(() => {
+    let mounted = true;
+    networkConfigService
+      .fetchNetworkHostInfo()
+      .then((info) => {
+        if (mounted && info?.urls?.desktop) {
+          setHostBaseUrl(info.urls.desktop);
+        }
+      })
+      .catch(() => {});
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  const machineCode = String(
+    machine?.id_machine_registered || machine?.id || machine?.code || ''
+  ).trim();
+  const assetClass = machine ? getMachineAssetClass(machine) : 'PRODUCTION';
+  const sysTypeObj = generalSystemTypes.find(
+    (t) => t.id === machine?.id_general_system_type
+  );
+
+  const qrUrl = `${hostBaseUrl.replace(/\/+$/, '')}/?machine_qr=${encodeURIComponent(
+    machineCode
+  )}`;
+  const qrMatrix = useMemo(
+    () => networkConfigService.generateQrMatrix(qrUrl),
+    [qrUrl]
+  );
+
+  // Machine Preventive Tasks
+  const machineTasks = useMemo(() => {
+    const codeUpper = machineCode.toUpperCase();
+    if (!codeUpper) return [];
+    return (preventiveTasks || []).filter(
+      (t: PreventiveTaskItem) => String(t.id_machine || t.code_machine || '').trim().toUpperCase() === codeUpper
+    );
+  }, [preventiveTasks, machineCode]);
+
+  const dueTasks = useMemo(
+    () =>
+      machineTasks.filter(
+        (t: PreventiveTaskItem) => t.etat !== 'Fait' && t.validation_status !== 'PENDING_VALIDATION'
+      ),
+    [machineTasks]
+  );
+
+  // Last 5 Corrective Interventions on this machine
+  const recentCorrective = useMemo(() => {
+    const codeUpper = machineCode.toUpperCase();
+    if (!codeUpper) return [];
+    return (correctiveInterventions || [])
+      .filter((ci: CorrectiveInterventionItem) => String(ci.code_machine || '').trim().toUpperCase() === codeUpper)
+      .slice(0, 5);
+  }, [correctiveInterventions, machineCode]);
+
+  // Open BTs on this machine eligible for 3-Click Express Workshop Closure
+  const openMachineBts = useMemo(() => {
+    const codeUpper = machineCode.toUpperCase();
+    if (!codeUpper) return [];
+    return (correctiveInterventions || []).filter((ci: CorrectiveInterventionItem) => {
+      const mMatch = String(ci.code_machine || '').trim().toUpperCase() === codeUpper;
+      if (!mMatch) return false;
+      const st = String(ci.statut || '').toUpperCase();
+      return (
+        st !== 'CLOTURE' &&
+        ci.validation_status !== 'PENDING_VALIDATION' &&
+        ci.validation_status !== 'APPROVED'
+      );
+    });
+  }, [correctiveInterventions, machineCode]);
+
+  // Idea 3: Passeport Santé Machine (12-Month TCO = Préventif + Correctif PDR + Bobinage Externe, Downtime & Recurrent Organ BER Alerts)
+  const healthPassport = useMemo(
+    () =>
+      computeMachineHealthPassport({
+        machine: machine || ({ id_machine_registered: '' } as IMachine),
+        correctiveInterventions,
+        preventiveExecutions,
+        sortiesExterne,
+      }),
+    [machine, correctiveInterventions, preventiveExecutions, sortiesExterne]
+  );
+
+  // Machine BOM & Attached Components/Parts
+  const machineComponentsAndBom = useMemo(() => {
+    const codeUpper = machineCode.toUpperCase();
+    const whAttached = codeUpper
+      ? (warehouseItems || []).filter(
+          (w: IWarehouseItem) =>
+            String(w.id_machine_registered || w.id_machine || '').trim().toUpperCase() === codeUpper
+        )
+      : [];
+    const ledgerAttached = codeUpper
+      ? (machineElementsLedger || []).filter(
+          (el: MachineElement) =>
+            String(el.id_machine_registered || el.id_machine || '').trim().toUpperCase() === codeUpper
+        )
+      : [];
+    const bpMatch = machine
+      ? (blueprints || []).find(
+          (bp: IBlueprint) =>
+            bp.id_blueprint === machine.id_blueprint ||
+            (machine.id_templates && bp.id_templates === machine.id_templates)
+        )
+      : undefined;
+    return {
+      whAttached,
+      ledgerAttached,
+      blueprint: bpMatch || null,
+    };
+  }, [warehouseItems, machineElementsLedger, blueprints, machine, machineCode]);
+
+  // B2: Unified Machine Activity & Audit Ledger (Official / Validated Truth Only)
+  const activityLedger = useMemo(
+    () =>
+      buildMachineActivityLedger({
+        machineOrId: machine || '',
+        correctiveInterventions,
+        preventiveExecutions,
+        sortiesExterne,
+        machineElementsLedger,
+        warehouseItems,
+      }),
+    [
+      machine,
+      correctiveInterventions,
+      preventiveExecutions,
+      sortiesExterne,
+      machineElementsLedger,
+      warehouseItems,
+    ]
+  );
+
+  if (!machine) return null;
+
+  const handleCopyUrl = () => {
+    navigator.clipboard?.writeText(qrUrl);
+    setCopiedUrl(true);
+    setTimeout(() => setCopiedUrl(false), 2000);
+  };
+
+  const handleSubmitQuickDi = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!diAnomalie.trim()) return;
+
+    if (typeof handleAddDemandeIntervention === 'function') {
+      handleAddDemandeIntervention({
+        code_machine: machineCode,
+        nom_machine: machine.designation || machineCode,
+        zone: machine.id_zone_default || machine.id_zone || 'Atelier',
+        anomalie: diAnomalie.trim(),
+        travail_a_faire:
+          diTravail.trim() ||
+          `Diagnostic et remise en état sur ${machineCode} (${diAnomalie.trim()})`,
+        priorite: diPriorite,
+        arret_machine: diArretMachine,
+        demandeur: diDemandeur || defaultRequester,
+        source: 'QR_TERRAIN_MOBILE',
+      });
+    }
+
+    setDiSuccessMsg(`Demande d'Intervention enregistrée pour ${machineCode} !`);
+    setDiAnomalie('');
+    setDiTravail('');
+    showToast?.(`DI créée via Fiche QR Terrain (${machineCode})`, 'success');
+    setTimeout(() => setDiSuccessMsg(''), 4000);
+  };
+
+  const handleQuickCompleteTask = (task: PreventiveTaskItem) => {
+    if (typeof handleMarkTaskDone !== 'function') return;
+    const shouldSubmitForValidation = isTechUser;
+
+    handleMarkTaskDone(task.id, {
+      date_realisation: new Date().toISOString().split('T')[0],
+      technicien: defaultRequester,
+      duree_reelle: task.duree_estimee || '15 min',
+      taux_horaire: 35,
+      observations: `[SCAN QR TERRAIN] Contrôle préventif ${task.action_code || 'C'} (${
+        task.composant || 'Équipement'
+      }) exécuté et conforme sur ${machineCode}.`,
+      usedPDR: [],
+      submitForValidation: shouldSubmitForValidation,
+      validation_status: shouldSubmitForValidation ? 'PENDING_VALIDATION' : 'APPROVED',
+      submitted_by_id: user?.personnelId || user?.id || '',
+      submitted_by_name: defaultRequester,
+      validated_by_id: shouldSubmitForValidation ? undefined : user?.id || 'admin',
+      validated_by_name: shouldSubmitForValidation ? undefined : defaultRequester,
+    });
+
+    showToast?.(
+      shouldSubmitForValidation
+        ? `Tâche ${task.composant} soumise pour validation responsable (Maker-Checker).`
+        : `Tâche ${task.composant} validée avec succès !`,
+      'success'
+    );
+  };
+
+  const handleExpress3ClickClose = () => {
+    const targetBt =
+      openMachineBts.find((b: CorrectiveInterventionItem) => String(b.id) === String(expressSelectedBtId)) ||
+      openMachineBts[0];
+    if (!targetBt) return;
+
+    const nowIso = new Date().toISOString();
+    const today = nowIso.slice(0, 10);
+    const timeNow = nowIso.slice(11, 16);
+    const reservedPieces = Array.isArray(targetBt.pieces_reservees)
+      ? targetBt.pieces_reservees
+      : [];
+
+    if (isTechUser && typeof handleSubmitInterventionForValidation === 'function') {
+      handleSubmitInterventionForValidation(String(targetBt.id), {
+        action_realisee: `[ATELIER EXPRESS QR 3-CLICS] ${expressQuickAction}`,
+        intervention_nature: reservedPieces.length > 0 ? 'REPLACE' : 'REPAIR',
+        pieces_proposees: reservedPieces,
+        date_fin_proposee: today,
+        heure_fin_proposee: timeNow,
+      });
+      setExpressClosedMsg(
+        `BT ${targetBt.num_bt || targetBt.id} soumis en 3 clics pour validation responsable !`
+      );
+      showToast?.(
+        `Atelier Express : BT ${targetBt.num_bt || targetBt.id} soumis en 3 clics !`,
+        'success'
+      );
+    } else if (typeof handleClotureIntervention === 'function') {
+      handleClotureIntervention(String(targetBt.id), {
+        action_realisee: `[ATELIER EXPRESS QR 3-CLICS] ${expressQuickAction}`,
+        pieces_utilisees: reservedPieces,
+        date_fin: today,
+        heure_fin: timeNow,
+        intervenant: defaultRequester,
+      });
+      setExpressClosedMsg(`BT ${targetBt.num_bt || targetBt.id} clôturé en 3 clics avec succès !`);
+      showToast?.(
+        `Atelier Express : BT ${targetBt.num_bt || targetBt.id} clôturé en 3 clics !`,
+        'success'
+      );
+    }
+    setTimeout(() => setExpressClosedMsg(''), 4000);
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-900/65 backdrop-blur-xs animate-in fade-in duration-150">
+      <div className="bg-white rounded-3xl border border-slate-200 shadow-2xl max-w-2xl w-full max-h-[92vh] flex flex-col overflow-hidden animate-in zoom-in-95 duration-150">
+        {/* Top Modal Header */}
+        <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between bg-slate-900 text-white shrink-0">
+          <div className="flex items-center gap-3 min-w-0">
+            <div className="w-10 h-10 rounded-2xl bg-cyan-500/20 border border-cyan-400/40 text-cyan-300 flex items-center justify-center shrink-0">
+              <QrCode className="w-5 h-5" />
+            </div>
+            <div className="min-w-0">
+              <div className="flex items-center gap-2">
+                <h3 className="text-sm sm:text-base font-black tracking-tight truncate">
+                  Passeport QR Offline & Fiche Terrain
+                </h3>
+                <span className="px-2 py-0.5 rounded-md text-[10px] font-mono font-bold bg-cyan-500/20 text-cyan-200 border border-cyan-400/30">
+                  {machineCode}
+                </span>
+              </div>
+              <p className="text-[11px] text-slate-300 truncate">{machine.designation}</p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2 shrink-0">
+            {/* Mode Switcher */}
+            <div className="flex bg-slate-800 p-1 rounded-xl border border-slate-700 text-xs">
+              <button
+                type="button"
+                onClick={() => setMode('ETIQUETTE')}
+                className={`px-2.5 py-1 rounded-lg font-bold flex items-center gap-1.5 transition cursor-pointer ${
+                  mode === 'ETIQUETTE'
+                    ? 'bg-cyan-500 text-slate-950 shadow-xs'
+                    : 'text-slate-300 hover:text-white'
+                }`}
+              >
+                <QrCode className="w-3.5 h-3.5" />
+                <span>Étiquette QR</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setMode('FICHE_TERRAIN')}
+                className={`px-2.5 py-1 rounded-lg font-bold flex items-center gap-1.5 transition cursor-pointer ${
+                  mode === 'FICHE_TERRAIN'
+                    ? 'bg-emerald-500 text-slate-950 shadow-xs'
+                    : 'text-slate-300 hover:text-white'
+                }`}
+              >
+                <Smartphone className="w-3.5 h-3.5" />
+                <span>Fiche Mobile</span>
+              </button>
+            </div>
+
+            <button
+              type="button"
+              onClick={onClose}
+              className="w-8 h-8 rounded-xl bg-white/10 hover:bg-white/20 text-white flex items-center justify-center transition cursor-pointer"
+              title="Fermer"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+        </div>
+
+        {/* ===================================================================== */}
+        {/* MODE 1: ÉTIQUETTE QR INDUSTRIELLE (IMPRESSION OFFLINE LAN) */}
+        {/* ===================================================================== */}
+        {mode === 'ETIQUETTE' ? (
+          <div className="p-5 sm:p-6 overflow-y-auto space-y-5 text-xs">
+            {/* Printable Sticker Container */}
+            <div className="mx-auto max-w-md bg-white rounded-3xl border-2 border-slate-900 p-5 shadow-lg space-y-4">
+              <div className="flex items-center justify-between pb-3 border-b-2 border-slate-900">
+                <div>
+                  <span className="text-[10px] font-black uppercase tracking-widest text-slate-500 block">
+                    CIOB GMAO Nexus v5.0.2 • IDENTIFICATION ACTIF
+                  </span>
+                  <span className="text-xl font-black font-mono text-slate-950 tracking-tight">
+                    {machineCode}
+                  </span>
+                </div>
+                <span
+                  className={`px-2.5 py-1 rounded-xl text-[10px] font-black uppercase border ${
+                    assetClass === 'SYSTEM_GENERAL'
+                      ? 'bg-amber-50 text-amber-900 border-amber-300'
+                      : 'bg-emerald-50 text-emerald-900 border-emerald-300'
+                  }`}
+                >
+                  {assetClass === 'SYSTEM_GENERAL'
+                    ? sysTypeObj
+                      ? `SYS • ${sysTypeObj.code || sysTypeObj.name}`
+                      : 'Système Général'
+                    : 'Production'}
+                </span>
+              </div>
+
+              <div className="flex flex-col sm:flex-row items-center gap-4">
+                {/* Offline Deterministic SVG QR Code */}
+                <div className="p-2.5 bg-white rounded-2xl border-2 border-slate-900 shrink-0 shadow-xs">
+                  <svg
+                    viewBox={`0 0 ${qrMatrix.length} ${qrMatrix.length}`}
+                    className="w-32 h-32"
+                    shapeRendering="crispEdges"
+                    aria-label={`QR Code ${machineCode}`}
+                  >
+                    <rect width={qrMatrix.length} height={qrMatrix.length} fill="#ffffff" />
+                    {qrMatrix.map((row, rIdx) =>
+                      row.map((cell, cIdx) =>
+                        cell ? (
+                          <rect
+                            key={`${rIdx}-${cIdx}`}
+                            x={cIdx}
+                            y={rIdx}
+                            width={1}
+                            height={1}
+                            fill="#0f172a"
+                          />
+                        ) : null
+                      )
+                    )}
+                  </svg>
+                </div>
+
+                {/* Metadata */}
+                <div className="flex-1 space-y-2 text-center sm:text-left min-w-0">
+                  <div>
+                    <span className="text-[10px] font-bold text-slate-400 uppercase block">
+                      Désignation Équipement
+                    </span>
+                    <span className="text-sm font-black text-slate-900 block leading-snug">
+                      {machine.designation}
+                    </span>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-2 pt-1">
+                    <div className="p-2 rounded-xl bg-slate-50 border border-slate-200">
+                      <span className="text-[9.5px] font-bold text-slate-400 uppercase block">
+                        Zone / Secteur
+                      </span>
+                      <span className="font-mono font-bold text-slate-800 text-xs flex items-center justify-center sm:justify-start gap-1">
+                        <MapPin className="w-3 h-3 text-purple-600 shrink-0" />
+                        {machine.id_zone_default || machine.id_zone || 'Atelier'}
+                      </span>
+                    </div>
+                    <div className="p-2 rounded-xl bg-slate-50 border border-slate-200">
+                      <span className="text-[9.5px] font-bold text-slate-400 uppercase block">
+                        Statut
+                      </span>
+                      <span className="font-bold text-emerald-800 text-xs">
+                        {machine.status || 'En Service'}
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="text-[10px] text-slate-500 font-medium pt-1">
+                    Scannez sur le Wi-Fi usine pour déclarer une DI, valider le préventif ou voir le BOM.
+                  </div>
+                </div>
+              </div>
+
+              <div className="pt-2.5 border-t border-slate-200 flex items-center justify-between gap-2 text-[10px] font-mono text-slate-500">
+                <span className="truncate">{qrUrl}</span>
+                <button
+                  type="button"
+                  onClick={handleCopyUrl}
+                  className="px-2 py-1 rounded bg-slate-100 hover:bg-slate-200 text-slate-700 font-sans font-bold flex items-center gap-1 shrink-0 cursor-pointer"
+                >
+                  {copiedUrl ? <Check className="w-3 h-3 text-emerald-600" /> : <Copy className="w-3 h-3" />}
+                  <span>{copiedUrl ? 'Copié' : 'Copier'}</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Action Buttons */}
+            <div className="flex flex-wrap items-center justify-between gap-2.5 pt-2 border-t border-slate-100">
+              <button
+                type="button"
+                onClick={() => setMode('FICHE_TERRAIN')}
+                className="px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs flex items-center gap-2 shadow-xs transition cursor-pointer"
+              >
+                <Smartphone className="w-4 h-4" />
+                <span>Simuler le Scan Terrain (Ouvrir Fiche Mobile)</span>
+              </button>
+
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => window.print()}
+                  className="px-4 py-2.5 rounded-xl bg-slate-900 hover:bg-black text-white font-black text-xs flex items-center gap-2 shadow-xs transition cursor-pointer"
+                >
+                  <Printer className="w-4 h-4" />
+                  <span>Imprimer l&apos;Étiquette QR</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        ) : (
+          /* ===================================================================== */
+          /* MODE 2: FICHE TERRAIN MOBILE (3 ACTIONS RAPIDES) */
+          /* ===================================================================== */
+          <div className="flex-1 flex flex-col min-h-0 overflow-hidden text-xs">
+            {/* 4 Quick Action Tabs (including 3-Click Express Workshop Mode) */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5 p-3 bg-slate-100 border-b border-slate-200 shrink-0">
+              <button
+                type="button"
+                onClick={() => setActiveFieldTab('SIGNALER_DI')}
+                className={`py-2.5 px-2 rounded-xl font-black text-xs flex flex-col sm:flex-row items-center justify-center gap-1.5 transition cursor-pointer ${
+                  activeFieldTab === 'SIGNALER_DI'
+                    ? 'bg-rose-600 text-white shadow-xs'
+                    : 'bg-white text-slate-700 hover:bg-rose-50 border border-slate-200/80'
+                }`}
+              >
+                <AlertTriangle className="w-4 h-4 shrink-0" />
+                <span>1. Signaler DI</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setActiveFieldTab('EXPRESS_3CLICS')}
+                data-testid="qr-express-3clics-tab"
+                className={`py-2.5 px-2 rounded-xl font-black text-xs flex flex-col sm:flex-row items-center justify-center gap-1.5 transition cursor-pointer ${
+                  activeFieldTab === 'EXPRESS_3CLICS'
+                    ? 'bg-amber-500 text-slate-950 shadow-xs'
+                    : 'bg-white text-slate-700 hover:bg-amber-50 border border-slate-200/80'
+                }`}
+              >
+                <Zap className="w-4 h-4 shrink-0" />
+                <span>⚡ Close 3 Clics ({openMachineBts.length})</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setActiveFieldTab('PREVENTIF_DU')}
+                className={`py-2.5 px-2 rounded-xl font-black text-xs flex flex-col sm:flex-row items-center justify-center gap-1.5 transition cursor-pointer ${
+                  activeFieldTab === 'PREVENTIF_DU'
+                    ? 'bg-indigo-600 text-white shadow-xs'
+                    : 'bg-white text-slate-700 hover:bg-indigo-50 border border-slate-200/80'
+                }`}
+              >
+                <ShieldCheck className="w-4 h-4 shrink-0" />
+                <span>2. Préventif ({dueTasks.length})</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setActiveFieldTab('HISTORIQUE_BOM')}
+                className={`py-2.5 px-2 rounded-xl font-black text-xs flex flex-col sm:flex-row items-center justify-center gap-1.5 transition cursor-pointer ${
+                  activeFieldTab === 'HISTORIQUE_BOM'
+                    ? 'bg-teal-700 text-white shadow-xs'
+                    : 'bg-white text-slate-700 hover:bg-teal-50 border border-slate-200/80'
+                }`}
+              >
+                <Layers className="w-4 h-4 shrink-0" />
+                <span>3. Journal ({activityLedger.length})</span>
+              </button>
+            </div>
+
+            {/* Tab Content */}
+            <div className="flex-1 overflow-y-auto p-4 sm:p-5 space-y-4">
+              {/* IDEA 3: PASSEPORT SANTÉ MACHINE (12 MOIS) & ALERTE TCO / BER */}
+              <div
+                data-testid="machine-health-passport-banner"
+                className="p-3.5 rounded-2xl bg-slate-900 text-white border border-slate-800 space-y-2.5 shadow-sm"
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-2">
+                    <span className="text-[10.5px] font-black uppercase tracking-wider text-cyan-300">
+                      Passeport Santé 12 Mois (TCO & BER)
+                    </span>
+                  </div>
+                  <span
+                    className={`px-2 py-0.5 rounded-full text-[10px] font-mono font-black ${
+                      healthPassport.healthStatus === 'CRITIQUE_BER'
+                        ? 'bg-rose-500/20 text-rose-300 border border-rose-500/40'
+                        : healthPassport.healthStatus === 'SURVEILLANCE'
+                        ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40'
+                        : 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40'
+                    }`}
+                  >
+                    {healthPassport.healthStatus === 'CRITIQUE_BER'
+                      ? `ALERTE BER • ${healthPassport.healthScore}/100`
+                      : healthPassport.healthStatus === 'SURVEILLANCE'
+                      ? `SURVEILLANCE • ${healthPassport.healthScore}/100`
+                      : `ÉTAT SAIN • ${healthPassport.healthScore}/100`}
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-3 gap-2 text-center">
+                  <div className="p-2 rounded-xl bg-slate-950/90 border border-slate-800">
+                    <div className="text-[9.5px] text-slate-400 font-bold uppercase">
+                      Coût Total 12M
+                    </div>
+                    <div className="text-xs sm:text-sm font-black font-mono text-emerald-400">
+                      {healthPassport.totalMaintenanceCost12m.toLocaleString('fr-FR')} DH
+                    </div>
+                    <div className="text-[9px] text-slate-500 font-mono">
+                      Corr: {healthPassport.correctivePdrCost12m} | Prév: {healthPassport.preventiveTotalCost12m}
+                      {healthPassport.externalBobinageCost12m > 0
+                        ? ` | Bob: ${healthPassport.externalBobinageCost12m}`
+                        : ''}
+                    </div>
+                  </div>
+                  <div className="p-2 rounded-xl bg-slate-950/90 border border-slate-800">
+                    <div className="text-[9.5px] text-slate-400 font-bold uppercase">
+                      Arrêts Cumulés 12M
+                    </div>
+                    <div className="text-xs sm:text-sm font-black font-mono text-amber-400">
+                      {healthPassport.totalDowntimeHours12m} h
+                    </div>
+                    <div className="text-[9px] text-slate-500 font-mono">
+                      {healthPassport.correctiveCount12m} pannes / {healthPassport.preventiveCount12m} PM
+                    </div>
+                  </div>
+                  <div className="p-2 rounded-xl bg-slate-950/90 border border-slate-800">
+                    <div className="text-[9.5px] text-slate-400 font-bold uppercase">
+                      Organes Récurrents
+                    </div>
+                    <div
+                      className={`text-xs sm:text-sm font-black font-mono ${
+                        healthPassport.recurrentOrganAlerts.length > 0
+                          ? 'text-rose-400'
+                          : 'text-slate-300'
+                      }`}
+                    >
+                      {healthPassport.recurrentOrganAlerts.length} alerte(s)
+                    </div>
+                    <div className="text-[9px] text-slate-500 font-mono">Seuil: ≥3 pannes</div>
+                  </div>
+                </div>
+
+                {healthPassport.recurrentOrganAlerts.length > 0 && (
+                  <div className="space-y-1.5 pt-1">
+                    {healthPassport.recurrentOrganAlerts.map((alert) => (
+                      <div
+                        key={alert.organKey}
+                        data-testid={`ber-organ-alert-${alert.organKey}`}
+                        className="p-2.5 rounded-xl bg-rose-950/70 border border-rose-700/80 text-[11px] text-rose-100 flex items-start gap-2"
+                      >
+                        <AlertTriangle className="w-4 h-4 text-rose-400 shrink-0 mt-0.5" />
+                        <div className="min-w-0">
+                          <div className="font-black text-rose-200">
+                            Alerte Récurrence / BER : {alert.organLabel} ({alert.count12m}× sur 12m)
+                          </div>
+                          <div className="text-[10.5px] text-rose-100/90">
+                            {alert.recommendation}
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* TAB 1: SIGNALER UNE PANNE (NOUVELLE DI) */}
+              {activeFieldTab === 'SIGNALER_DI' && (
+                <form onSubmit={handleSubmitQuickDi} className="space-y-3.5">
+                  <div className="p-3 rounded-2xl bg-slate-50 border border-slate-200 flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <Factory className="w-4 h-4 text-slate-600" />
+                      <span className="font-bold text-slate-900">
+                        Équipement pré-rempli : <b className="font-mono text-rose-700">{machineCode}</b>
+                      </span>
+                    </div>
+                    <span className="px-2 py-0.5 rounded bg-purple-50 text-purple-800 border border-purple-200 font-mono text-[10.5px] font-bold">
+                      Zone: {machine.id_zone_default || machine.id_zone || 'Atelier'}
+                    </span>
+                  </div>
+
+                  {diSuccessMsg && (
+                    <div className="p-3 rounded-2xl bg-emerald-50 border border-emerald-300 text-emerald-900 font-bold flex items-center gap-2">
+                      <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                      <span>{diSuccessMsg}</span>
+                    </div>
+                  )}
+
+                  <div>
+                    <label className="text-[11px] font-bold text-slate-700 uppercase block mb-1">
+                      Anomalie / Symptôme constaté *
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      value={diAnomalie}
+                      onChange={(e) => setDiAnomalie(e.target.value)}
+                      placeholder="Ex: Bruit anormal roulement, fuite hydraulique, arrêt capteur..."
+                      className="w-full h-10 px-3 rounded-xl border border-slate-200 bg-white text-xs font-semibold focus:border-rose-500 outline-none"
+                    />
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="text-[11px] font-bold text-slate-700 uppercase block mb-1">
+                        Urgence / Priorité
+                      </label>
+                      <select
+                        value={diPriorite}
+                        onChange={(e) => setDiPriorite(e.target.value as 'URGENTE' | 'HAUTE' | 'NORMALE')}
+                        className="w-full h-10 px-3 rounded-xl border border-slate-200 bg-white text-xs font-bold"
+                      >
+                        <option value="URGENTE">🔴 URGENTE</option>
+                        <option value="HAUTE">🟠 HAUTE</option>
+                        <option value="NORMALE">🔵 NORMALE</option>
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="text-[11px] font-bold text-slate-700 uppercase block mb-1">
+                        Machine à l&apos;arrêt ?
+                      </label>
+                      <select
+                        value={diArretMachine}
+                        onChange={(e) => setDiArretMachine(e.target.value as 'OUI' | 'NON')}
+                        className="w-full h-10 px-3 rounded-xl border border-slate-200 bg-white text-xs font-bold"
+                      >
+                        <option value="NON">NON (En marche dégradée)</option>
+                        <option value="OUI">OUI (Arrêt de production)</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="text-[11px] font-bold text-slate-700 uppercase block mb-1">
+                      Observations / Travail demandé
+                    </label>
+                    <textarea
+                      rows={2}
+                      value={diTravail}
+                      onChange={(e) => setDiTravail(e.target.value)}
+                      placeholder="Précisions pour l'équipe de maintenance..."
+                      className="w-full p-3 rounded-xl border border-slate-200 bg-white text-xs focus:border-rose-500 outline-none"
+                    />
+                  </div>
+
+                  <div className="flex items-center justify-between gap-3 pt-2">
+                    {onNavigateToQuickSortie && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          onClose();
+                          onNavigateToQuickSortie(machine);
+                        }}
+                        className="px-3.5 py-2.5 rounded-xl border border-slate-200 bg-slate-50 hover:bg-slate-100 text-slate-700 font-bold text-xs flex items-center gap-1.5 cursor-pointer"
+                      >
+                        <Wrench className="w-3.5 h-3.5 text-emerald-600" />
+                        <span>Sortie PDR Directe</span>
+                      </button>
+                    )}
+
+                    <button
+                      type="submit"
+                      className="ml-auto px-5 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-black text-xs shadow-md flex items-center gap-2 cursor-pointer"
+                    >
+                      <AlertTriangle className="w-4 h-4" />
+                      <span>Envoyer la Demande d&apos;Intervention (DI)</span>
+                    </button>
+                  </div>
+                </form>
+              )}
+
+              {/* TAB 2: EXÉCUTER LES TÂCHES PRÉVENTIVES DUES */}
+              {activeFieldTab === 'PREVENTIF_DU' && (
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <span className="font-bold text-slate-800 uppercase text-[11px] tracking-wider">
+                      Opérations Préventives sur {machineCode} ({machineTasks.length})
+                    </span>
+                    {onNavigateToPreventive && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          onClose();
+                          onNavigateToPreventive(machineCode);
+                        }}
+                        className="text-xs font-bold text-indigo-700 hover:text-indigo-900 flex items-center gap-1 cursor-pointer"
+                      >
+                        <ExternalLink className="w-3.5 h-3.5" />
+                        <span>Ouvrir Planning Complet</span>
+                      </button>
+                    )}
+                  </div>
+
+                  {machineTasks.length === 0 ? (
+                    <div className="p-6 text-center bg-slate-50 rounded-2xl border border-dashed border-slate-200 text-slate-500">
+                      Aucune gamme préventive planifiée sur {machineCode}.
+                    </div>
+                  ) : (
+                    <div className="space-y-2">
+                      {machineTasks.map((t: PreventiveTaskItem) => {
+                        const isDone = t.etat === 'Fait';
+                        const isPending = t.validation_status === 'PENDING_VALIDATION';
+                        return (
+                          <div
+                            key={t.id}
+                            className="p-3 rounded-2xl border border-slate-200 bg-white flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 shadow-2xs"
+                          >
+                            <div className="min-w-0">
+                              <div className="flex items-center gap-2">
+                                <span className="px-2 py-0.5 rounded font-mono font-bold bg-indigo-50 text-indigo-800 border border-indigo-200 text-[10.5px]">
+                                  {t.action_code || 'C'}
+                                </span>
+                                <span className="font-bold text-slate-900">{t.composant}</span>
+                                <span className="text-[10px] font-mono text-slate-500">
+                                  ({t.frequence || 'Mensuel'})
+                                </span>
+                              </div>
+                              <p className="text-[11px] text-slate-500 mt-0.5">
+                                {String(t.consigne || t.type_intervention || 'Contrôle préventif standard')}
+                              </p>
+                            </div>
+
+                            <div className="flex items-center gap-2 shrink-0 self-end sm:self-center">
+                              {isPending ? (
+                                <span className="px-2.5 py-1 rounded-xl bg-purple-50 text-purple-800 border border-purple-200 font-bold text-[10.5px]">
+                                  En attente validation
+                                </span>
+                              ) : isDone ? (
+                                <span className="px-2.5 py-1 rounded-xl bg-emerald-50 text-emerald-800 border border-emerald-200 font-bold text-[10.5px] flex items-center gap-1">
+                                  <CheckCircle2 className="w-3.5 h-3.5" />
+                                  <span>Fait</span>
+                                </span>
+                              ) : (
+                                <button
+                                  type="button"
+                                  onClick={() => handleQuickCompleteTask(t)}
+                                  className="px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs flex items-center gap-1.5 shadow-2xs cursor-pointer"
+                                >
+                                  <CheckCircle2 className="w-3.5 h-3.5" />
+                                  <span>Valider Conforme</span>
+                                </button>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* TAB 3: DERNIÈRES PANNES & ORGANES / BOM */}
+              {activeFieldTab === 'HISTORIQUE_BOM' && (
+                <div className="space-y-4">
+                  {/* Last 5 Breakdowns */}
+                  <div className="space-y-2">
+                    <h4 className="text-[11px] font-black uppercase tracking-wider text-slate-700 flex items-center gap-1.5">
+                      <Clock className="w-3.5 h-3.5 text-rose-600" />
+                      <span>5 Dernières Interventions Correctives ({recentCorrective.length})</span>
+                    </h4>
+                    {recentCorrective.length === 0 ? (
+                      <div className="p-4 text-center bg-slate-50 rounded-xl border border-dashed border-slate-200 text-slate-400">
+                        Aucun historique de panne enregistré sur {machineCode}.
+                      </div>
+                    ) : (
+                      <div className="space-y-1.5">
+                        {recentCorrective.map((ci: CorrectiveInterventionItem, idx: number) => (
+                          <div
+                            key={ci.id || idx}
+                            className="p-2.5 rounded-xl bg-slate-50 border border-slate-200 flex items-center justify-between gap-2"
+                          >
+                            <div className="min-w-0">
+                              <div className="flex items-center gap-1.5">
+                                <span className="font-mono font-bold text-rose-700">
+                                  {ci.num_bt || ci.id}
+                                </span>
+                                <span className="font-bold text-slate-900 truncate">
+                                  {ci.anomalie || ci.travail_a_faire}
+                                </span>
+                              </div>
+                              {ci.action_realisee && (
+                                <p className="text-[10.5px] text-slate-500 truncate">
+                                  Action: {ci.action_realisee}
+                                </p>
+                              )}
+                            </div>
+                            <span className="font-mono text-[10px] text-slate-500 shrink-0">
+                              {String(ci.date_demande || ci.date_fin || '—')}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Attached Components & BOM */}
+                  <div className="space-y-2 pt-2 border-t border-slate-100">
+                    <h4 className="text-[11px] font-black uppercase tracking-wider text-slate-700 flex items-center gap-1.5">
+                      <Package className="w-3.5 h-3.5 text-teal-600" />
+                      <span>
+                        Organes Rattachés & Nomenclature BOM (
+                        {machineComponentsAndBom.whAttached.length +
+                          machineComponentsAndBom.ledgerAttached.length}
+                        )
+                      </span>
+                    </h4>
+
+                    {machineComponentsAndBom.whAttached.length === 0 &&
+                    machineComponentsAndBom.ledgerAttached.length === 0 ? (
+                      <div className="p-4 text-center bg-slate-50 rounded-xl border border-dashed border-slate-200 text-slate-400">
+                        {assetClass === 'SYSTEM_GENERAL'
+                          ? 'Équipement Système Général autonome (pas de nomenclature organes de production).'
+                          : 'Aucun organe ou élément BOM rattaché pour le moment.'}
+                      </div>
+                    ) : (
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                        {machineComponentsAndBom.whAttached.map((w: IWarehouseItem) => (
+                          <div
+                            key={w.id_warehouse_item || w.id}
+                            className="p-2.5 rounded-xl bg-teal-50/50 border border-teal-200/80 flex items-center justify-between gap-2"
+                          >
+                            <div className="min-w-0">
+                              <div className="font-mono font-bold text-teal-900 text-[11px] flex items-center gap-1">
+                                <Hash className="w-3 h-3 text-teal-600" />
+                                <span>{w.code || w.id_warehouse_item}</span>
+                              </div>
+                              <div className="font-semibold text-slate-800 truncate">
+                                {w.designation}
+                              </div>
+                            </div>
+                            <span className="px-2 py-0.5 rounded bg-white text-teal-800 border border-teal-200 text-[10px] font-bold shrink-0">
+                              {w.status || 'En service'}
+                            </span>
+                          </div>
+                        ))}
+
+                        {machineComponentsAndBom.ledgerAttached.map((el: MachineElement) => (
+                          <div
+                            key={String(el.id || el.id_element_instance)}
+                            className="p-2.5 rounded-xl bg-blue-50/50 border border-blue-200/80 flex items-center justify-between gap-2"
+                          >
+                            <div className="min-w-0">
+                              <div className="font-mono font-bold text-blue-900 text-[11px]">
+                                {String(el.ref_element || el.code_element || el.id_element_instance || el.id)}
+                              </div>
+                              <div className="font-semibold text-slate-800 truncate">
+                                {String(el.designation || el.designation_element || '')}
+                              </div>
+                            </div>
+                            <span className="px-2 py-0.5 rounded bg-white text-blue-800 border border-blue-200 text-[10px] font-mono shrink-0">
+                              BOM
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* B2: Unified Chronological Machine Activity & Audit Ledger (Official Truth) */}
+                  <div
+                    className="space-y-2 pt-2 border-t border-slate-100"
+                    data-testid="b2-machine-activity-ledger"
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <h4 className="text-[11px] font-black uppercase tracking-wider text-slate-800 flex items-center gap-1.5">
+                        <Clock className="w-3.5 h-3.5 text-indigo-600" />
+                        <span>
+                          Journal d&apos;Activité & Audit Officiel ({activityLedger.length})
+                        </span>
+                      </h4>
+                      <span className="px-2 py-0.5 rounded-full text-[9.5px] font-mono font-bold bg-emerald-50 text-emerald-800 border border-emerald-200">
+                        Approuvé uniquement (hors PENDING)
+                      </span>
+                    </div>
+
+                    {activityLedger.length === 0 ? (
+                      <div className="p-4 text-center bg-slate-50 rounded-xl border border-dashed border-slate-200 text-slate-400">
+                        Aucun événement officiel validé enregistré pour {machineCode}.
+                      </div>
+                    ) : (
+                      <div className="space-y-2 max-h-64 overflow-y-auto pr-1">
+                        {activityLedger.slice(0, 15).map((ev) => {
+                          const badgeStyle =
+                            ev.type === 'CORRECTIVE_BT'
+                              ? 'bg-rose-50 text-rose-800 border-rose-200'
+                              : ev.type === 'PREVENTIVE_EXECUTION'
+                              ? 'bg-indigo-50 text-indigo-800 border-indigo-200'
+                              : ev.type === 'EXTERNAL_BOBINAGE'
+                              ? 'bg-amber-50 text-amber-900 border-amber-300'
+                              : ev.type === 'BOM_COMPONENT'
+                              ? 'bg-teal-50 text-teal-800 border-teal-200'
+                              : 'bg-slate-200 text-slate-800 border-slate-300';
+
+                          return (
+                            <div
+                              key={ev.id}
+                              className="p-2.5 rounded-xl bg-white border border-slate-200/90 shadow-2xs space-y-1"
+                            >
+                              <div className="flex items-center justify-between gap-2 flex-wrap">
+                                <div className="flex items-center gap-1.5 min-w-0">
+                                  <span
+                                    className={`px-1.5 py-0.5 rounded text-[9.5px] font-mono font-bold border ${badgeStyle}`}
+                                  >
+                                    {ev.typeLabelFr}
+                                  </span>
+                                  <span className="font-bold text-slate-900 truncate">
+                                    {ev.title}
+                                  </span>
+                                </div>
+                                <div className="flex items-center gap-1.5 shrink-0 font-mono text-[10px]">
+                                  {ev.cost !== undefined && ev.cost > 0 && (
+                                    <span className="px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-800 border border-emerald-200 font-bold">
+                                      {ev.cost.toLocaleString('fr-FR')} DH
+                                    </span>
+                                  )}
+                                  <span className="text-slate-500">{ev.dateYMD}</span>
+                                </div>
+                              </div>
+                              <p className="text-[10.5px] text-slate-600 leading-snug">
+                                {ev.details}
+                                {ev.actor ? ` • Par: ${ev.actor}` : ''}
+                              </p>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* TAB 4: MODE ATELIER EXPRESS (SCAN QR -> CLOSE EN 3 CLICS) */}
+              {activeFieldTab === 'EXPRESS_3CLICS' && (
+                <div className="space-y-4" data-testid="express-3clics-panel">
+                  <div className="p-3.5 rounded-2xl bg-amber-50 border border-amber-300 space-y-1">
+                    <div className="font-black text-amber-950 flex items-center gap-1.5">
+                      <Zap className="w-4 h-4 text-amber-600" />
+                      <span>Mode Atelier Rapide par Code-Barres / QR (Scan ➔ Action ➔ Clôture en 3 Clics)</span>
+                    </div>
+                    <p className="text-[11px] text-amber-900">
+                      Conçu pour les techniciens en atelier avec gants : 1. Sélectionnez le BT scanné • 2. Touchez le geste réalisé • 3. Clôturez en un clic.
+                    </p>
+                  </div>
+
+                  {expressClosedMsg && (
+                    <div className="p-3 rounded-2xl bg-emerald-50 border border-emerald-300 text-emerald-900 font-bold flex items-center gap-2">
+                      <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                      <span>{expressClosedMsg}</span>
+                    </div>
+                  )}
+
+                  {openMachineBts.length === 0 ? (
+                    <div className="p-5 rounded-2xl bg-slate-50 border border-dashed border-slate-200 text-center text-slate-500">
+                      Aucun Bon de Travail (BT) ouvert sur <b>{machineCode}</b>.
+                    </div>
+                  ) : (
+                    <div className="space-y-3">
+                      {/* CLIC 1: Select Active BT */}
+                      <div className="space-y-1.5">
+                        <span className="text-[10px] font-black uppercase text-slate-600 block">
+                          Clic 1 — Bon de Travail Actif sur {machineCode}
+                        </span>
+                        <div className="grid grid-cols-1 gap-2">
+                          {openMachineBts.map((bt: CorrectiveInterventionItem) => {
+                            const isSelected =
+                              expressSelectedBtId
+                                ? String(bt.id) === String(expressSelectedBtId)
+                                : bt.id === openMachineBts[0]?.id;
+                            return (
+                              <button
+                                key={bt.id}
+                                type="button"
+                                onClick={() => setExpressSelectedBtId(String(bt.id))}
+                                className={`p-3 rounded-2xl border text-left transition cursor-pointer flex items-center justify-between ${
+                                  isSelected
+                                    ? 'bg-slate-900 text-white border-slate-900 shadow-xs'
+                                    : 'bg-white text-slate-800 border-slate-200 hover:bg-slate-50'
+                                }`}
+                              >
+                                <div>
+                                  <span className="font-mono font-black text-xs">
+                                    {bt.num_bt || bt.id}
+                                  </span>{' '}
+                                  • <span className="font-bold">{bt.anomalie || 'Intervention'}</span>
+                                  {Array.isArray(bt.pieces_reservees) &&
+                                    bt.pieces_reservees.length > 0 && (
+                                      <span className="ml-2 px-1.5 py-0.5 rounded bg-purple-500/20 text-purple-200 font-mono text-[10px]">
+                                        PDR réservée: {bt.pieces_reservees[0].ref} (x
+                                        {bt.pieces_reservees[0].quantite})
+                                      </span>
+                                    )}
+                                </div>
+                                <CheckCircle2
+                                  className={`w-4 h-4 ${
+                                    isSelected ? 'text-amber-400' : 'text-slate-300'
+                                  }`}
+                                />
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+
+                      {/* CLIC 2: 1-Tap Standard Workshop Action */}
+                      <div className="space-y-1.5">
+                        <span className="text-[10px] font-black uppercase text-slate-600 block">
+                          Clic 2 — Action Standard Réalisée (1 Tap)
+                        </span>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                          {[
+                            'Remplacement pièce & remise en service nominale',
+                            'Réarmement protection & contrôle capteurs',
+                            'Nettoyage, graissage & réglage mécanique',
+                            'Serrage connexions & test fonctionnel OK',
+                          ].map((actLabel) => (
+                            <button
+                              key={actLabel}
+                              type="button"
+                              onClick={() => setExpressQuickAction(actLabel)}
+                              className={`p-2.5 rounded-xl border font-bold text-left text-[11px] cursor-pointer ${
+                                expressQuickAction === actLabel
+                                  ? 'bg-indigo-600 text-white border-indigo-700'
+                                  : 'bg-white text-slate-700 border-slate-200 hover:bg-indigo-50'
+                              }`}
+                            >
+                              {actLabel}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+
+                      {/* CLIC 3: Close in 1 Tap */}
+                      <button
+                        type="button"
+                        onClick={handleExpress3ClickClose}
+                        data-testid="express-3clics-submit-btn"
+                        className="w-full py-3 px-4 rounded-2xl bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs flex items-center justify-center gap-2 shadow-md cursor-pointer"
+                      >
+                        <Zap className="w-4 h-4" />
+                        <span>
+                          Clic 3 — {isTechUser ? 'Soumettre & Terminer en 1 Clic' : 'Clôturer le BT en 1 Clic'}
+                        </span>
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
