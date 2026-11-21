@@ -169,7 +169,12 @@ describe('Phase P1: Event-Sourced Factory Memory & Period Metrics', () => {
         },
       ] as any[];
 
-      const preventiveTasks = [{ id: 'TASK-1' }, { id: 'TASK-2' }];
+      // Both tasks are active and explicitly due in 2026-10 (unified computePmWindowCompliance rule:
+      // only active tasks on active machines with dueYMD <= period end count in the eligible denominator)
+      const preventiveTasks = [
+        { id: 'TASK-1', nextDueDate: '2026-10-10' },
+        { id: 'TASK-2', nextDueDate: '2026-10-20' },
+      ];
 
       const report = MonthlyReportCalculationService.calculateMonthlyReport({
         month: '2026-10',
@@ -204,7 +209,7 @@ describe('Phase P1: Event-Sourced Factory Memory & Period Metrics', () => {
       expect(report.preventiveExecutedCount).toBe(1);
       expect(report.preventiveTotalCost).toBe(75);
       expect(report.preventiveLaborHours).toBe(1);
-      expect(report.preventiveDisciplineRate).toBe(50); // 1 executed out of 2 scheduled = 50%
+      expect(report.preventiveDisciplineRate).toBe(50); // 1 approved execution out of 2 active tasks due in 2026-10 = 50%
     });
   });
 
