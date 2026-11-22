@@ -262,6 +262,30 @@
 }
 
 /* =========================================================================
+   ERGONOMIC UTILITIES: SCROLLBAR HIDING & REDUCED MOTION (data-animations="off")
+   ========================================================================= */
+
+.no-scrollbar,
+.scrollbar-none {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+.no-scrollbar::-webkit-scrollbar,
+.scrollbar-none::-webkit-scrollbar {
+  display: none;
+}
+
+[data-animations="off"] *,
+[data-animations="off"] *::before,
+[data-animations="off"] *::after {
+  animation-duration: 0.01ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.01ms !important;
+  scroll-behavior: auto !important;
+}
+
+/* =========================================================================
    SCOPED SIDEBAR L2 ICON HIERARCHY & TABLE ICON DISCIPLINE
    Identity icon colors live strictly on PageHeaderIcon (and page headers)
    and Level-1 sidebar items — never leaked globally into tables, buttons,
@@ -278,10 +302,13 @@ aside .sidebar-l2-icon:not(.text-white):not(.text-slate-900) {
 aside.bg-slate-900 svg.sidebar-l2-icon:not(.text-white):not(.text-slate-900),
 aside.bg-slate-900 svg.lucide.sidebar-l2-icon:not(.text-white):not(.text-slate-900),
 aside.bg-slate-900 svg[class*="gmao-icon-"].sidebar-l2-icon:not(.text-white):not(.text-slate-900),
+[data-sidebar-theme="dark"] aside svg.sidebar-l2-icon:not(.text-white):not(.text-slate-900),
+[data-sidebar-theme="dark"] aside svg.lucide.sidebar-l2-icon:not(.text-white):not(.text-slate-900),
+[data-sidebar-theme="dark"] aside svg[class*="gmao-icon-"].sidebar-l2-icon:not(.text-white):not(.text-slate-900),
 .dark aside svg.sidebar-l2-icon:not(.text-white):not(.text-slate-900),
 .dark aside svg.lucide.sidebar-l2-icon:not(.text-white):not(.text-slate-900),
 .dark aside svg[class*="gmao-icon-"].sidebar-l2-icon:not(.text-white):not(.text-slate-900) {
-  color: #94a3b8 !important; /* text-slate-400 (dark mode) */
+  color: #94a3b8 !important; /* text-slate-400 (dark sidebar mode) */
 }
 
 /* Mature Excel Table Headers: Neutral Column Icons & Crisp Column Grid Borders */

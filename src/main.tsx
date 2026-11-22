@@ -11,17 +11,14 @@ import { errorTracker } from './services/ErrorTrackingService';
 import { analytics } from './services/AnalyticsService';
 import { migrateStorageOnce } from './infrastructure/persistence/migrateStorage';
 import { vaultService } from './utils/vaultService';
-import { STORAGE_KEYS } from './infrastructure/persistence/storageKeys';
 import { SecurityService } from './core/security/SecurityService';
+import { applyAppearanceDomFromStorage } from './presentation/components/layout/appearanceBootstrap';
 
-// Ensure visual attributes are initialized on root DOM element without crashing on restricted iframes
+// Ensure all visual attributes (accent, density, theme, animations) are initialized on root DOM element at cold boot
 try {
-  const initialAccent = storageService.getItem(STORAGE_KEYS.ACCENT_COLOR) || 'emerald';
-  if (typeof document !== 'undefined') {
-    document.documentElement.setAttribute('data-accent', initialAccent);
-  }
+  applyAppearanceDomFromStorage();
 } catch (err) {
-  Logger.warn('[Boot] Accent init skipped:', err, 'main');
+  Logger.warn('[Boot] Appearance DOM init skipped:', err, 'main');
 }
 
 // 1. Run one-time SSOT storage migration before any hook reads storage
@@ -106,6 +103,11 @@ Promise.allSettled([
   }),
 ]).finally(() => {
   clearTimeout(initFallbackTimer);
+  try {
+    applyAppearanceDomFromStorage();
+  } catch {
+    // Non-blocking DOM sync notice
+  }
   renderApp();
   // Background legacy WC/AES decryption migration after hydration
   storageService.init().catch((err) => {

@@ -79,24 +79,26 @@ export function AppearanceLayoutSelector({
     return storageService.getItem(STORAGE_KEYS.HEADER_CLOCK) !== 'false';
   });
 
-  // Mise à jour des attributs DOM (Thème, Densité, Accentuation et Appareil)
-  const applyDOMPreferences = useCallback((currentDensity, currentAccent, currentDeviceMode, currentSidebarStyle, currentTheme) => {
-    if (typeof document === 'undefined') return;
-    if (currentTheme === 'dark') {
-      document.documentElement.classList.add('dark');
-    } else {
+  // Mise à jour des attributs DOM (Thème barre latérale, Densité, Accentuation, Animations et Appareil)
+  const applyDOMPreferences = useCallback(
+    (currentDensity, currentAccent, currentDeviceMode, currentSidebarStyle, currentTheme, currentAnims = true) => {
+      if (typeof document === 'undefined') return;
+      const nextTheme = currentTheme === 'dark' ? 'dark' : 'light';
+      document.documentElement.setAttribute('data-sidebar-theme', nextTheme);
       document.documentElement.classList.remove('dark');
-    }
-    document.documentElement.setAttribute('data-density', currentDensity);
-    document.documentElement.setAttribute('data-accent', currentAccent);
-    document.documentElement.setAttribute('data-device-mode', currentDeviceMode);
-    document.documentElement.setAttribute('data-sidebar-style', currentSidebarStyle);
-  }, []);
+      document.documentElement.setAttribute('data-density', currentDensity);
+      document.documentElement.setAttribute('data-accent', currentAccent);
+      document.documentElement.setAttribute('data-animations', currentAnims ? 'on' : 'off');
+      document.documentElement.setAttribute('data-device-mode', currentDeviceMode);
+      document.documentElement.setAttribute('data-sidebar-style', currentSidebarStyle);
+    },
+    []
+  );
 
   // Ensure DOM is synced when mounting Settings view
   useEffect(() => {
-    applyDOMPreferences(density, accentColor, deviceMode, sidebarStyle, theme);
-  }, [applyDOMPreferences, density, accentColor, deviceMode, sidebarStyle, theme]);
+    applyDOMPreferences(density, accentColor, deviceMode, sidebarStyle, theme, animationsEnabled);
+  }, [applyDOMPreferences, density, accentColor, deviceMode, sidebarStyle, theme, animationsEnabled]);
 
   // Listen for external appearance changes (e.g. Sidebar Sun/Moon theme toggle)
   useEffect(() => {
@@ -116,7 +118,7 @@ export function AppearanceLayoutSelector({
     return () => window.removeEventListener('gmao_appearance_changed', handleExternalAppearanceChange);
   }, []);
 
-  // Sauvegarde globale et notification de tous les composants (Header, Sidebar, MainLayout)
+  // Sauvegarde globale et notification unique de tous les composants (Header, Sidebar, MainLayout)
   const persistAndDispatch = (
     newDeviceMode,
     newTheme,
@@ -125,11 +127,15 @@ export function AppearanceLayoutSelector({
     newDensity,
     newAccent,
     newAnims,
-    newClock
+    newClock,
+    extraDetail: Record<string, unknown> = {}
   ) => {
+    const previousDeviceMode = storageService.getItem(STORAGE_KEYS.DEVICE_MODE) || 'auto';
     storageService.setItem(STORAGE_KEYS.DEVICE_MODE, newDeviceMode);
     storageService.setItem(SHELL_OVERRIDE_STORAGE_KEY, newDeviceMode);
-    setShellMode(newDeviceMode);
+    if (newDeviceMode !== previousDeviceMode || extraDetail.forceShellSync) {
+      setShellMode(newDeviceMode, { emitAppearanceEvent: false });
+    }
     storageService.setItem(STORAGE_KEYS.THEME, newTheme);
     storageService.setItem(STORAGE_KEYS.SIDEBAR_THEME, newTheme);
     storageService.setItem(STORAGE_KEYS.SIDEBAR_STYLE, newStyle);
@@ -139,7 +145,7 @@ export function AppearanceLayoutSelector({
     storageService.setItem(STORAGE_KEYS.ANIMATIONS, String(newAnims));
     storageService.setItem(STORAGE_KEYS.HEADER_CLOCK, String(newClock));
 
-    applyDOMPreferences(newDensity, newAccent, newDeviceMode, newStyle, newTheme);
+    applyDOMPreferences(newDensity, newAccent, newDeviceMode, newStyle, newTheme, newAnims);
 
     window.dispatchEvent(
       new CustomEvent('gmao_appearance_changed', {
@@ -152,6 +158,7 @@ export function AppearanceLayoutSelector({
           accentColor: newAccent,
           animationsEnabled: newAnims,
           headerClockEnabled: newClock,
+          ...extraDetail,
         },
       })
     );
@@ -255,8 +262,12 @@ export function AppearanceLayoutSelector({
     setAccentColor('emerald');
     setAnimationsEnabled(true);
     setHeaderClockEnabled(true);
+    storageService.setItem('gmao_desktop_sidebar_collapsed', 'false');
 
-    persistAndDispatch('auto', 'light', 'floating', 'push', 'comfortable', 'emerald', true, true);
+    persistAndDispatch('auto', 'light', 'floating', 'push', 'comfortable', 'emerald', true, true, {
+      desktopSidebarCollapsed: false,
+      forceShellSync: true,
+    });
 
     if (showToast) {
       showToast("Préférences réinitialisées au standard Light UI Excel", 'success');
@@ -578,20 +589,31 @@ export function AppearanceLayoutSelector({
 
               {/* Corps de la fenêtre de simulation */}
               <div className="flex h-[calc(100%-2.75rem)] gap-2.5 relative">
-                {/* Menu latéral simulé */}
+                {/* Menu latéral simulé (reflète fidèlement le thème sombre/clair et le mode flottant/fixe) */}
                 <div
+                  data-testid="appearance-preview-sidebar"
                   className={`transition-all duration-300 flex flex-col justify-between p-2 shrink-0 ${
                     sidebarStyle === 'floating'
-                      ? 'w-12 rounded-xl border border-accent-subtle bg-white shadow-xs text-accent-main'
-                      : 'w-28 rounded-none border-r border-slate-200 bg-white text-slate-800'
+                      ? theme === 'dark'
+                        ? 'w-12 rounded-xl border border-slate-700 bg-slate-900 shadow-md text-slate-100'
+                        : 'w-12 rounded-xl border border-accent-subtle bg-white shadow-xs text-accent-main'
+                      : theme === 'dark'
+                        ? 'w-28 rounded-none border-r border-slate-800 bg-slate-900 text-slate-100'
+                        : 'w-28 rounded-none border-r border-slate-200 bg-white text-slate-800'
                   } ${sidebarStyle === 'floating' && sidebarBehavior === 'overlay' ? 'absolute top-0 left-0 bottom-0 z-20 shadow-lg' : ''}`}
                 >
                   <div className="space-y-1.5">
-                    <div className="h-2 w-3/4 rounded bg-accent-main opacity-85" />
-                    <div className="h-1.5 w-full rounded bg-slate-200" />
-                    <div className="h-1.5 w-5/6 rounded bg-slate-200" />
+                    <div className="h-2 w-3/4 rounded bg-accent-main opacity-90" />
+                    <div className={`h-1.5 w-full rounded ${theme === 'dark' ? 'bg-slate-700' : 'bg-slate-200'}`} />
+                    <div className={`h-1.5 w-5/6 rounded ${theme === 'dark' ? 'bg-slate-700' : 'bg-slate-200'}`} />
                   </div>
-                  <div className="h-2 w-full rounded bg-slate-100 border border-slate-200" />
+                  <div
+                    className={`h-2 w-full rounded border ${
+                      theme === 'dark'
+                        ? 'bg-slate-800 border-slate-700'
+                        : 'bg-slate-100 border-slate-200'
+                    }`}
+                  />
                 </div>
 
                 {/* Zone de tableau simulée */}

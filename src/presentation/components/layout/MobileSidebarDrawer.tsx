@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, type ComponentType } from 'react';
 import { storageService } from '../../../utils/storageService';
 import SortieEntreeIcon from '../common/SortieEntreeIcon';
 import PWAInstallButton from '../common/PWAInstallButton';
@@ -41,7 +41,237 @@ import { CubeIcon } from '../common/icons/CubeIcon';
 import { LayersIcon } from '../common/icons/LayersIcon';
 import { AuthorizationService } from '../../../core/security/AuthorizationService';
 import { isTechnicianRole } from '../../../core/security/technicianScope';
+import { canViewMakerCheckerValidation } from './appearanceBootstrap';
+import { PARENT_MODULES, SIDEBAR_NAV_GROUPS, type ParentModuleDef } from './navConfig';
 import { useTranslation } from '../../../i18n/I18nContext';
+
+interface SidebarItemVisualMeta {
+  icon?: ComponentType<{ className?: string }>;
+  isSubItem?: boolean;
+  l1ColorLight?: string;
+  l1ColorDark?: string;
+  labelKey?: string;
+  defaultLabel?: string;
+  hideForTech?: boolean;
+  testId?: string;
+  truncate?: boolean;
+  useSortieIcon?: boolean;
+}
+
+const SIDEBAR_ITEM_VISUALS: Record<string, SidebarItemVisualMeta> = {
+  dashboard: {
+    icon: LayoutDashboard,
+    isSubItem: false,
+    l1ColorLight: 'text-blue-600',
+    l1ColorDark: 'text-blue-400',
+    labelKey: 'nav.dashboard',
+    defaultLabel: 'Dashboard',
+  },
+  validation_center: {
+    icon: ShieldCheck,
+    isSubItem: true,
+    hideForTech: true,
+    testId: 'sidebar-validation-center-btn',
+    labelKey: 'nav.subtabs.validation_center_short',
+    defaultLabel: 'Centre de Validation',
+  },
+  shift_weekly_report: {
+    icon: Clock,
+    isSubItem: true,
+    hideForTech: true,
+    labelKey: 'nav.subtabs.shift_weekly_report',
+    defaultLabel: 'Rapport Vacation / Hebdo',
+  },
+  executive_report: {
+    icon: FileBarChart2,
+    isSubItem: true,
+    labelKey: 'nav.subtabs.executive_report',
+    defaultLabel: 'Rapport Mensuel Exécutif',
+  },
+  finance: {
+    icon: Landmark,
+    isSubItem: true,
+    l1ColorLight: 'text-emerald-600',
+    l1ColorDark: 'text-emerald-400',
+    labelKey: 'nav.finance',
+    defaultLabel: 'Pilotage Coûts & Budgets',
+  },
+  stock: {
+    icon: Package,
+    isSubItem: false,
+    l1ColorLight: 'text-cyan-600',
+    l1ColorDark: 'text-cyan-400',
+    labelKey: 'nav.subtabs.stock',
+    defaultLabel: 'Stock (Articles)',
+  },
+  sortie: {
+    isSubItem: true,
+    useSortieIcon: true,
+    labelKey: 'nav.subtabs.sortie',
+    defaultLabel: 'Sortie & Entrée Rapide',
+  },
+  pdr_groups: {
+    icon: Boxes,
+    isSubItem: true,
+    labelKey: 'nav.subtabs.pdr_groups',
+    defaultLabel: 'Groupes PDR',
+  },
+  types: {
+    icon: Tag,
+    isSubItem: true,
+    labelKey: 'nav.subtabs.types',
+    defaultLabel: 'Types',
+  },
+  designations: {
+    icon: BadgeCheck,
+    isSubItem: true,
+    labelKey: 'nav.subtabs.designations',
+    defaultLabel: 'Désignations',
+  },
+  machines: {
+    icon: Factory,
+    isSubItem: false,
+    l1ColorLight: 'text-emerald-600',
+    l1ColorDark: 'text-emerald-400',
+    labelKey: 'nav.subtabs.machines',
+    defaultLabel: 'Machines Registered',
+  },
+  families: {
+    icon: HubIcon,
+    isSubItem: true,
+    labelKey: 'nav.subtabs.families',
+    defaultLabel: 'Familles Machines',
+  },
+  templates: {
+    icon: CategoryIcon,
+    isSubItem: true,
+    labelKey: 'nav.subtabs.templates',
+    defaultLabel: 'Templates Machines',
+  },
+  blueprints: {
+    icon: FingerprintPattern,
+    isSubItem: true,
+    labelKey: 'nav.subtabs.blueprints',
+    defaultLabel: 'Blueprint Machine',
+  },
+  preventive: {
+    icon: Calendar,
+    isSubItem: false,
+    l1ColorLight: 'text-indigo-600',
+    l1ColorDark: 'text-indigo-400',
+    labelKey: 'nav.subtabs.preventive',
+    defaultLabel: 'Planning Préventif',
+  },
+  preventive_referentiel: {
+    icon: Settings2,
+    isSubItem: true,
+    labelKey: 'nav.subtabs.preventive_referentiel',
+    defaultLabel: 'Ingénierie & Référentiel',
+  },
+  corrective: {
+    icon: Wrench,
+    isSubItem: false,
+    l1ColorLight: 'text-amber-600',
+    l1ColorDark: 'text-amber-400',
+    labelKey: 'nav.subtabs.corrective',
+    defaultLabel: 'Correctif Hub',
+  },
+  corrective_referentiel: {
+    icon: Database,
+    isSubItem: true,
+    truncate: true,
+    labelKey: 'nav.subtabs.corrective_referentiel',
+    defaultLabel: 'Catalogue',
+  },
+  entrepot: {
+    icon: Warehouse,
+    isSubItem: false,
+    l1ColorLight: 'text-indigo-600',
+    l1ColorDark: 'text-indigo-400',
+    labelKey: 'nav.subtabs.entrepot',
+    defaultLabel: 'Entrepôt (Inventaire)',
+  },
+  comp_groups: {
+    icon: Boxes,
+    isSubItem: true,
+    labelKey: 'nav.subtabs.comp_groups',
+    defaultLabel: 'Groupes (Composants)',
+  },
+  comp_families: {
+    icon: SpokeIcon,
+    isSubItem: true,
+    labelKey: 'nav.subtabs.comp_families',
+    defaultLabel: 'Familles (Composants)',
+  },
+  comp_templates: {
+    icon: CubeIcon,
+    isSubItem: true,
+    labelKey: 'nav.subtabs.comp_templates',
+    defaultLabel: 'Templates (Composants)',
+  },
+  part_groups: {
+    icon: Boxes,
+    isSubItem: true,
+    labelKey: 'nav.subtabs.part_groups',
+    defaultLabel: 'Groupes (Parts)',
+  },
+  part_types: {
+    icon: LayersIcon,
+    isSubItem: true,
+    labelKey: 'nav.subtabs.part_types',
+    defaultLabel: 'Types (Parts)',
+  },
+  part_designations: {
+    icon: PartInfoIcon,
+    isSubItem: true,
+    labelKey: 'nav.subtabs.part_designations',
+    defaultLabel: 'Désignations (Parts)',
+  },
+  zones: {
+    icon: MapPin,
+    isSubItem: false,
+    l1ColorLight: 'text-purple-600',
+    l1ColorDark: 'text-purple-400',
+    labelKey: 'nav.subtabs.zones',
+    defaultLabel: 'Zones & Ateliers',
+  },
+  utilisateurs: {
+    icon: Users,
+    isSubItem: true,
+    l1ColorLight: 'text-violet-600',
+    l1ColorDark: 'text-violet-400',
+    labelKey: 'nav.subtabs.utilisateurs',
+    defaultLabel: 'Utilisateurs (Membres)',
+  },
+  equipment: {
+    icon: ShieldAlert,
+    isSubItem: true,
+    l1ColorLight: 'text-amber-600',
+    l1ColorDark: 'text-amber-400',
+    labelKey: 'nav.subtabs.equipment',
+    defaultLabel: 'Équipements (Système Général)',
+  },
+  nexus: {
+    icon: GitBranch,
+    isSubItem: false,
+    l1ColorLight: 'text-emerald-600',
+    l1ColorDark: 'text-emerald-400',
+    labelKey: 'nav.subtabs.nexus',
+    defaultLabel: 'Nexus Matrix',
+  },
+  guide: {
+    icon: BookOpen,
+    isSubItem: false,
+    l1ColorLight: 'text-amber-600',
+    l1ColorDark: 'text-amber-400',
+    labelKey: 'nav.subtabs.guide',
+    defaultLabel: "Guide d'utilisation",
+  },
+};
+
+const PARENT_MODULE_BY_ID: ReadonlyMap<string, ParentModuleDef> = new Map(
+  PARENT_MODULES.map((mod) => [mod.id, mod])
+);
 
 export default function MobileSidebarDrawer({
   isFixedDesktop = false,
@@ -69,19 +299,20 @@ export default function MobileSidebarDrawer({
     );
   });
 
-  const canAccess = (tabId) => !currentUser || AuthorizationService.canAccessTab(currentUser, tabId);
+  const canAccess = (tabId) => Boolean(currentUser) && AuthorizationService.canAccessTab(currentUser, tabId);
   const canExportData =
-    !currentUser ||
-    AuthorizationService.hasPermission(currentUser, 'stock.export') ||
-    AuthorizationService.hasPermission(currentUser, 'report.export');
+    Boolean(currentUser) &&
+    (AuthorizationService.hasPermission(currentUser, 'stock.export') ||
+      AuthorizationService.hasPermission(currentUser, 'report.export'));
   const canImportData =
-    !currentUser ||
-    AuthorizationService.hasPermission(currentUser, 'settings.restore') ||
-    AuthorizationService.hasPermission(currentUser, 'settings.manage');
+    Boolean(currentUser) &&
+    (AuthorizationService.hasPermission(currentUser, 'settings.restore') ||
+      AuthorizationService.hasPermission(currentUser, 'settings.manage'));
   const isTechUser = isTechnicianRole(currentUser);
-  const pendingSortieDemands = !isTechUser ? Number(counts.pendingSortieDemands || 0) : 0;
-  const pendingPreventiveVal = !isTechUser ? Number(counts.pendingPreventiveValidation || 0) : 0;
-  const pendingCorrectiveVal = !isTechUser ? Number(counts.pendingCorrectiveValidation || 0) : 0;
+  const canViewValidation = canViewMakerCheckerValidation(currentUser);
+  const pendingSortieDemands = canViewValidation ? Number(counts.pendingSortieDemands || 0) : 0;
+  const pendingPreventiveVal = canViewValidation ? Number(counts.pendingPreventiveValidation || 0) : 0;
+  const pendingCorrectiveVal = canViewValidation ? Number(counts.pendingCorrectiveValidation || 0) : 0;
 
   useEffect(() => {
     const handleAppearanceChanged = (e) => {
@@ -133,6 +364,7 @@ export default function MobileSidebarDrawer({
 
   const isTabRouteActive = (tabName) => {
     if (currentTab === tabName) return true;
+    if (tabName === 'settings' && currentTab === 'appearance') return true;
     if (tabName === 'designations' && currentTab === 'diagnostics') return true;
     if (
       tabName === 'corrective' &&
@@ -141,7 +373,157 @@ export default function MobileSidebarDrawer({
     ) {
       return true;
     }
+    if (
+      tabName === 'preventive' &&
+      String(currentTab || '').startsWith('preventive_') &&
+      currentTab !== 'preventive_referentiel'
+    ) {
+      return true;
+    }
     return false;
+  };
+
+  const renderItemBadge = (itemId: string) => {
+    const totalPendingVal = pendingSortieDemands + pendingPreventiveVal + pendingCorrectiveVal;
+    switch (itemId) {
+      case 'dashboard':
+        return <span className={getBadgeClass('dashboard')}>KPI</span>;
+      case 'validation_center':
+        return totalPendingVal > 0 ? (
+          <span
+            className="text-[10px] px-1.5 py-0.5 rounded-full font-mono bg-rose-600 text-white font-black shadow-2xs"
+            title="Total en attente de validation (Maker-Checker)"
+          >
+            {totalPendingVal} {t('nav.groups.to_validate', 'À valider')}
+          </span>
+        ) : (
+          <span className={getBadgeClass('validation_center')}>
+            {t('nav.groups.up_to_date', 'À jour')}
+          </span>
+        );
+      case 'shift_weekly_report':
+        return <span className={getBadgeClass('shift_weekly_report')}>Exploit.</span>;
+      case 'executive_report':
+        return <span className={getBadgeClass('executive_report')}>Direction</span>;
+      case 'finance':
+        return (
+          <span className="text-[10px] px-1.5 py-0.5 rounded-full font-mono bg-emerald-100 text-emerald-800 font-bold">
+            ISO 4217
+          </span>
+        );
+      case 'stock':
+        return <span className={getBadgeClass('stock')}>{counts.stock ?? 0}</span>;
+      case 'sortie':
+        return (
+          <span className="flex items-center gap-1">
+            {pendingSortieDemands > 0 && (
+              <span
+                className="text-[10px] px-1.5 py-0.5 rounded-full font-mono bg-rose-600 text-white font-black shadow-2xs"
+                title={`${pendingSortieDemands} demande(s) de sortie à valider`}
+              >
+                {pendingSortieDemands} {t('nav.groups.to_validate', 'À valider')}
+              </span>
+            )}
+            <span className={getBadgeClass('sortie')}>Mvt</span>
+          </span>
+        );
+      case 'pdr_groups':
+        return (
+          <span className={getBadgeClass('pdr_groups')}>
+            {counts.pdr_groups ?? counts.pdrGroups ?? 0}
+          </span>
+        );
+      case 'types':
+        return <span className={getBadgeClass('types')}>{counts.types ?? 0}</span>;
+      case 'designations':
+        return (
+          <span className={getBadgeClass('designations')}>
+            {counts.designations ?? counts.diagnostics ?? 0}
+          </span>
+        );
+      case 'machines':
+        return <span className={getBadgeClass('machines')}>{counts.machines ?? 0}</span>;
+      case 'families':
+        return <span className={getBadgeClass('families')}>{counts.families ?? 0}</span>;
+      case 'templates':
+        return <span className={getBadgeClass('templates')}>{counts.templates ?? 0}</span>;
+      case 'blueprints':
+        return <span className={getBadgeClass('blueprints')}>{counts.blueprints ?? 0}</span>;
+      case 'preventive':
+        return (
+          <span className="flex items-center gap-1">
+            {pendingPreventiveVal > 0 && (
+              <span
+                className="text-[10px] px-1.5 py-0.5 rounded-full font-mono bg-amber-500 text-slate-950 font-black shadow-2xs"
+                title={`${pendingPreventiveVal} exécution(s) préventive(s) à valider`}
+              >
+                {pendingPreventiveVal} {t('nav.groups.to_validate', 'À valider')}
+              </span>
+            )}
+            <span className={getBadgeClass('preventive')}>{counts.preventive ?? 0}</span>
+          </span>
+        );
+      case 'preventive_referentiel':
+        return (
+          <span className={getBadgeClass('preventive_referentiel')}>
+            {(counts.preventiveGuides || 0) + (counts.preventiveActions || 0) || 'Guides'}
+          </span>
+        );
+      case 'corrective':
+        return (
+          <span className="flex items-center gap-1">
+            {pendingCorrectiveVal > 0 && (
+              <span
+                className="text-[10px] px-1.5 py-0.5 rounded-full font-mono bg-rose-600 text-white font-black shadow-2xs"
+                title={`${pendingCorrectiveVal} intervention(s) corrective(s) à valider`}
+              >
+                {pendingCorrectiveVal} {t('nav.groups.to_validate', 'À valider')}
+              </span>
+            )}
+            <span className={getBadgeClass('corrective')}>{counts.corrective || 'Live'}</span>
+          </span>
+        );
+      case 'corrective_referentiel':
+        return <span className={getBadgeClass('corrective_referentiel')}>Réf</span>;
+      case 'entrepot':
+        return (
+          <span className={getBadgeClass('entrepot')} data-testid="sidebar-entrepot-count">
+            {counts.warehouse ?? counts.entrepot ?? 0}
+          </span>
+        );
+      case 'comp_groups':
+        return <span className={getBadgeClass('comp_groups')}>{counts.compGroups ?? 0}</span>;
+      case 'comp_families':
+        return <span className={getBadgeClass('comp_families')}>{counts.compFamilies ?? 0}</span>;
+      case 'comp_templates':
+        return <span className={getBadgeClass('comp_templates')}>{counts.compTemplates ?? 0}</span>;
+      case 'part_groups':
+        return (
+          <span className={getBadgeClass('part_groups')}>
+            {counts.part_groups ?? counts.partGroups ?? 0}
+          </span>
+        );
+      case 'part_types':
+        return <span className={getBadgeClass('part_types')}>{counts.partTypes ?? 0}</span>;
+      case 'part_designations':
+        return (
+          <span className={getBadgeClass('part_designations')}>
+            {counts.partDesignations ?? 0}
+          </span>
+        );
+      case 'zones':
+        return <span className={getBadgeClass('zones')}>{counts.zones ?? 0}</span>;
+      case 'utilisateurs':
+        return (
+          <span className={getBadgeClass('utilisateurs')}>
+            {(counts.technicians || 0) + (counts.operations || 0)}
+          </span>
+        );
+      case 'equipment':
+        return <span className={getBadgeClass('equipment')}>{counts.equipment ?? 0}</span>;
+      default:
+        return null;
+    }
   };
 
   // Dynamic styling based on sidebarTheme
@@ -308,764 +690,142 @@ export default function MobileSidebarDrawer({
               </div>
             </div>
           </div>
+          {/* Mobile/Tablet Drawer Close Button (<1024px) */}
           <button
             type="button"
-            onClick={() => {
-              if (mobileMenuOpen) {
-                setMobileMenuOpen(false);
-              } else if (isFixedDesktop && onToggleDesktopSidebar) {
-                onToggleDesktopSidebar();
-              }
-            }}
-            className={`${
-              isFixedDesktop && onToggleDesktopSidebar ? 'flex' : 'flex lg:hidden'
-            } group w-8 h-8 rounded-full border items-center justify-center transition-all duration-200 cursor-pointer shrink-0 focus-visible:ring-2 focus-visible:ring-emerald-500 focus-visible:outline-hidden ${
+            data-testid="mobile-drawer-close-btn"
+            onClick={() => setMobileMenuOpen(false)}
+            className={`flex lg:hidden group w-8 h-8 rounded-full border items-center justify-center transition-all duration-200 cursor-pointer shrink-0 focus-visible:ring-2 focus-visible:ring-emerald-500 focus-visible:outline-hidden ${
               isDark
                 ? 'bg-slate-800/80 hover:bg-slate-700/90 border-slate-700/90 hover:border-slate-600 text-slate-300 hover:text-white shadow-2xs'
                 : 'bg-slate-50/95 hover:bg-slate-100 border-slate-200/90 hover:border-slate-300 text-slate-500 hover:text-slate-900 shadow-2xs hover:shadow-xs'
             }`}
-            title={
-              isFixedDesktop
-                ? t('nav.collapse_sidebar', 'Réduire le menu latéral')
-                : t('common.close', 'Fermer le menu')
-            }
-            aria-label={
-              isFixedDesktop
-                ? t('nav.collapse_sidebar', 'Réduire le menu latéral')
-                : t('common.close', 'Fermer le menu')
-            }
+            title={t('common.close', 'Fermer le menu')}
+            aria-label={t('common.close', 'Fermer le menu')}
           >
             <PanelLeftClose className="w-4 h-4 transition-transform duration-200 group-hover:-translate-x-0.5" />
           </button>
+
+          {/* Desktop Fixed Sidebar Collapse Button (>=1024px, completely decoupled from mobileMenuOpen) */}
+          {isFixedDesktop && onToggleDesktopSidebar && (
+            <button
+              type="button"
+              data-testid="desktop-sidebar-collapse-btn"
+              onClick={() => {
+                if (mobileMenuOpen) setMobileMenuOpen(false);
+                onToggleDesktopSidebar();
+              }}
+              className={`hidden lg:flex group w-8 h-8 rounded-full border items-center justify-center transition-all duration-200 cursor-pointer shrink-0 focus-visible:ring-2 focus-visible:ring-emerald-500 focus-visible:outline-hidden ${
+                isDark
+                  ? 'bg-slate-800/80 hover:bg-slate-700/90 border-slate-700/90 hover:border-slate-600 text-slate-300 hover:text-white shadow-2xs'
+                  : 'bg-slate-50/95 hover:bg-slate-100 border-slate-200/90 hover:border-slate-300 text-slate-500 hover:text-slate-900 shadow-2xs hover:shadow-xs'
+              }`}
+              title={t('nav.collapse_sidebar', 'Réduire le menu latéral')}
+              aria-label={t('nav.collapse_sidebar', 'Réduire le menu latéral')}
+            >
+              <PanelLeftClose className="w-4 h-4 transition-transform duration-200 group-hover:-translate-x-0.5" />
+            </button>
+          )}
         </div>
 
-        {/* Navigation Links */}
+        {/* Navigation Links — Derived dynamically from navConfig SSOT (PARENT_MODULES + SIDEBAR_NAV_GROUPS) */}
         <div className="flex-1 overflow-y-auto px-3 py-3.5 space-y-4 text-xs">
-          {/* Main Global Navigation */}
-          <div className="space-y-1">
-            {/* Dashboard Tab */}
-            {canAccess('dashboard') && (
-              <button onClick={() => navTo('dashboard')} className={getTabClass('dashboard')}>
-                <span className="flex items-center gap-2.5">
-                  <LayoutDashboard
-                    className={`w-4 h-4 shrink-0 ${isDark ? 'text-blue-400' : 'text-blue-600'}`}
-                  />
-                  <span>{t('nav.dashboard', 'Dashboard')}</span>
-                </span>
-                <span className={getBadgeClass('dashboard')}>KPI</span>
-              </button>
-            )}
+          {SIDEBAR_NAV_GROUPS.map((group) => {
+            const visibleItems = group.moduleIds.flatMap((moduleId) => {
+              const mod = PARENT_MODULE_BY_ID.get(moduleId);
+              if (!mod) return [];
+              return mod.children
+                .filter((child) => {
+                  const visual = SIDEBAR_ITEM_VISUALS[child.id];
+                  if (visual?.hideForTech && isTechUser) return false;
+                  return canAccess(child.id);
+                })
+                .map((child) => ({ child, parentMod: mod }));
+            });
 
-            {/* Centre de Validation Centralisé (L2 — Neutral icon matching ValidationCenterView header) */}
-            {!isTechUser && canAccess('validation_center') && (
-              <button
-                data-testid="sidebar-validation-center-btn"
-                onClick={() => navTo('validation_center')}
-                className={getTabClass('validation_center', true)}
-              >
-                <span className="flex items-center gap-2">
-                  <ShieldCheck
-                    className={`w-3.5 h-3.5 shrink-0 sidebar-l2-icon ${
-                      isTabRouteActive('validation_center')
-                        ? isDark
-                          ? 'text-slate-900'
-                          : 'text-white'
-                        : isDark
-                          ? 'text-slate-400'
-                          : 'text-slate-500'
-                    }`}
-                  />
-                  <span>{t('nav.subtabs.validation_center_short', 'Centre de Validation')}</span>
-                </span>
-                {pendingSortieDemands + pendingPreventiveVal + pendingCorrectiveVal > 0 ? (
-                  <span
-                    className="text-[10px] px-1.5 py-0.5 rounded-full font-mono bg-rose-600 text-white font-black shadow-2xs"
-                    title="Total en attente de validation (Maker-Checker)"
+            if (visibleItems.length === 0) return null;
+
+            const renderButtons = () =>
+              visibleItems.map(({ child, parentMod }) => {
+                const visual = SIDEBAR_ITEM_VISUALS[child.id];
+                const isSubItem = visual ? Boolean(visual.isSubItem) : child.id !== parentMod.id;
+                const isActive = isTabRouteActive(child.id);
+                const hasL1Color = Boolean(visual?.l1ColorLight || visual?.l1ColorDark);
+                const IconComp = visual?.icon || parentMod.icon;
+                const neutralL2Color = isActive
+                  ? isDark
+                    ? 'text-slate-900'
+                    : 'text-white'
+                  : isDark
+                    ? 'text-slate-400'
+                    : 'text-slate-500';
+                const labelText = visual?.labelKey
+                  ? t(visual.labelKey, visual.defaultLabel || child.label)
+                  : child.label;
+
+                return (
+                  <button
+                    key={child.id}
+                    type="button"
+                    data-testid={visual?.testId || `sidebar-nav-${child.id}`}
+                    onClick={() => navTo(child.id)}
+                    className={getTabClass(child.id, isSubItem)}
                   >
-                    {pendingSortieDemands + pendingPreventiveVal + pendingCorrectiveVal} {t('nav.groups.to_validate', 'À valider')}
-                  </span>
-                ) : (
-                  <span className={getBadgeClass('validation_center')}>{t('nav.groups.up_to_date', 'À jour')}</span>
-                )}
-              </button>
-            )}
-
-            {/* Rapport de Vacation / Hebdo (L2 — Clock icon matching ShiftWeeklyReportView header) */}
-            {!isTechUser && canAccess('shift_weekly_report') && (
-              <button
-                onClick={() => navTo('shift_weekly_report')}
-                className={getTabClass('shift_weekly_report', true)}
-              >
-                <span className="flex items-center gap-2">
-                  <Clock
-                    className={`w-3.5 h-3.5 shrink-0 sidebar-l2-icon ${
-                      isTabRouteActive('shift_weekly_report')
-                        ? isDark
-                          ? 'text-slate-900'
-                          : 'text-white'
-                        : isDark
-                          ? 'text-slate-400'
-                          : 'text-slate-500'
-                    }`}
-                  />
-                  <span>{t('nav.subtabs.shift_weekly_report', 'Rapport Vacation / Hebdo')}</span>
-                </span>
-                <span className={getBadgeClass('shift_weekly_report')}>Exploit.</span>
-              </button>
-            )}
-
-            {/* Rapport Mensuel Exécutif (L2 — Neutral icon matching MonthlyExecutiveReportView header) */}
-            {canAccess('executive_report') && (
-              <button
-                onClick={() => navTo('executive_report')}
-                className={getTabClass('executive_report', true)}
-              >
-                <span className="flex items-center gap-2">
-                  <FileBarChart2
-                    className={`w-3.5 h-3.5 shrink-0 sidebar-l2-icon ${
-                      isTabRouteActive('executive_report')
-                        ? isDark
-                          ? 'text-slate-900'
-                          : 'text-white'
-                        : isDark
-                          ? 'text-slate-400'
-                          : 'text-slate-500'
-                    }`}
-                  />
-                  <span>{t('nav.subtabs.executive_report', 'Rapport Mensuel Exécutif')}</span>
-                </span>
-                <span className={getBadgeClass('executive_report')}>Direction</span>
-              </button>
-            )}
-
-            {/* Pilotage des Coûts & Budgets Maintenance (Special Level-1 Page kept in place) */}
-            {canAccess('finance') && (
-              <button
-                onClick={() => navTo('finance')}
-                className={getTabClass('finance', true)}
-              >
-                <span className="flex items-center gap-2">
-                  <Landmark
-                    className={`w-4 h-4 shrink-0 ${isDark ? 'text-emerald-400' : 'text-emerald-600'}`}
-                  />
-                  <span>{t('nav.finance', 'Pilotage Coûts & Budgets')}</span>
-                </span>
-                <span className="text-[10px] px-1.5 py-0.5 rounded-full font-mono bg-emerald-100 text-emerald-800 font-bold">
-                  ISO 4217
-                </span>
-              </button>
-            )}
-
-          </div>
-
-          {/* GROUPE 1: STOCK & ARTICLES */}
-          {(canAccess('stock') ||
-            canAccess('sortie') ||
-            canAccess('pdr_groups') ||
-            canAccess('types') ||
-            canAccess('designations')) && (
-            <div>
-              <div className="px-3 mb-1.5 text-[10px] font-bold tracking-[0.08em] text-slate-400 uppercase">
-                <span>{t('nav.groups.stock_articles', 'Stock & Articles')}</span>
-              </div>
-              <div className="space-y-1">
-                {/* L1: Stock (Articles) */}
-                {canAccess('stock') && (
-                  <button onClick={() => navTo('stock')} className={getTabClass('stock')}>
-                    <span className="flex items-center gap-2.5">
-                      <Package
-                        className={`w-4 h-4 shrink-0 ${isDark ? 'text-cyan-400' : 'text-cyan-600'}`}
-                      />
-                      <span>{t('nav.subtabs.stock', 'Stock (Articles)')}</span>
-                    </span>
-                    <span className={getBadgeClass('stock')}>{counts.stock || 0}</span>
-                  </button>
-                )}
-
-                {/* L2: Sortie & Entrée Rapide */}
-                {canAccess('sortie') && (
-                  <button onClick={() => navTo('sortie')} className={getTabClass('sortie', true)}>
-                    <span className="flex items-center gap-2">
-                      <SortieEntreeIcon
-                        className="w-3.5 h-3.5 shrink-0 sidebar-l2-icon"
-                        downColor={
-                          isTabRouteActive('sortie')
-                            ? isDark
-                              ? 'text-slate-900'
-                              : 'text-white'
-                            : isDark
-                              ? 'text-slate-400'
-                              : 'text-slate-500'
-                        }
-                        upColor={
-                          isTabRouteActive('sortie')
-                            ? isDark
-                              ? 'text-slate-900'
-                              : 'text-white'
-                            : isDark
-                              ? 'text-slate-400'
-                              : 'text-slate-500'
-                        }
-                      />
-                      <span>{t('nav.subtabs.sortie', 'Sortie & Entrée Rapide')}</span>
-                    </span>
-                    <span className="flex items-center gap-1">
-                      {pendingSortieDemands > 0 && (
-                        <span
-                          className="text-[10px] px-1.5 py-0.5 rounded-full font-mono bg-rose-600 text-white font-black shadow-2xs"
-                          title={`${pendingSortieDemands} demande(s) de sortie à valider`}
-                        >
-                          {pendingSortieDemands} {t('nav.groups.to_validate', 'À valider')}
-                        </span>
+                    <span className={`flex items-center ${isSubItem ? 'gap-2' : 'gap-2.5'} min-w-0`}>
+                      {visual?.useSortieIcon ? (
+                        <SortieEntreeIcon
+                          className="w-3.5 h-3.5 shrink-0 sidebar-l2-icon"
+                          downColor={neutralL2Color}
+                          upColor={neutralL2Color}
+                        />
+                      ) : (
+                        <IconComp
+                          className={
+                            hasL1Color
+                              ? `w-4 h-4 shrink-0 ${isDark ? visual?.l1ColorDark || parentMod.colorDark : visual?.l1ColorLight || parentMod.color}`
+                              : `w-3.5 h-3.5 shrink-0 sidebar-l2-icon ${neutralL2Color}`
+                          }
+                        />
                       )}
-                      <span className={getBadgeClass('sortie')}>Mvt</span>
+                      <span className={visual?.truncate ? 'truncate' : undefined}>{labelText}</span>
                     </span>
+                    {renderItemBadge(child.id)}
                   </button>
-                )}
+                );
+              });
 
-                {/* L2: Groupes PDR */}
-                {canAccess('pdr_groups') && (
-                  <button
-                    onClick={() => navTo('pdr_groups')}
-                    className={getTabClass('pdr_groups', true)}
-                  >
-                    <span className="flex items-center gap-2">
-                      <Boxes
-                        className={`w-3.5 h-3.5 shrink-0 sidebar-l2-icon ${
-                          isTabRouteActive('pdr_groups')
-                            ? isDark
-                              ? 'text-slate-900'
-                              : 'text-white'
-                            : isDark
-                              ? 'text-slate-400'
-                              : 'text-slate-500'
-                        }`}
-                      />
-                      <span>{t('nav.subtabs.pdr_groups', 'Groupes PDR')}</span>
-                    </span>
-                    <span className={getBadgeClass('pdr_groups')}>
-                      {counts.pdr_groups ?? counts.pdrGroups ?? 0}
-                    </span>
-                  </button>
-                )}
+            if (group.hasTopDivider) {
+              return (
+                <div
+                  key={group.id}
+                  className={`space-y-1 pt-2 border-t ${isDark ? 'border-slate-800' : 'border-slate-200'}`}
+                >
+                  {renderButtons()}
+                </div>
+              );
+            }
 
-                {/* L2: Types */}
-                {canAccess('types') && (
-                  <button onClick={() => navTo('types')} className={getTabClass('types', true)}>
-                    <span className="flex items-center gap-2">
-                      <Tag
-                        className={`w-3.5 h-3.5 shrink-0 sidebar-l2-icon ${
-                          isTabRouteActive('types')
-                            ? isDark
-                              ? 'text-slate-900'
-                              : 'text-white'
-                            : isDark
-                              ? 'text-slate-400'
-                              : 'text-slate-500'
-                        }`}
-                      />
-                      <span>{t('nav.subtabs.types', 'Types')}</span>
-                    </span>
-                    <span className={getBadgeClass('types')}>{counts.types || 0}</span>
-                  </button>
-                )}
+            if (!group.titleKey && !group.defaultTitle) {
+              return (
+                <div key={group.id} className="space-y-1">
+                  {renderButtons()}
+                </div>
+              );
+            }
 
-                {/* L2: Désignations */}
-                {canAccess('designations') && (
-                  <button
-                    onClick={() => navTo('designations')}
-                    className={getTabClass('designations', true)}
-                  >
-                    <span className="flex items-center gap-2">
-                      <BadgeCheck
-                        className={`w-3.5 h-3.5 shrink-0 sidebar-l2-icon ${
-                          isTabRouteActive('designations')
-                            ? isDark
-                              ? 'text-slate-900'
-                              : 'text-white'
-                            : isDark
-                              ? 'text-slate-400'
-                              : 'text-slate-500'
-                        }`}
-                      />
-                      <span>{t('nav.subtabs.designations', 'Désignations')}</span>
-                    </span>
-                    <span className={getBadgeClass('designations')}>
-                      {counts.designations || counts.diagnostics || 0}
-                    </span>
-                  </button>
-                )}
-              </div>
-            </div>
-          )}
-
-          {/* GROUPE 2: PARC MACHINES */}
-          {(canAccess('machines') ||
-            canAccess('families') ||
-            canAccess('templates') ||
-            canAccess('blueprints')) && (
-            <div>
-              <div className="px-3 mb-1.5 text-[10px] font-bold tracking-[0.08em] text-slate-400 uppercase">
-                <span>{t('nav.groups.parc_machines', 'Parc Machines')}</span>
-              </div>
-              <div className="space-y-1">
-                {/* Machines Registered */}
-                {canAccess('machines') && (
-                  <button onClick={() => navTo('machines')} className={getTabClass('machines')}>
-                    <span className="flex items-center gap-2.5">
-                      <Factory
-                        className={`w-4 h-4 shrink-0 ${isDark ? 'text-emerald-400' : 'text-emerald-600'}`}
-                      />
-                      <span>{t('nav.subtabs.machines', 'Machines Registered')}</span>
-                    </span>
-                    <span className={getBadgeClass('machines')}>{counts.machines || 0}</span>
-                  </button>
-                )}
-
-                {/* Families (Machines) */}
-                {canAccess('families') && (
-                  <button onClick={() => navTo('families')} className={getTabClass('families', true)}>
-                    <span className="flex items-center gap-2">
-                      <HubIcon
-                        className={`w-3.5 h-3.5 shrink-0 sidebar-l2-icon ${
-                          isTabRouteActive('families')
-                            ? isDark
-                              ? 'text-slate-900'
-                              : 'text-white'
-                            : isDark
-                              ? 'text-slate-400'
-                              : 'text-slate-500'
-                        }`}
-                      />
-                      <span>{t('nav.subtabs.families', 'Familles Machines')}</span>
-                    </span>
-                    <span className={getBadgeClass('families')}>{counts.families || 0}</span>
-                  </button>
-                )}
-
-                {/* Templates (Machines) */}
-                {canAccess('templates') && (
-                  <button
-                    onClick={() => navTo('templates')}
-                    className={getTabClass('templates', true)}
-                  >
-                    <span className="flex items-center gap-2">
-                      <CategoryIcon
-                        className={`w-3.5 h-3.5 shrink-0 sidebar-l2-icon ${
-                          isTabRouteActive('templates')
-                            ? isDark
-                              ? 'text-slate-900'
-                              : 'text-white'
-                            : isDark
-                              ? 'text-slate-400'
-                              : 'text-slate-500'
-                        }`}
-                      />
-                      <span>{t('nav.subtabs.templates', 'Templates Machines')}</span>
-                    </span>
-                    <span className={getBadgeClass('templates')}>{counts.templates || 0}</span>
-                  </button>
-                )}
-
-                {/* Blueprint Machine (Level 3) */}
-                {canAccess('blueprints') && (
-                  <button
-                    onClick={() => navTo('blueprints')}
-                    className={getTabClass('blueprints', true)}
-                  >
-                    <span className="flex items-center gap-2">
-                      <FingerprintPattern
-                        className={`w-3.5 h-3.5 shrink-0 sidebar-l2-icon ${
-                          isTabRouteActive('blueprints')
-                            ? isDark
-                              ? 'text-slate-900'
-                              : 'text-white'
-                            : isDark
-                              ? 'text-slate-400'
-                              : 'text-slate-500'
-                        }`}
-                      />
-                      <span>{t('nav.subtabs.blueprints', 'Blueprint Machine')}</span>
-                    </span>
-                    <span className={getBadgeClass('blueprints')}>{counts.blueprints || 0}</span>
-                  </button>
-                )}
-              </div>
-            </div>
-          )}
-
-          {/* GROUPE: MAINTENANCE PRÉVENTIVE */}
-          {(canAccess('preventive') || canAccess('preventive_referentiel')) && (
-            <div>
-              <div className="px-3 mb-1.5 text-[10px] font-bold tracking-[0.08em] text-slate-400 uppercase">
-                <span>{t('nav.groups.maintenance_preventive', 'Maintenance & Préventif')}</span>
-              </div>
-              <div className="space-y-1">
-                {canAccess('preventive') && (
-                  <button onClick={() => navTo('preventive')} className={getTabClass('preventive')}>
-                    <span className="flex items-center gap-2.5">
-                      <Calendar
-                        className={`w-4 h-4 shrink-0 ${isDark ? 'text-indigo-400' : 'text-indigo-600'}`}
-                      />
-                      <span>{t('nav.subtabs.preventive', 'Planning Préventif')}</span>
-                    </span>
-                    <span className="flex items-center gap-1">
-                      {pendingPreventiveVal > 0 && (
-                        <span
-                          className="text-[10px] px-1.5 py-0.5 rounded-full font-mono bg-amber-500 text-slate-950 font-black shadow-2xs"
-                          title={`${pendingPreventiveVal} exécution(s) préventive(s) à valider`}
-                        >
-                          {pendingPreventiveVal} {t('nav.groups.to_validate', 'À valider')}
-                        </span>
-                      )}
-                      <span className={getBadgeClass('preventive')}>{counts.preventive || 0}</span>
-                    </span>
-                  </button>
-                )}
-
-                {/* Référentiel, Guides, Actions & Concepteur de Plans */}
-                {canAccess('preventive_referentiel') && (
-                  <button
-                    onClick={() => navTo('preventive_referentiel')}
-                    className={getTabClass('preventive_referentiel', true)}
-                  >
-                    <span className="flex items-center gap-2">
-                      <Settings2
-                        className={`w-3.5 h-3.5 shrink-0 sidebar-l2-icon ${
-                          isTabRouteActive('preventive_referentiel')
-                            ? isDark
-                              ? 'text-slate-900'
-                              : 'text-white'
-                            : isDark
-                              ? 'text-slate-400'
-                              : 'text-slate-500'
-                        }`}
-                      />
-                      <span>{t('nav.subtabs.preventive_referentiel', 'Ingénierie & Référentiel')}</span>
-                    </span>
-                    <span className={getBadgeClass('preventive_referentiel')}>
-                      {(counts.preventiveGuides || 0) + (counts.preventiveActions || 0) || 'Guides'}
-                    </span>
-                  </button>
-                )}
-              </div>
-            </div>
-          )}
-
-          {/* GROUPE: MAINTENANCE CORRECTIVE */}
-          {(canAccess('corrective') || canAccess('corrective_referentiel')) && (
-            <div>
-              <div className="px-3 mb-1.5 text-[10px] font-bold tracking-[0.08em] text-slate-400 uppercase">
-                <span>{t('nav.groups.maintenance_corrective', 'Maintenance Corrective')}</span>
-              </div>
-              <div className="space-y-1">
-                {/* Item 1: Correctif Hub (Main page) */}
-                {canAccess('corrective') && (
-                  <button onClick={() => navTo('corrective')} className={getTabClass('corrective')}>
-                    <span className="flex items-center gap-2.5">
-                      <Wrench
-                        className={`w-4 h-4 shrink-0 ${isDark ? 'text-amber-400' : 'text-amber-600'}`}
-                      />
-                      <span>{t('nav.subtabs.corrective', 'Correctif Hub')}</span>
-                    </span>
-                    <span className="flex items-center gap-1">
-                      {pendingCorrectiveVal > 0 && (
-                        <span
-                          className="text-[10px] px-1.5 py-0.5 rounded-full font-mono bg-rose-600 text-white font-black shadow-2xs"
-                          title={`${pendingCorrectiveVal} intervention(s) corrective(s) à valider`}
-                        >
-                          {pendingCorrectiveVal} {t('nav.groups.to_validate', 'À valider')}
-                        </span>
-                      )}
-                      <span className={getBadgeClass('corrective')}>{counts.corrective || 'Live'}</span>
-                    </span>
-                  </button>
-                )}
-
-                {/* Item 2: Catalogue (Second position - L2) */}
-                {canAccess('corrective_referentiel') && (
-                  <button
-                    onClick={() => navTo('corrective_referentiel')}
-                    className={getTabClass('corrective_referentiel', true)}
-                  >
-                    <span className="flex items-center gap-2">
-                      <Database
-                        className={`w-3.5 h-3.5 shrink-0 sidebar-l2-icon ${
-                          isTabRouteActive('corrective_referentiel')
-                            ? isDark
-                              ? 'text-slate-900'
-                              : 'text-white'
-                            : isDark
-                              ? 'text-slate-400'
-                              : 'text-slate-500'
-                        }`}
-                      />
-                      <span className="truncate">{t('nav.subtabs.corrective_referentiel', 'Catalogue')}</span>
-                    </span>
-                    <span className={getBadgeClass('corrective_referentiel')}>Réf</span>
-                  </button>
-                )}
-              </div>
-            </div>
-          )}
-
-          {/* GROUPE 3: GROUPE ENTREPÔT (COMPONENTS & PARTS) */}
-          {canAccess('entrepot') && (
-            <div>
-              <div className="px-3 mb-1.5 text-[10px] font-bold tracking-[0.08em] text-slate-400 uppercase">
-                <span>{t('nav.groups.groupe_entrepot', 'Groupe Entrepôt')}</span>
-              </div>
-              <div className="space-y-1">
-                {/* Entrepôt Principal (Éléments, Composants & Parts) */}
-                <button onClick={() => navTo('entrepot')} className={getTabClass('entrepot')}>
-                  <span className="flex items-center gap-2.5">
-                    <Warehouse
-                      className={`w-4 h-4 shrink-0 ${isDark ? 'text-indigo-400' : 'text-indigo-600'}`}
-                    />
-                    <span>{t('nav.subtabs.entrepot', 'Entrepôt (Inventaire)')}</span>
+            return (
+              <div key={group.id}>
+                <div className="px-3 mb-1.5 text-[10px] font-bold tracking-[0.08em] text-slate-400 uppercase">
+                  <span>
+                    {group.titleKey
+                      ? t(group.titleKey, group.defaultTitle || group.id)
+                      : group.defaultTitle}
                   </span>
-                  <span className={getBadgeClass('entrepot')}>
-                    {counts.warehouse || counts.entrepot || 0}
-                  </span>
-                </button>
-
-                {/* Components section: Groupes -> Familles -> Templates */}
-                {canAccess('comp_groups') && (
-                  <button
-                    onClick={() => navTo('comp_groups')}
-                    className={getTabClass('comp_groups', true)}
-                  >
-                    <span className="flex items-center gap-2">
-                      <Boxes
-                        className={`w-3.5 h-3.5 shrink-0 sidebar-l2-icon ${
-                          isTabRouteActive('comp_groups')
-                            ? isDark
-                              ? 'text-slate-900'
-                              : 'text-white'
-                            : isDark
-                              ? 'text-slate-400'
-                              : 'text-slate-500'
-                        }`}
-                      />
-                      <span>{t('nav.subtabs.comp_groups', 'Groupes (Composants)')}</span>
-                    </span>
-                    <span className={getBadgeClass('comp_groups')}>{counts.compGroups || 0}</span>
-                  </button>
-                )}
-
-                {canAccess('comp_families') && (
-                  <button
-                    onClick={() => navTo('comp_families')}
-                    className={getTabClass('comp_families', true)}
-                  >
-                    <span className="flex items-center gap-2">
-                      <SpokeIcon
-                        className={`w-3.5 h-3.5 shrink-0 sidebar-l2-icon ${
-                          isTabRouteActive('comp_families')
-                            ? isDark
-                              ? 'text-slate-900'
-                              : 'text-white'
-                            : isDark
-                              ? 'text-slate-400'
-                              : 'text-slate-500'
-                        }`}
-                      />
-                      <span>{t('nav.subtabs.comp_families', 'Familles (Composants)')}</span>
-                    </span>
-                    <span className={getBadgeClass('comp_families')}>
-                      {counts.compFamilies || 0}
-                    </span>
-                  </button>
-                )}
-
-                {canAccess('comp_templates') && (
-                  <button
-                    onClick={() => navTo('comp_templates')}
-                    className={getTabClass('comp_templates', true)}
-                  >
-                    <span className="flex items-center gap-2">
-                      <CubeIcon
-                        className={`w-3.5 h-3.5 shrink-0 sidebar-l2-icon ${
-                          isTabRouteActive('comp_templates')
-                            ? isDark
-                              ? 'text-slate-900'
-                              : 'text-white'
-                            : isDark
-                              ? 'text-slate-400'
-                              : 'text-slate-500'
-                        }`}
-                      />
-                      <span>{t('nav.subtabs.comp_templates', 'Templates (Composants)')}</span>
-                    </span>
-                    <span className={getBadgeClass('comp_templates')}>
-                      {counts.compTemplates || 0}
-                    </span>
-                  </button>
-                )}
-
-                {/* Parts section sub-items: Groupes -> Types -> Désignations */}
-                {canAccess('part_groups') && (
-                  <button
-                    onClick={() => navTo('part_groups')}
-                    className={getTabClass('part_groups', true)}
-                  >
-                    <span className="flex items-center gap-2">
-                      <Boxes
-                        className={`w-3.5 h-3.5 shrink-0 sidebar-l2-icon ${
-                          isTabRouteActive('part_groups')
-                            ? isDark
-                              ? 'text-slate-900'
-                              : 'text-white'
-                            : isDark
-                              ? 'text-slate-400'
-                              : 'text-slate-500'
-                        }`}
-                      />
-                      <span>{t('nav.subtabs.part_groups', 'Groupes (Parts)')}</span>
-                    </span>
-                    <span className={getBadgeClass('part_groups')}>
-                      {counts.part_groups ?? counts.partGroups ?? 0}
-                    </span>
-                  </button>
-                )}
-
-                {canAccess('part_types') && (
-                  <button
-                    onClick={() => navTo('part_types')}
-                    className={getTabClass('part_types', true)}
-                  >
-                    <span className="flex items-center gap-2">
-                      <LayersIcon
-                        className={`w-3.5 h-3.5 shrink-0 sidebar-l2-icon ${
-                          isTabRouteActive('part_types')
-                            ? isDark
-                              ? 'text-slate-900'
-                              : 'text-white'
-                            : isDark
-                              ? 'text-slate-400'
-                              : 'text-slate-500'
-                        }`}
-                      />
-                      <span>{t('nav.subtabs.part_types', 'Types (Parts)')}</span>
-                    </span>
-                    <span className={getBadgeClass('part_types')}>{counts.partTypes || 0}</span>
-                  </button>
-                )}
-
-                {canAccess('part_designations') && (
-                  <button
-                    onClick={() => navTo('part_designations')}
-                    className={getTabClass('part_designations', true)}
-                  >
-                    <span className="flex items-center gap-2">
-                      <PartInfoIcon
-                        className={`w-3.5 h-3.5 shrink-0 sidebar-l2-icon ${
-                          isTabRouteActive('part_designations')
-                            ? isDark
-                              ? 'text-slate-900'
-                              : 'text-white'
-                            : isDark
-                              ? 'text-slate-400'
-                              : 'text-slate-500'
-                        }`}
-                      />
-                      <span>{t('nav.subtabs.part_designations', 'Désignations (Parts)')}</span>
-                    </span>
-                    <span className={getBadgeClass('part_designations')}>
-                      {counts.partDesignations || 0}
-                    </span>
-                  </button>
-                )}
+                </div>
+                <div className="space-y-1">{renderButtons()}</div>
               </div>
-            </div>
-          )}
-
-          {/* GROUPE 4: ZONES & ÉQUIPES */}
-          {(canAccess('zones') || canAccess('utilisateurs') || canAccess('equipment')) && (
-            <div>
-              <div className="px-3 mb-1.5 text-[10px] font-bold tracking-[0.08em] text-slate-400 uppercase">
-                <span>{t('nav.groups.zones_equipes', 'Zones & Équipes')}</span>
-              </div>
-              <div className="space-y-1">
-                {/* Zones */}
-                {canAccess('zones') && (
-                  <button onClick={() => navTo('zones')} className={getTabClass('zones')}>
-                    <span className="flex items-center gap-2.5">
-                      <MapPin
-                        className={`w-4 h-4 shrink-0 ${isDark ? 'text-purple-400' : 'text-purple-600'}`}
-                      />
-                      <span>{t('nav.subtabs.zones', 'Zones & Ateliers')}</span>
-                    </span>
-                    <span className={getBadgeClass('zones')}>{counts.zones || 0}</span>
-                  </button>
-                )}
-
-                {/* Utilisateurs (Special Level-1 Page kept in place) */}
-                {canAccess('utilisateurs') && (
-                  <button
-                    onClick={() => navTo('utilisateurs')}
-                    className={getTabClass('utilisateurs', true)}
-                  >
-                    <span className="flex items-center gap-2">
-                      <Users
-                        className={`w-4 h-4 shrink-0 ${isDark ? 'text-violet-400' : 'text-violet-600'}`}
-                      />
-                      <span>{t('nav.subtabs.utilisateurs', 'Utilisateurs (Membres)')}</span>
-                    </span>
-                    <span className={getBadgeClass('utilisateurs')}>
-                      {(counts.technicians || 0) + (counts.operations || 0)}
-                    </span>
-                  </button>
-                )}
-
-                {/* Équipements Système Général (Special Level-1 Page kept in place) */}
-                {canAccess('equipment') && (
-                  <button
-                    onClick={() => navTo('equipment')}
-                    className={getTabClass('equipment', true)}
-                  >
-                    <span className="flex items-center gap-2">
-                      <ShieldAlert
-                        className={`w-4 h-4 shrink-0 ${isDark ? 'text-amber-400' : 'text-amber-600'}`}
-                      />
-                      <span>{t('nav.subtabs.equipment', 'Équipements (Système Général)')}</span>
-                    </span>
-                    <span className={getBadgeClass('equipment')}>
-                      {counts.equipment || 0}
-                    </span>
-                  </button>
-                )}
-              </div>
-            </div>
-          )}
-
-          {/* GROUPE 5: OUTILS & RÉFÉRENTIEL */}
-          {(canAccess('nexus') || canAccess('guide')) && (
-            <div
-              className={`space-y-1 pt-2 border-t ${isDark ? 'border-slate-800' : 'border-slate-200'}`}
-            >
-              {canAccess('nexus') && (
-                <button onClick={() => navTo('nexus')} className={getTabClass('nexus')}>
-                  <span className="flex items-center gap-2.5">
-                    <GitBranch
-                      className={`w-4 h-4 shrink-0 ${isDark ? 'text-emerald-400' : 'text-emerald-600'}`}
-                    />
-                    <span>{t('nav.subtabs.nexus', 'Nexus Matrix')}</span>
-                  </span>
-                </button>
-              )}
-              {canAccess('guide') && (
-                <button onClick={() => navTo('guide')} className={getTabClass('guide')}>
-                  <span className="flex items-center gap-2.5">
-                    <BookOpen
-                      className={`w-4 h-4 shrink-0 ${isDark ? 'text-amber-400' : 'text-amber-600'}`}
-                    />
-                    <span>{t('nav.subtabs.guide', "Guide d'utilisation")}</span>
-                  </span>
-                </button>
-              )}
-            </div>
-          )}
+            );
+          })}
         </div>
 
             {/* Guided Tip Box */}
@@ -1147,9 +907,11 @@ export default function MobileSidebarDrawer({
           {/* Settings Button */}
           {canAccess('settings') && (
             <button
+              type="button"
+              data-testid="sidebar-settings-btn"
               onClick={() => navTo('settings')}
               className={`flex-1 flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-semibold transition-all duration-150 cursor-pointer ${
-                currentTab === 'settings'
+                isTabRouteActive('settings')
                   ? isDark
                     ? 'bg-white text-slate-900 shadow-sm'
                     : 'bg-slate-900 text-white shadow-sm'
@@ -1161,7 +923,7 @@ export default function MobileSidebarDrawer({
             >
               <Settings
                 className={`w-4 h-4 shrink-0 ${
-                  currentTab === 'settings'
+                  isTabRouteActive('settings')
                     ? isDark
                       ? 'text-sky-600'
                       : 'text-sky-400'
@@ -1176,6 +938,7 @@ export default function MobileSidebarDrawer({
 
           {/* Light / Dark Mode Toggle Button */}
           <button
+            type="button"
             onClick={toggleSidebarTheme}
             className={`p-2 rounded-xl border flex items-center justify-center transition-all duration-150 cursor-pointer ${
               isDark
@@ -1208,7 +971,10 @@ export default function MobileSidebarDrawer({
                   : 'bg-white border-slate-200/90 text-slate-900 shadow-2xs'
               }`}
             >
-              <div className="w-7 h-7 rounded-lg bg-emerald-700 text-white font-bold text-[10.5px] flex items-center justify-center shadow-2xs shrink-0">
+              <div
+                data-testid="sidebar-user-avatar"
+                className="w-7 h-7 rounded-lg bg-accent-main text-white font-bold text-[10.5px] flex items-center justify-center shadow-2xs shrink-0"
+              >
                 {currentUser.avatar || 'RM'}
               </div>
               <div className="text-left leading-tight min-w-0 flex-1">
@@ -1218,7 +984,7 @@ export default function MobileSidebarDrawer({
                   {currentUser.name}
                 </div>
                 <div
-                  className={`text-[9.5px] font-semibold truncate ${isDark ? 'text-emerald-400' : 'text-emerald-800'}`}
+                  className={`text-[9.5px] font-semibold truncate ${isDark ? 'text-emerald-400' : 'text-accent-main'}`}
                 >
                   {currentUser.titleFr || currentUser.role}
                 </div>

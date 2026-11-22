@@ -184,7 +184,10 @@ function cleanUrlShellQueryParamIfPresent(): void {
   }
 }
 
-function notifyShellPolicyChanged(state: ShellPolicyState): void {
+function notifyShellPolicyChanged(
+  state: ShellPolicyState,
+  emitAppearanceEvent = true
+): void {
   if (typeof window === 'undefined') return;
   try {
     document.documentElement?.setAttribute('data-device-mode', state.mode);
@@ -199,20 +202,25 @@ function notifyShellPolicyChanged(state: ShellPolicyState): void {
     })
   );
 
-  window.dispatchEvent(
-    new CustomEvent('gmao_appearance_changed', {
-      detail: {
-        deviceMode: state.mode,
-      },
-    })
-  );
+  if (emitAppearanceEvent) {
+    window.dispatchEvent(
+      new CustomEvent('gmao_appearance_changed', {
+        detail: {
+          deviceMode: state.mode,
+        },
+      })
+    );
+  }
 }
 
 /**
  * Persist manual shell mode ('auto' | 'desktop' | 'mobile') in localStorage
  * and notify all mounted listeners immediately.
  */
-export function setShellMode(mode: ShellMode): ShellPolicyState {
+export function setShellMode(
+  mode: ShellMode,
+  options?: { emitAppearanceEvent?: boolean }
+): ShellPolicyState {
   const validMode: ShellMode = isValidShellMode(mode) ? mode : 'auto';
   try {
     const ls = getSafeLocalStorage();
@@ -228,7 +236,7 @@ export function setShellMode(mode: ShellMode): ShellPolicyState {
   cleanUrlShellQueryParamIfPresent();
 
   const nextState = resolveShellPolicy();
-  notifyShellPolicyChanged(nextState);
+  notifyShellPolicyChanged(nextState, options?.emitAppearanceEvent !== false);
   return nextState;
 }
 

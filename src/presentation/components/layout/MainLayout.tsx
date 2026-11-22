@@ -45,10 +45,6 @@ export default function MainLayout({
   const dragCounter = useRef(0);
 
   // Appearance & Layout States
-  const [deviceMode, setDeviceMode] = useState(() => {
-    return storageService.getItem(STORAGE_KEYS.DEVICE_MODE) || 'auto';
-  });
-
   const [sidebarStyle, setSidebarStyle] = useState(() => {
     return storageService.getItem(STORAGE_KEYS.SIDEBAR_STYLE) || 'floating';
   });
@@ -76,14 +72,9 @@ export default function MainLayout({
   useEffect(() => {
     const handleAppearanceChanged = (e) => {
       if (e?.detail?.theme !== undefined && typeof document !== 'undefined') {
-        if (e.detail.theme === 'dark') {
-          document.documentElement.classList.add('dark');
-        } else {
-          document.documentElement.classList.remove('dark');
-        }
-      }
-      if (e?.detail?.deviceMode !== undefined) {
-        setDeviceMode(e.detail.deviceMode);
+        const nextTheme = e.detail.theme === 'dark' ? 'dark' : 'light';
+        document.documentElement.setAttribute('data-sidebar-theme', nextTheme);
+        document.documentElement.classList.remove('dark');
       }
       if (e?.detail?.sidebarStyle !== undefined) {
         setSidebarStyle(e.detail.sidebarStyle);
@@ -91,11 +82,20 @@ export default function MainLayout({
       if (e?.detail?.sidebarBehavior !== undefined) {
         setSidebarBehavior(e.detail.sidebarBehavior);
       }
+      if (e?.detail?.desktopSidebarCollapsed !== undefined) {
+        setDesktopSidebarCollapsed(Boolean(e.detail.desktopSidebarCollapsed));
+      }
       if (e?.detail?.accentColor !== undefined && typeof document !== 'undefined') {
         document.documentElement.setAttribute('data-accent', e.detail.accentColor);
       }
       if (e?.detail?.density !== undefined && typeof document !== 'undefined') {
         document.documentElement.setAttribute('data-density', e.detail.density);
+      }
+      if (e?.detail?.animationsEnabled !== undefined && typeof document !== 'undefined') {
+        document.documentElement.setAttribute(
+          'data-animations',
+          e.detail.animationsEnabled ? 'on' : 'off'
+        );
       }
     };
     window.addEventListener('gmao_appearance_changed', handleAppearanceChanged);
@@ -105,23 +105,23 @@ export default function MainLayout({
   // MainLayout is rendered exclusively for desktop (ShellPolicy.resolved === 'desktop').
   // The dedicated mobile field companion shell is handled separately by MobileShell.
 
-  // RBAC Capability Guards for Global Drag-and-Drop & Shortcuts (NH-1 & NH-2)
+  // RBAC Capability Guards for Global Drag-and-Drop & Shortcuts (Fail-Closed — NH-1 & NH-2)
   const canImportData =
-    !user ||
-    AuthorizationService.hasPermission(user, 'settings.restore') ||
-    AuthorizationService.hasPermission(user, 'settings.manage');
+    Boolean(user) &&
+    (AuthorizationService.hasPermission(user, 'settings.restore') ||
+      AuthorizationService.hasPermission(user, 'settings.manage'));
 
   const canDirectSave =
-    !user ||
-    (!AuthorizationService.isReadOnly(user) &&
-      (AuthorizationService.hasPermission(user, 'settings.backup') ||
-        AuthorizationService.hasPermission(user, 'stock.export')));
+    Boolean(user) &&
+    !AuthorizationService.isReadOnly(user) &&
+    (AuthorizationService.hasPermission(user, 'settings.backup') ||
+      AuthorizationService.hasPermission(user, 'stock.export'));
 
   const navigateIfAllowed = useCallback(
     (targetTab: string) => {
-      if (user && !AuthorizationService.canAccessTab(user, targetTab)) {
+      if (!user || !AuthorizationService.canAccessTab(user, targetTab)) {
         showToast?.(
-          `Accès restreint : votre rôle (${user.titleFr || user.role}) ne dispose pas des droits requis pour accéder à cette section.`,
+          `Accès restreint : votre rôle (${user?.titleFr || user?.role || 'Non authentifié'}) ne dispose pas des droits requis pour accéder à cette section.`,
           'warning'
         );
         return;
@@ -347,8 +347,8 @@ export default function MainLayout({
       if (sidebarBehavior === 'push') {
         return 'lg:pl-20 p-2.5 sm:p-4 lg:p-6 pb-24 lg:pb-6';
       }
-      // overlay mode: floating icon sits inside the page comfortably
-      return 'p-2.5 sm:p-4 lg:p-6 pb-24 lg:pb-6';
+      // overlay mode: reserve a minimal 64px gutter on desktop so the compact edge dock (8px..54px) never obscures titles or first table columns
+      return 'p-2.5 sm:p-4 lg:py-6 lg:pr-6 lg:pl-16 pb-24 lg:pb-6';
     }
     return 'p-2.5 sm:p-4 lg:p-6 pb-24 lg:pb-6';
   }, [sidebarStyle, sidebarBehavior, desktopSidebarCollapsed]);

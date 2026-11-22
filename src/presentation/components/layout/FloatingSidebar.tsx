@@ -6,7 +6,7 @@ import { analytics } from '../../../services/AnalyticsService';
 import { storageService } from '../../../utils/storageService';
 import { useAuth } from '../../../context/AuthContext';
 import { AuthorizationService } from '../../../core/security/AuthorizationService';
-import { isTechnicianRole } from '../../../core/security/technicianScope';
+import { canViewMakerCheckerValidation } from './appearanceBootstrap';
 
 const MODULE_THEME = {
   dashboard: {
@@ -201,24 +201,24 @@ export default function FloatingSidebar({
 }: any) {
   const { t } = useTranslation();
   const { user: currentUser } = useAuth();
-  const isTechUser = isTechnicianRole(currentUser);
+  const canViewValidation = canViewMakerCheckerValidation(currentUser);
 
   const getModulePendingCount = (moduleId: string): number => {
-    if (isTechUser) return 0;
+    if (!canViewValidation) return 0;
     if (moduleId === 'stock') return Number(counts?.pendingSortieDemands || 0);
     if (moduleId === 'preventive') return Number(counts?.pendingPreventiveValidation || 0);
     if (moduleId === 'corrective') return Number(counts?.pendingCorrectiveValidation || 0);
     return 0;
   };
 
-  const totalPendingMakerChecker = isTechUser
+  const totalPendingMakerChecker = !canViewValidation
     ? 0
     : Number(counts?.pendingSortieDemands || 0) +
       Number(counts?.pendingPreventiveValidation || 0) +
       Number(counts?.pendingCorrectiveValidation || 0);
 
   const visibleModules = useMemo(() => {
-    if (!currentUser) return PARENT_MODULES;
+    if (!currentUser) return [];
     return PARENT_MODULES.filter((mod) =>
       (mod.children || [{ id: mod.id }]).some((child) =>
         AuthorizationService.canAccessTab(currentUser, child.id)
@@ -227,7 +227,7 @@ export default function FloatingSidebar({
   }, [currentUser]);
 
   const canAccessSettings =
-    !currentUser || AuthorizationService.canAccessTab(currentUser, 'settings');
+    Boolean(currentUser) && AuthorizationService.canAccessTab(currentUser, 'settings');
 
   const [sidebarTheme, setSidebarTheme] = useState(() => {
     return (
@@ -236,7 +236,7 @@ export default function FloatingSidebar({
       'light'
     );
   });
-  const [_sidebarBehavior, setSidebarBehavior] = useState(() => {
+  const [sidebarBehavior, setSidebarBehavior] = useState(() => {
     return storageService.getItem('gmao_sidebar_behavior') || 'push';
   });
   const [isExpanded, setIsExpanded] = useState(false);
@@ -326,7 +326,7 @@ export default function FloatingSidebar({
 
   const activeParent = getParentModuleForTab(currentTab);
   const isDark = sidebarTheme === 'dark';
-  const isSettings = currentTab === 'settings';
+  const isSettings = currentTab === 'settings' || currentTab === 'appearance';
   const activeModuleTheme = isSettings
     ? MODULE_THEME.settings
     : (MODULE_THEME[activeParent?.id] || MODULE_THEME.dashboard);
@@ -346,7 +346,7 @@ export default function FloatingSidebar({
         ? module.children
         : [{ id: module.id }];
     const allowedChild = candidates.find(
-      (c) => !currentUser || AuthorizationService.canAccessTab(currentUser, c.id)
+      (c) => Boolean(currentUser) && AuthorizationService.canAccessTab(currentUser, c.id)
     );
     if (!allowedChild) return;
     const firstChild = allowedChild.id;
@@ -392,7 +392,9 @@ export default function FloatingSidebar({
       <div
         onMouseEnter={handleMouseEnter}
         onMouseLeave={handleMouseLeave}
-        className="fixed left-3.5 top-4 bottom-[172px] z-40 flex flex-col items-center justify-center pointer-events-none"
+        className={`fixed ${
+          sidebarBehavior === 'overlay' ? 'left-2' : 'left-3.5'
+        } top-4 bottom-[172px] z-40 flex flex-col items-center justify-center pointer-events-none`}
       >
         {!effectiveExpanded ? (
           /* Messenger-Style Floating Dock Active Bubble (With 2s delayed smooth translucency) */
@@ -407,7 +409,11 @@ export default function FloatingSidebar({
             }}
             aria-label={`Menu de navigation (${activeLabel})`}
             title={`${activeLabel}`}
-            className={`pointer-events-auto group relative w-[54px] h-[54px] rounded-[22px] border flex items-center justify-center transition-all duration-300 ease-out cursor-pointer shadow-md hover:shadow-xl hover:scale-105 active:scale-95 focus-visible:ring-2 focus-visible:ring-emerald-500 focus-visible:outline-hidden ${
+            className={`pointer-events-auto group relative ${
+              sidebarBehavior === 'overlay'
+                ? 'w-[46px] h-[46px] rounded-[18px]'
+                : 'w-[54px] h-[54px] rounded-[22px]'
+            } border flex items-center justify-center transition-all duration-300 ease-out cursor-pointer shadow-md hover:shadow-xl hover:scale-105 active:scale-95 focus-visible:ring-2 focus-visible:ring-emerald-500 focus-visible:outline-hidden ${
               isTranslucent
                 ? 'opacity-90 hover:opacity-100'
                 : 'opacity-100'
@@ -430,7 +436,7 @@ export default function FloatingSidebar({
 
             {/* Active Icon with smooth transition */}
             <ActiveIconComponent
-              size={23}
+              size={sidebarBehavior === 'overlay' ? 20 : 23}
               strokeWidth={2.4}
               className={`relative z-10 transition-all duration-500 group-hover:scale-110 ${
                 isTranslucent ? 'opacity-75 group-hover:opacity-100' : 'opacity-100'
@@ -446,18 +452,21 @@ export default function FloatingSidebar({
               aria-hidden="true"
             />
 
-            {/* Live Maker-Checker total badge on collapsed dock bubble */}
-            {totalPendingMakerChecker > 0 && (
+            {/* Live Maker-Checker total badge on collapsed dock bubble (RBAC fail-closed) */}
+            {canViewValidation && totalPendingMakerChecker > 0 && (
               <span
                 role="button"
                 tabIndex={0}
+                data-testid="floating-validation-badge"
                 onClick={(e) => {
                   e.stopPropagation();
+                  if (!canViewValidation) return;
                   setCurrentTab('validation_center');
                 }}
                 onKeyDown={(e) => {
                   if (e.key === 'Enter' || e.key === ' ') {
                     e.stopPropagation();
+                    if (!canViewValidation) return;
                     setCurrentTab('validation_center');
                   }
                 }}
@@ -585,7 +594,9 @@ export default function FloatingSidebar({
         aria-label="Actions du système"
         onMouseEnter={handleMouseEnter}
         onMouseLeave={handleMouseLeave}
-        className={`fixed left-3.5 bottom-5 z-40 w-[60px] rounded-[24px] border px-1.5 py-2 flex flex-col items-center gap-1.5 transition-all ${
+        className={`fixed ${
+          sidebarBehavior === 'overlay' ? 'left-2' : 'left-3.5'
+        } bottom-5 z-40 w-[60px] rounded-[24px] border px-1.5 py-2 flex flex-col items-center gap-1.5 transition-all ${
           effectiveExpanded
             ? 'opacity-100 translate-y-0 pointer-events-auto delay-150 duration-300 ease-out'
             : 'opacity-0 translate-y-3 pointer-events-none delay-0 duration-200 ease-in'

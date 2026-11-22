@@ -31,7 +31,7 @@ import { getParentModuleForTab } from './navConfig';
 import { storageService } from '../../../utils/storageService';
 import { AuthorizationService } from '../../../core/security/AuthorizationService';
 import { SecurityService } from '../../../core/security/SecurityService';
-import { isTechnicianRole } from '../../../core/security/technicianScope';
+import { canViewMakerCheckerValidation } from './appearanceBootstrap';
 import ShellModeSwitcher from '../common/ShellModeSwitcher';
 import { useTranslation } from '../../../i18n/I18nContext';
 
@@ -98,37 +98,34 @@ export default function Header({
     return storageService.getItem('gmao_sidebar_style') || 'floating';
   });
 
-  // RBAC Capability Guards (NH-1)
+  // RBAC Capability Guards (Fail-Closed — NH-1)
   const canExportData =
-    !currentUser ||
-    AuthorizationService.hasPermission(currentUser, 'stock.export') ||
-    AuthorizationService.hasPermission(currentUser, 'report.export');
+    Boolean(currentUser) &&
+    (AuthorizationService.hasPermission(currentUser, 'stock.export') ||
+      AuthorizationService.hasPermission(currentUser, 'report.export'));
   const canImportData =
-    !currentUser ||
-    AuthorizationService.hasPermission(currentUser, 'settings.restore') ||
-    AuthorizationService.hasPermission(currentUser, 'settings.manage');
+    Boolean(currentUser) &&
+    (AuthorizationService.hasPermission(currentUser, 'settings.restore') ||
+      AuthorizationService.hasPermission(currentUser, 'settings.manage'));
   const canDirectLinkOrSave =
-    !currentUser ||
-    (!AuthorizationService.isReadOnly(currentUser) &&
-      (AuthorizationService.hasPermission(currentUser, 'settings.backup') ||
-        AuthorizationService.hasPermission(currentUser, 'stock.export')));
+    Boolean(currentUser) &&
+    !AuthorizationService.isReadOnly(currentUser) &&
+    (AuthorizationService.hasPermission(currentUser, 'settings.backup') ||
+      AuthorizationService.hasPermission(currentUser, 'stock.export'));
   const canSyncServer =
-    !currentUser ||
-    (!AuthorizationService.isReadOnly(currentUser) &&
-      (AuthorizationService.hasPermission(currentUser, 'settings.backup') ||
-        AuthorizationService.hasPermission(currentUser, 'stock.export')));
+    Boolean(currentUser) &&
+    !AuthorizationService.isReadOnly(currentUser) &&
+    (AuthorizationService.hasPermission(currentUser, 'settings.backup') ||
+      AuthorizationService.hasPermission(currentUser, 'stock.export'));
   const canAccessSettings =
-    !currentUser || AuthorizationService.canAccessTab(currentUser, 'settings');
+    Boolean(currentUser) && AuthorizationService.canAccessTab(currentUser, 'settings');
+  const canViewValidation = canViewMakerCheckerValidation(currentUser);
 
   const [headerClockEnabled, setHeaderClockEnabled] = useState(() => {
     return storageService.getItem('gmao_header_clock') !== 'false';
   });
 
   useEffect(() => {
-    // Ensure no stale .dark class remains on documentElement if light mode is default
-    if (typeof document !== 'undefined' && storageService.getItem('gmao_theme') !== 'dark') {
-      document.documentElement.classList.remove('dark');
-    }
     const handleAppearanceChanged = (e: any) => {
       if (e?.detail?.headerClockEnabled !== undefined) {
         setHeaderClockEnabled(e.detail.headerClockEnabled);
@@ -186,14 +183,14 @@ export default function Header({
   const activeParent = getParentModuleForTab(currentTab);
   const childTabs = useMemo(() => {
     const rawChildren = activeParent.children || [];
-    if (!currentUser) return rawChildren;
+    if (!currentUser) return [];
     return rawChildren.filter((c) => AuthorizationService.canAccessTab(currentUser, c.id));
   }, [activeParent, currentUser]);
 
-  // Smart Dynamic Breadcrumbs Calculation (NH-8: RBAC-guarded links & NH-6: Corrective sub-routes)
+  // Smart Dynamic Breadcrumbs Calculation (NH-8: Fail-Closed RBAC-guarded links & NH-6: Corrective sub-routes)
   const breadcrumbs = useMemo(() => {
     const canGoTo = (tabId: string) =>
-      !currentUser || AuthorizationService.canAccessTab(currentUser, tabId);
+      Boolean(currentUser) && AuthorizationService.canAccessTab(currentUser, tabId);
 
     // 1. MODULE: STOCK PDR & ITS SUB-PAGES
     if (activeParent.id === 'stock') {
@@ -464,7 +461,10 @@ export default function Header({
         corrective_di: t('nav.subtabs.corrective_di', 'Demandes (DI)'),
         corrective_bt: t('nav.subtabs.corrective_bt', 'Bons de Travail (BT)'),
         corrective_live: t('nav.subtabs.corrective_live', 'Intervention Live'),
+        corrective_besoins: t('nav.subtabs.corrective_besoins', 'Besoins & Main Courante'),
+        corrective_atelier: t('nav.subtabs.corrective_atelier', 'Atelier Mécanique (BR / RECT)'),
         corrective_cloture: t('nav.subtabs.corrective_cloture', 'Clôture & Rapports'),
+        corrective_analyse: t('nav.subtabs.corrective_analytics', 'Analytique & Pareto'),
         corrective_analytics: t('nav.subtabs.corrective_analytics', 'Analytique & Pareto'),
         corrective_history: t('nav.subtabs.corrective_history', 'Historique'),
         corrective_pieces: t('nav.subtabs.corrective_pieces', 'Pièces Consommées'),
@@ -608,14 +608,16 @@ export default function Header({
             </button>
           )}
 
-          {/* Brand Capsule Pill: Shown in Floating Mode or when Standard Sidebar is collapsed on Desktop */}
-          {(!isStandardFixed || desktopSidebarCollapsed) && (
-            <button
-              onClick={() => setCurrentTab('dashboard')}
-              className="flex items-center gap-2 px-1.5 xl:px-2.5 py-1 rounded-full bg-white border border-zinc-200/90 shadow-[0_2px_8px_rgba(0,0,0,0.04)] hover:border-emerald-300 hover:shadow-[0_4px_14px_rgba(16,185,129,0.12)] transition-all cursor-pointer shrink-0 group focus-visible:ring-2 focus-visible:ring-emerald-500 focus-visible:outline-hidden"
-              title="CIOB GMAO Light - Dashboard"
-              aria-label="Tableau de bord CIOB GMAO Light"
-            >
+          {/* Brand Capsule Pill: Always visible in Floating/Collapsed mode, and on <1024px mobile/tablet in Standard mode */}
+          <button
+            onClick={() => setCurrentTab('dashboard')}
+            data-testid="header-brand-capsule"
+            className={`${
+              !isStandardFixed || desktopSidebarCollapsed ? 'flex' : 'flex lg:hidden'
+            } items-center gap-2 px-1.5 xl:px-2.5 py-1 rounded-full bg-white border border-zinc-200/90 shadow-[0_2px_8px_rgba(0,0,0,0.04)] hover:border-emerald-300 hover:shadow-[0_4px_14px_rgba(16,185,129,0.12)] transition-all cursor-pointer shrink-0 group focus-visible:ring-2 focus-visible:ring-emerald-500 focus-visible:outline-hidden`}
+            title="CIOB GMAO Light - Dashboard"
+            aria-label="Tableau de bord CIOB GMAO Light"
+          >
               {/* Dedicated 3D-styled green Excel workbook SVG Icon */}
               <div className="relative w-7 h-7 rounded-full bg-gradient-to-br from-emerald-500 to-emerald-700 flex items-center justify-center text-white shadow-xs shrink-0 ring-2 ring-emerald-500/20 overflow-hidden group-hover:scale-105 transition-transform">
                 <div className="absolute inset-0 opacity-20 bg-[linear-gradient(to_right,#ffffff_1px,transparent_1px),linear-gradient(to_bottom,#ffffff_1px,transparent_1px)] bg-[size:4px_4px]" />
@@ -692,7 +694,6 @@ export default function Header({
                 </div>
               </div>
             </button>
-          )}
 
           {/* Smart Breadcrumb Navigation Capsule */}
           <div
@@ -777,12 +778,11 @@ export default function Header({
                     (child.id === 'corrective' &&
                       String(currentTab || '').startsWith('corrective_') &&
                       currentTab !== 'corrective_referentiel');
-                  const isTech = isTechnicianRole(currentUser);
                   const totalPendingValidation =
                     Number(counts?.pendingSortieDemands || 0) +
                     Number(counts?.pendingPreventiveValidation || 0) +
                     Number(counts?.pendingCorrectiveValidation || 0);
-                  const childPending = !isTech
+                  const childPending = canViewValidation
                     ? child.id === 'validation_center'
                       ? totalPendingValidation
                       : child.id === 'sortie'
@@ -840,10 +840,9 @@ export default function Header({
           )}
         </nav>
 
-        {/* Right: Actions & Tools (De-duplicated in fixed mode) */}
+        {/* Right: Actions & Tools */}
         <div className="flex items-center gap-1 sm:gap-1.5 shrink-0">
-          {!isTechnicianRole(currentUser) &&
-            (!currentUser || AuthorizationService.canAccessTab(currentUser, 'validation_center')) && (() => {
+          {canViewValidation && (() => {
               const totalPending =
                 Number(counts?.pendingSortieDemands || 0) +
                 Number(counts?.pendingPreventiveValidation || 0) +
@@ -984,9 +983,9 @@ export default function Header({
             <Lock size={14} className="text-zinc-600 group-hover:text-amber-700 transition-colors shrink-0" aria-hidden="true" />
           </button>
 
-          {/* Export Excel Dropdown Menu - Only in Floating Mode & RBAC Guarded (Fixed sidebar already has Export button) */}
-          {!isStandardFixed && canExportData && (
-            <div className="relative hidden sm:block shrink-0" ref={topologyMenuRef}>
+          {/* Export Excel Dropdown Menu - Unified across Floating and Standard modes (including collapsed sidebar) */}
+          {canExportData && (
+            <div className="relative hidden sm:block shrink-0" ref={topologyMenuRef} data-testid="header-export-menu">
               <button
                 onClick={() => setTopologyMenuOpen((prev) => !prev)}
                 className="h-8 flex items-center gap-1 px-2 sm:px-2.5 rounded-full bg-slate-900 hover:bg-black text-white text-xs font-bold transition shadow-[0_2px_8px_rgba(0,0,0,0.18)] hover:shadow-md cursor-pointer shrink-0 focus-visible:ring-2 focus-visible:ring-emerald-500 focus-visible:outline-hidden group"
@@ -1094,10 +1093,11 @@ export default function Header({
             </div>
           )}
 
-          {/* Import Paquet Type A Button - Only in Floating Mode & RBAC Guarded */}
-          {!isStandardFixed && canImportData && (
+          {/* Import Paquet Type A Button - Unified across Floating and Standard modes (RBAC Guarded) */}
+          {canImportData && (
             <button
               onClick={() => fileInputRef.current?.click()}
+              data-testid="header-import-btn"
               className="hidden sm:flex w-8 h-8 rounded-full bg-white border border-zinc-200 items-center justify-center text-zinc-600 hover:text-black hover:border-zinc-300 transition shadow-[0_2px_6px_rgba(0,0,0,0.04)] hover:shadow-md cursor-pointer shrink-0 focus-visible:ring-2 focus-visible:ring-emerald-500 focus-visible:outline-hidden"
               title={t('header.import_excel', 'Importer un paquet JSON officiel (Type A — UnifiedImportPipeline)')}
               aria-label="Importer un paquet JSON officiel Type A"
@@ -1122,15 +1122,12 @@ export default function Header({
 
           {/* NH-12: Interactive Notification Bell & Alert Status Popover */}
           {(() => {
-            const isTech = isTechnicianRole(currentUser);
-            const totalPendingAlerts = !isTech
+            const totalPendingAlerts = canViewValidation
               ? Number(counts?.pendingSortieDemands || 0) +
                 Number(counts?.pendingPreventiveValidation || 0) +
                 Number(counts?.pendingCorrectiveValidation || 0)
               : 0;
-            const canOpenValidation =
-              !isTech &&
-              (!currentUser || AuthorizationService.canAccessTab(currentUser, 'validation_center'));
+            const canOpenValidation = canViewValidation;
             return (
               <div className="relative shrink-0" ref={notifMenuRef}>
                 <button
@@ -1215,9 +1212,15 @@ export default function Header({
             );
           })()}
 
-          {/* User Profile Account Card Pill & Popover Menu (NH-3: Interactive for all roles with Logout & guarded Settings) */}
-          {!isStandardFixed && (
-            <div className="relative shrink-0" ref={userMenuRef}>
+          {/* User Profile Account Card Pill & Popover Menu (Shown in Floating, Collapsed Standard, or Mobile/Tablet) */}
+          {Boolean(currentUser) && (
+            <div
+              className={`relative shrink-0 ${
+                !isStandardFixed || desktopSidebarCollapsed ? 'block' : 'block lg:hidden'
+              }`}
+              ref={userMenuRef}
+              data-testid="header-user-menu"
+            >
               <button
                 type="button"
                 onClick={() => setUserMenuOpen((prev) => !prev)}
