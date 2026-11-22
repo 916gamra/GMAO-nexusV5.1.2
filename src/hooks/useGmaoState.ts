@@ -165,6 +165,8 @@ export function useGmaoState() {
     setMachineElementsLedger: store.setMachineElementsLedger,
     addMachineElement: store.addMachineElement,
     updateMachineElement: store.updateMachineElement,
+    upsertMachineElementsBatch: store.upsertMachineElementsBatch,
+    updateMachineElementsBatch: store.updateMachineElementsBatch,
     deleteMachineElement: store.deleteMachineElement,
     duplicateBOMToTwins: store.duplicateBOMToTwins,
     isValidMachineFamilies: store.isValidMachineFamilies,

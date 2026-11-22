@@ -14,6 +14,7 @@ export {
   buildUnifiedMachineNexusElements,
   buildLedgerEntriesFromBlueprint,
   applyReplacementMovementToLedger,
+  matchesExactOrBoundaryToken,
   type BlueprintPreventivePlanItem,
   type BlueprintCommonFailureItem,
   type BlueprintPdrItem,

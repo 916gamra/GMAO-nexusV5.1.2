@@ -51,6 +51,7 @@ export const CATALOG_PROTECTED_ENTITIES = new Set<string>([
   'families',
   'templates',
   'blueprints',
+  'machineElementsLedger',
 ]);
 
 export const FIELD_WRITABLE_ENTITIES = new Set<string>([
@@ -63,7 +64,6 @@ export const FIELD_WRITABLE_ENTITIES = new Set<string>([
   'workshopOrders',
   'needRequests',
   'machines',
-  'machineElementsLedger',
   'auditEvents',
 ]);
 
@@ -613,10 +613,10 @@ export function canRoleMutateEntity(
   }
 
   if (role === 'TECHNICIEN' || role === 'OPERATEUR') {
-    if (STOCK_LEDGER_ENTITIES.has(targetEntity)) {
+    if (STOCK_LEDGER_ENTITIES.has(targetEntity) || targetEntity === 'machineElementsLedger') {
       return {
         allowed: false,
-        reason: `Role '${role}' cannot directly mutate '${targetEntity}' (Maker-Checker policy: use sortieDemands).`,
+        reason: `Role '${role}' cannot directly mutate '${targetEntity}' (Maker-Checker policy: use sortieDemands / BT validation).`,
       };
     }
     if (httpMethod === 'DELETE' && CATALOG_PROTECTED_ENTITIES.has(targetEntity)) {

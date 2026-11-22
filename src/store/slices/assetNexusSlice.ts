@@ -1,6 +1,7 @@
 import { DataGateway } from '../../application/DataGateway';
 import { isSystemGeneralMachine } from '../../utils/activeMachines';
 import { safeId } from '../../utils/safeId';
+import { buildUnifiedMachineNexusElements } from '../../core/domain/Blueprint';
 import type { GmaoStoreState, MachineElement, StateUpdater } from '../../types/store';
 import type {
   IMachine,
@@ -56,6 +57,8 @@ export type AssetNexusSliceKeys = Pick<
   | 'setMachineElementsLedger'
   | 'addMachineElement'
   | 'updateMachineElement'
+  | 'upsertMachineElementsBatch'
+  | 'updateMachineElementsBatch'
   | 'deleteMachineElement'
   | 'duplicateBOMToTwins'
   | 'isValidMachineFamilies'
@@ -313,6 +316,186 @@ export function createAssetNexusSlice(set: StoreSet, get: StoreGet): AssetNexusS
       }
     },
 
+    upsertMachineElementsBatch: (
+      elements: Partial<MachineElement>[],
+      options?: { sourceLabel?: string }
+    ) => {
+      if (!Array.isArray(elements) || elements.length === 0) {
+        return { addedCount: 0, updatedCount: 0, skippedSystemCount: 0 };
+      }
+
+      const machines = get().machines || [];
+      const currentLedger = [...(get().machineElementsLedger || [])];
+      const indexByPair = new Map<string, number>();
+      const indexById = new Map<string, number>();
+
+      const buildPairKey = (machRaw: unknown, refRaw: unknown) => {
+        const m = String(machRaw || '').trim().toUpperCase();
+        const r = String(refRaw || '').trim().toUpperCase();
+        return m && r ? `${m}::${r}` : '';
+      };
+
+      currentLedger.forEach((el, idx) => {
+        if (!el) return;
+        const idKey = String(el.id || '').trim();
+        if (idKey) indexById.set(idKey, idx);
+        const pairKey = buildPairKey(
+          el.id_machine_registered,
+          el.ref_element || el.id_element || el.ref
+        );
+        if (pairKey && !indexByPair.has(pairKey)) {
+          indexByPair.set(pairKey, idx);
+        }
+      });
+
+      let addedCount = 0;
+      let updatedCount = 0;
+      let skippedSystemCount = 0;
+      const newRecordsToPrepend: MachineElement[] = [];
+      const pendingNewIndexByPair = new Map<string, number>();
+      const affectedMachines = new Set<string>();
+
+      for (const candidate of elements) {
+        if (!candidate || typeof candidate !== 'object') continue;
+        const targetMachRaw = String(candidate.id_machine_registered || '').trim();
+        const targetMachKey = targetMachRaw.toUpperCase();
+        if (targetMachKey) {
+          const matchedMachine = machines.find(
+            (m) =>
+              String(m.id_machine_registered || m.id || m.code || '')
+                .trim()
+                .toUpperCase() === targetMachKey
+          );
+          if (matchedMachine && isSystemGeneralMachine(matchedMachine)) {
+            skippedSystemCount++;
+            continue;
+          }
+          affectedMachines.add(targetMachKey);
+        }
+
+        const refRaw = String(
+          candidate.ref_element || candidate.id_element || candidate.ref || ''
+        ).trim();
+        const pairKey = buildPairKey(targetMachRaw, refRaw);
+        const explicitId = String(candidate.id || '').trim();
+
+        const existingIdxById = explicitId ? indexById.get(explicitId) : undefined;
+        const existingIdxByPair = pairKey ? indexByPair.get(pairKey) : undefined;
+        const existingIdx =
+          existingIdxById !== undefined ? existingIdxById : existingIdxByPair;
+
+        if (existingIdx !== undefined) {
+          const prevEl = currentLedger[existingIdx];
+          currentLedger[existingIdx] = {
+            ...prevEl,
+            ...candidate,
+            id: prevEl.id,
+          };
+          updatedCount++;
+          continue;
+        }
+
+        // Also deduplicate duplicate (Machine + Ref) rows inside the same incoming batch
+        if (pairKey && pendingNewIndexByPair.has(pairKey)) {
+          const newIdx = pendingNewIndexByPair.get(pairKey)!;
+          const prevNew = newRecordsToPrepend[newIdx];
+          newRecordsToPrepend[newIdx] = {
+            ...prevNew,
+            ...candidate,
+            id: prevNew.id,
+          };
+          updatedCount++;
+          continue;
+        }
+
+        const created: MachineElement = {
+          ...candidate,
+          id: explicitId || safeId('BOM'),
+        };
+        const newIdx = newRecordsToPrepend.length;
+        newRecordsToPrepend.push(created);
+        if (pairKey) {
+          pendingNewIndexByPair.set(pairKey, newIdx);
+        }
+        addedCount++;
+      }
+
+      if (addedCount > 0 || updatedCount > 0) {
+        const nextLedger = [...newRecordsToPrepend, ...currentLedger];
+        get().setMachineElementsLedger(nextLedger);
+        get().appendAuditEvent?.({
+          actionType: 'MACHINE_BOM_BATCH_UPSERTED',
+          entityType: 'MACHINE',
+          entityId:
+            affectedMachines.size === 1
+              ? Array.from(affectedMachines)[0]
+              : 'BATCH_BOM',
+          before: null,
+          after: {
+            source: options?.sourceLabel || 'BATCH_UPSERT',
+            addedCount,
+            updatedCount,
+            skippedSystemCount,
+            machines: Array.from(affectedMachines),
+          },
+        });
+      }
+
+      return { addedCount, updatedCount, skippedSystemCount };
+    },
+
+    updateMachineElementsBatch: (
+      updatesList: Array<{ id: string; updates: Partial<MachineElement> }>,
+      options?: { sourceLabel?: string }
+    ) => {
+      if (!Array.isArray(updatesList) || updatesList.length === 0) {
+        return { updatedCount: 0 };
+      }
+
+      const updatesById = new Map<string, Partial<MachineElement>>();
+      for (const item of updatesList) {
+        const cleanId = String(item?.id || '').trim();
+        if (!cleanId || !item?.updates) continue;
+        const prev = updatesById.get(cleanId) || {};
+        updatesById.set(cleanId, { ...prev, ...item.updates });
+      }
+      if (updatesById.size === 0) {
+        return { updatedCount: 0 };
+      }
+
+      let updatedCount = 0;
+      const affectedMachines = new Set<string>();
+      const nextLedger = (get().machineElementsLedger || []).map((el) => {
+        const cleanId = String(el?.id || '').trim();
+        const patch = updatesById.get(cleanId);
+        if (!patch) return el;
+        updatedCount++;
+        const machKey = String(el.id_machine_registered || '').trim().toUpperCase();
+        if (machKey) affectedMachines.add(machKey);
+        return { ...el, ...patch };
+      });
+
+      if (updatedCount > 0) {
+        get().setMachineElementsLedger(nextLedger);
+        get().appendAuditEvent?.({
+          actionType: 'MACHINE_BOM_BATCH_UPDATED',
+          entityType: 'MACHINE',
+          entityId:
+            affectedMachines.size === 1
+              ? Array.from(affectedMachines)[0]
+              : 'BATCH_BOM',
+          before: null,
+          after: {
+            source: options?.sourceLabel || 'BATCH_UPDATE',
+            updatedCount,
+            machines: Array.from(affectedMachines),
+          },
+        });
+      }
+
+      return { updatedCount };
+    },
+
     deleteMachineElement: (id: string) => {
       const existing = (get().machineElementsLedger || []).find(
         (el) => String(el.id) === String(id)
@@ -338,27 +521,23 @@ export function createAssetNexusSlice(set: StoreSet, get: StoreGet): AssetNexusS
 
     duplicateBOMToTwins: (sourceMachineId: string, targetMachineIds: string[]) => {
       const srcKey = String(sourceMachineId || '').trim().toUpperCase();
-      if (!srcKey || !Array.isArray(targetMachineIds) || targetMachineIds.length === 0) return;
+      if (!srcKey || !Array.isArray(targetMachineIds) || targetMachineIds.length === 0) return 0;
 
       const ledger = get().machineElementsLedger || [];
-      const sourceElements = ledger.filter(
-        (el) => String(el.id_machine_registered || '').trim().toUpperCase() === srcKey
-      );
-      if (sourceElements.length === 0) return;
-
+      const warehouseItems = get().warehouseItems || [];
       const machines = get().machines || [];
-      const existingKeys = new Set(
-        ledger.map(
-          (el) =>
-            `${String(el.id_machine_registered || '').trim().toUpperCase()}::${String(
-              el.ref_element || el.id_element || ''
-            )
-              .trim()
-              .toUpperCase()}`
-        )
+      const today = new Date().toISOString().split('T')[0];
+
+      // Build unified source BOM (LEDGER + mounted ENTREPOT items)
+      const sourceElements = buildUnifiedMachineNexusElements(
+        sourceMachineId,
+        ledger,
+        warehouseItems
       );
+      if (sourceElements.length === 0) return 0;
 
       const newEntries: MachineElement[] = [];
+
       for (const targetId of targetMachineIds) {
         const cleanTarget = String(targetId || '').trim();
         const targetKey = cleanTarget.toUpperCase();
@@ -372,17 +551,101 @@ export function createAssetNexusSlice(set: StoreSet, get: StoreGet): AssetNexusS
         );
         if (targetMachine && isSystemGeneralMachine(targetMachine)) continue;
 
-        for (const srcEl of sourceElements) {
-          const refKey = String(srcEl.ref_element || srcEl.id_element || '').trim().toUpperCase();
-          const pairKey = `${targetKey}::${refKey}`;
-          if (refKey && existingKeys.has(pairKey)) continue;
-          if (refKey) existingKeys.add(pairKey);
+        // Collect all refs and catalog template IDs already mounted on target twin (LEDGER + ENTREPOT)
+        const targetExistingElements = buildUnifiedMachineNexusElements(
+          cleanTarget,
+          ledger,
+          warehouseItems
+        );
+        const targetExistingKeys = new Set<string>();
+        for (const existing of targetExistingElements) {
+          const candidates = [
+            existing.ref_element,
+            existing.id_element,
+            existing._compTemplateId,
+            existing._partDesignationId,
+          ];
+          for (const c of candidates) {
+            const norm = String(c || '').trim().toUpperCase();
+            if (norm) targetExistingKeys.add(norm);
+          }
+        }
 
-          newEntries.push({
-            ...srcEl,
+        const targetCounter = Number(
+          (targetMachine as any)?.compteur_actuel ?? (targetMachine as any)?.compteur ?? 0
+        );
+        const targetTech = String(
+          targetMachine?.technician ||
+            targetMachine?.technicien_responsable ||
+            targetMachine?.technicien ||
+            ''
+        ).trim();
+
+        for (const srcEl of sourceElements) {
+          if (srcEl._source === 'ENTREPOT') {
+            // Never clone a physical serialized warehouse ID onto a twin; clone only at catalog/template level
+            const templateRef = String(
+              srcEl._compTemplateId || srcEl._partDesignationId || ''
+            ).trim();
+            const templateKey = templateRef.toUpperCase();
+            if (!templateKey || targetExistingKeys.has(templateKey)) continue;
+            targetExistingKeys.add(templateKey);
+
+            const cleanClone: MachineElement = {
+              id: safeId('BOM'),
+              id_machine_registered: cleanTarget,
+              element_type: srcEl.element_type || 'COMPONENT',
+              ref_element: templateRef,
+              designation: srcEl.designation || templateRef,
+              qte_montee: Math.max(1, Number(srcEl.qte_montee) || 1),
+              unite: srcEl.unite || 'U',
+              criticalite: srcEl.criticalite || 'CRITIQUE',
+              duree_vie_estimee_heures: Number(srcEl.duree_vie_estimee_heures) || 10000,
+              heures_actuelles: 0,
+              date_installation: today,
+              emplacement_machine: srcEl.emplacement_machine || '',
+              parent_component_key: srcEl.parent_component_key || '',
+              technicien: targetTech || srcEl.technicien || '',
+              statut: 'OPERATIONNEL',
+              remarques: srcEl.remarques || '',
+              ...(Number.isFinite(targetCounter) && targetCounter > 0
+                ? { compteur_installation: targetCounter }
+                : {}),
+            };
+            newEntries.push(cleanClone);
+            continue;
+          }
+
+          const refRaw = String(srcEl.ref_element || srcEl.id_element || '').trim();
+          const refKey = refRaw.toUpperCase();
+          if (!refKey || targetExistingKeys.has(refKey)) continue;
+          targetExistingKeys.add(refKey);
+
+          const {
+            _source: _omitSource,
+            _warehouseItemId: _omitWhId,
+            _warehouseStatus: _omitWhStatus,
+            _compTemplateId: _omitCompTpl,
+            _partDesignationId: _omitPartDes,
+            wear_source: _omitWearSource,
+            compteur_installation: _omitInstallCounter,
+            ...baseFields
+          } = srcEl as Record<string, unknown>;
+
+          const cleanClone: MachineElement = {
+            ...(baseFields as Partial<MachineElement>),
             id: safeId('BOM'),
             id_machine_registered: cleanTarget,
-          });
+            ref_element: refRaw,
+            heures_actuelles: 0,
+            statut: 'OPERATIONNEL',
+            date_installation: today,
+            technicien: targetTech || String(srcEl.technicien || ''),
+            ...(Number.isFinite(targetCounter) && targetCounter > 0
+              ? { compteur_installation: targetCounter }
+              : {}),
+          };
+          newEntries.push(cleanClone);
         }
       }
 
@@ -400,6 +663,8 @@ export function createAssetNexusSlice(set: StoreSet, get: StoreGet): AssetNexusS
           },
         });
       }
+
+      return newEntries.length;
     },
 
     isValidMachineFamilies: (arr: IMachineFamily[]) =>

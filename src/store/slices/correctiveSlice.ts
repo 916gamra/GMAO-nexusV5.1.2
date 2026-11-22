@@ -6,6 +6,7 @@ import {
 } from '../../domain/corrective/services/CorrectiveCalculationService';
 import { StockCalculationService } from '../../domain/pdr/services/StockCalculationService';
 import { WorkOrderStateMachine } from '../../domain/corrective/services/WorkOrderStateMachine';
+import { applyReplacementMovementToLedger } from '../../core/domain/Blueprint';
 import {
   createWorkshopOrderRecord,
   validateWorkshopOrderTransition,
@@ -926,6 +927,47 @@ export function createCorrectiveSlice(set: StoreSet, get: StoreGet): CorrectiveS
         }
       }
 
+      // N4 Closed-Loop: Reset wear hours in machineElementsLedger for approved PDR replacements on target machine
+      const targetBtMachine = String(
+        existing.code_machine || existing.id_machine_registered || existing.id_machine || ''
+      ).trim();
+      if (targetBtMachine && approvedPieces.length > 0 && typeof get().setMachineElementsLedger === 'function') {
+        const targetMachObj = (get().machines || []).find(
+          (m: any) =>
+            String(m?.id_machine_registered || m?.code_machine || m?.id || '')
+              .trim()
+              .toUpperCase() === targetBtMachine.toUpperCase()
+        );
+        const machineCounter = Number(
+          (targetMachObj as any)?.compteur_actuel ?? (targetMachObj as any)?.compteur ?? 0
+        );
+        let currLedger = get().machineElementsLedger || [];
+        let ledgerChanged = false;
+        const installDate = String(
+          decisionData?.date_fin || existing.date_fin_proposee || nowIso.slice(0, 10)
+        );
+        const techName = String(
+          existing.submitted_by_name || existing.intervenant || validatorName
+        ).trim();
+        for (const piece of approvedPieces) {
+          if (!piece?.ref || !(Number(piece.quantite) > 0)) continue;
+          const { updatedElement, updatedLedger } = applyReplacementMovementToLedger(currLedger, {
+            id_machine_registered: targetBtMachine,
+            ref: piece.ref,
+            date: installDate,
+            technicien: techName,
+            ...(machineCounter > 0 ? { compteur_installation: machineCounter } : {}),
+          });
+          if (updatedElement) {
+            currLedger = updatedLedger as any;
+            ledgerChanged = true;
+          }
+        }
+        if (ledgerChanged) {
+          get().setMachineElementsLedger(currLedger as any);
+        }
+      }
+
       const dDebut = String(existing.date_debut || existing.date || nowIso.slice(0, 10));
       const hDebut = String(existing.heure_debut || '08:00');
       const dFin = String(decisionData?.date_fin || existing.date_fin_proposee || dDebut);
@@ -1206,6 +1248,49 @@ export function createCorrectiveSlice(set: StoreSet, get: StoreGet): CorrectiveS
           for (const mv of newMovements) {
             onAddMouvement(mv);
           }
+        }
+      }
+
+      // N4 Closed-Loop: Reset wear hours in machineElementsLedger for consumed PDR replacements on direct BT closure
+      const targetCloseMachine = String(
+        clotureData?.code_machine ||
+          existing.code_machine ||
+          existing.id_machine_registered ||
+          existing.id_machine ||
+          ''
+      ).trim();
+      if (targetCloseMachine && pieces.length > 0 && typeof get().setMachineElementsLedger === 'function') {
+        const targetMachObj = (get().machines || []).find(
+          (m: any) =>
+            String(m?.id_machine_registered || m?.code_machine || m?.id || '')
+              .trim()
+              .toUpperCase() === targetCloseMachine.toUpperCase()
+        );
+        const machineCounter = Number(
+          (targetMachObj as any)?.compteur_actuel ?? (targetMachObj as any)?.compteur ?? 0
+        );
+        let currLedger = get().machineElementsLedger || [];
+        let ledgerChanged = false;
+        const installDate = String(clotureData?.date_fin || nowIso.slice(0, 10));
+        const techName = String(
+          clotureData?.intervenant || existing.intervenant || actor.actorName
+        ).trim();
+        for (const piece of pieces) {
+          if (!piece?.ref || !(Number(piece.quantite) > 0)) continue;
+          const { updatedElement, updatedLedger } = applyReplacementMovementToLedger(currLedger, {
+            id_machine_registered: targetCloseMachine,
+            ref: piece.ref,
+            date: installDate,
+            technicien: techName,
+            ...(machineCounter > 0 ? { compteur_installation: machineCounter } : {}),
+          });
+          if (updatedElement) {
+            currLedger = updatedLedger as any;
+            ledgerChanged = true;
+          }
+        }
+        if (ledgerChanged) {
+          get().setMachineElementsLedger(currLedger as any);
         }
       }
 

@@ -29,10 +29,14 @@ import frMachines from './locales/fr/machines.json';
 import arMachines from './locales/ar/machines.json';
 import enMachines from './locales/en/machines.json';
 
+import frNexus from './locales/fr/nexus.json';
+import arNexus from './locales/ar/nexus.json';
+import enNexus from './locales/en/nexus.json';
+
 const dictionaries = {
-  fr: { ...fr, zones: frZones, utilisateurs: frUtilisateurs, entrepot: frEntrepot, corrective: frCorrective, preventive: frPreventive, machines: frMachines },
-  ar: { ...ar, zones: arZones, utilisateurs: arUtilisateurs, entrepot: arEntrepot, corrective: arCorrective, preventive: arPreventive, machines: arMachines },
-  en: { ...en, zones: enZones, utilisateurs: enUtilisateurs, entrepot: enEntrepot, corrective: enCorrective, preventive: enPreventive, machines: enMachines },
+  fr: { ...fr, zones: frZones, utilisateurs: frUtilisateurs, entrepot: frEntrepot, corrective: frCorrective, preventive: frPreventive, machines: frMachines, nexus: frNexus },
+  ar: { ...ar, zones: arZones, utilisateurs: arUtilisateurs, entrepot: arEntrepot, corrective: arCorrective, preventive: arPreventive, machines: arMachines, nexus: arNexus },
+  en: { ...en, zones: enZones, utilisateurs: enUtilisateurs, entrepot: enEntrepot, corrective: enCorrective, preventive: enPreventive, machines: enMachines, nexus: enNexus },
 };
 
 export interface I18nContextType {

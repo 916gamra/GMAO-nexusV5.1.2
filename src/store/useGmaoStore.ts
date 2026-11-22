@@ -377,6 +377,8 @@ export const useMachineSlice = () =>
     setMachineElementsLedger: state.setMachineElementsLedger,
     addMachineElement: state.addMachineElement,
     updateMachineElement: state.updateMachineElement,
+    upsertMachineElementsBatch: state.upsertMachineElementsBatch,
+    updateMachineElementsBatch: state.updateMachineElementsBatch,
     deleteMachineElement: state.deleteMachineElement,
     duplicateBOMToTwins: state.duplicateBOMToTwins,
     isValidMachineFamilies: state.isValidMachineFamilies,

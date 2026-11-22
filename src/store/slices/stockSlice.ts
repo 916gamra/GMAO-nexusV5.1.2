@@ -2,6 +2,7 @@ import { DataGateway } from '../../application/DataGateway';
 import { movementRepository } from '../../application/MovementRepository';
 import { reactiveCalculationEngine } from '../../services/reactiveCalculationEngine';
 import { StockCalculationService } from '../../core/domain/services/StockCalculationService';
+import { applyReplacementMovementToLedger } from '../../core/domain/Blueprint';
 import { Logger } from '../../core/logger/LoggerService';
 import { safeId } from '../../utils/safeId';
 import type {
@@ -437,6 +438,44 @@ export function createStockSlice(set: StoreSet, get: StoreGet): StockSliceKeys {
         get().setSortieDemands((prev) =>
           (prev || []).map((d) => (String(d.id) === String(demandId) ? updatedDemand : d))
         );
+
+        // N4 Closed-Loop: Reset wear hours in machineElementsLedger on approved merged/pre-deducted SortieDemand
+        if (existing.id_machine_registered && typeof get().setMachineElementsLedger === 'function') {
+          const itemsToSync = Array.isArray(decisionData?.approvedItems)
+            ? decisionData.approvedItems
+            : Array.isArray(existing.items)
+            ? existing.items
+            : [];
+          const targetMachObj = (get().machines || []).find(
+            (m: any) =>
+              String(m?.id_machine_registered || m?.code_machine || m?.id || '')
+                .trim()
+                .toUpperCase() === String(existing.id_machine_registered).trim().toUpperCase()
+          );
+          const machineCounter = Number(
+            (targetMachObj as any)?.compteur_actuel ?? (targetMachObj as any)?.compteur ?? 0
+          );
+          let currLedger = get().machineElementsLedger || [];
+          let ledgerChanged = false;
+          for (const it of itemsToSync) {
+            if (!it?.ref) continue;
+            const { updatedElement, updatedLedger } = applyReplacementMovementToLedger(currLedger, {
+              id_machine_registered: existing.id_machine_registered,
+              ref: String(it.ref).trim(),
+              date: existing.date || nowIso.slice(0, 10),
+              technicien: existing.technicien || existing.submitted_by_name,
+              ...(machineCounter > 0 ? { compteur_installation: machineCounter } : {}),
+            });
+            if (updatedElement) {
+              currLedger = updatedLedger as any;
+              ledgerChanged = true;
+            }
+          }
+          if (ledgerChanged) {
+            get().setMachineElementsLedger(currLedger as any);
+          }
+        }
+
         get().appendAuditEvent({
           actorId: validatorId,
           actorName: validatorName,
@@ -526,6 +565,38 @@ export function createStockSlice(set: StoreSet, get: StoreGet): StockSliceKeys {
           for (const mv of newMovements) {
             onAddMouvement(mv);
           }
+        }
+      }
+
+      // N4 Closed-Loop: Reset wear counter in machineElementsLedger for each approved Sortie item on target machine
+      if (existing.id_machine_registered && approvedItems.length > 0 && typeof get().setMachineElementsLedger === 'function') {
+        const targetMachObj = (get().machines || []).find(
+          (m: any) =>
+            String(m?.id_machine_registered || m?.code_machine || m?.id || '')
+              .trim()
+              .toUpperCase() === String(existing.id_machine_registered).trim().toUpperCase()
+        );
+        const machineCounter = Number(
+          (targetMachObj as any)?.compteur_actuel ?? (targetMachObj as any)?.compteur ?? 0
+        );
+        let currLedger = get().machineElementsLedger || [];
+        let ledgerChanged = false;
+        for (const it of approvedItems) {
+          if (!it?.ref || !(Number(it.quantite) > 0)) continue;
+          const { updatedElement, updatedLedger } = applyReplacementMovementToLedger(currLedger, {
+            id_machine_registered: existing.id_machine_registered,
+            ref: String(it.ref).trim(),
+            date: existing.date || nowIso.slice(0, 10),
+            technicien: existing.technicien || existing.submitted_by_name,
+            ...(machineCounter > 0 ? { compteur_installation: machineCounter } : {}),
+          });
+          if (updatedElement) {
+            currLedger = updatedLedger as any;
+            ledgerChanged = true;
+          }
+        }
+        if (ledgerChanged) {
+          get().setMachineElementsLedger(currLedger as any);
         }
       }
 

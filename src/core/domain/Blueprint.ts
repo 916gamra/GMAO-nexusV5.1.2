@@ -106,6 +106,9 @@ export interface BlueprintMachineInput {
   statut?: string;
   is_active?: boolean;
   actif?: boolean;
+  compteur_actuel?: number;
+  compteur?: number;
+  heures_fonctionnement_jour?: number;
   pdr_theoriques?: BlueprintPdrItem[];
   pdr_historique?: BlueprintPdrItem[];
   components_reels?: BlueprintTheoreticalElement[];
@@ -144,6 +147,7 @@ export interface BlueprintWarehouseItemInput {
   criticalite?: string;
   duree_vie_estimee_heures?: number;
   heures_actuelles?: number;
+  compteur_installation?: number;
   date_installation?: string;
   date_montage?: string;
   emplacement?: string;
@@ -207,6 +211,8 @@ export interface BlueprintLedgerElement {
   criticalite?: string;
   duree_vie_estimee_heures?: number;
   heures_actuelles?: number;
+  compteur_installation?: number;
+  wear_source?: 'METER' | 'CALENDAR' | 'MANUAL';
   date_installation?: string;
   emplacement_machine?: string;
   parent_component_key?: string;
@@ -219,6 +225,8 @@ export interface BlueprintLedgerElement {
   _source?: string;
   _warehouseItemId?: string | number;
   _warehouseStatus?: string;
+  _compTemplateId?: string;
+  _partDesignationId?: string;
   [key: string]: unknown;
 }
 
@@ -283,6 +291,48 @@ function normalizeToken(val: unknown): string {
     .trim()
     .toLowerCase()
     .replace(/[-_\s]+/g, ' ');
+}
+
+function tokenizeBoundaryWords(val: unknown): string[] {
+  return String(val || '')
+    .trim()
+    .toLowerCase()
+    .split(/[^a-z0-9à-ÿ]+/i)
+    .filter(Boolean);
+}
+
+/**
+ * Phase B.2: Exact or token-boundary matching (prevents substring false positives like 'M6' matching 'M60' or 'P1' matching 'COMP1').
+ */
+export function matchesExactOrBoundaryToken(candidateRaw: unknown, targetRaw: unknown): boolean {
+  const cNorm = normalizeToken(candidateRaw);
+  const tNorm = normalizeToken(targetRaw);
+  if (!cNorm || !tNorm) return false;
+  if (cNorm === tNorm) return true;
+
+  const cWords = tokenizeBoundaryWords(candidateRaw);
+  const tWords = tokenizeBoundaryWords(targetRaw);
+  if (cWords.length === 0 || tWords.length === 0) return false;
+
+  const [shorter, longer, shorterNorm] =
+    cWords.length <= tWords.length ? [cWords, tWords, cNorm] : [tWords, cWords, tNorm];
+
+  // Single short token (< 3 chars, e.g. 'm6' or 'p1') must match exact field value only, never free-text inclusion
+  if (shorter.length === 1 && shorterNorm.length < 3) {
+    return false;
+  }
+
+  for (let i = 0; i <= longer.length - shorter.length; i++) {
+    let allMatch = true;
+    for (let j = 0; j < shorter.length; j++) {
+      if (longer[i + j] !== shorter[j]) {
+        allMatch = false;
+        break;
+      }
+    }
+    if (allMatch) return true;
+  }
+  return false;
 }
 
 export function applyBlueprintPlanToActiveMachines(
@@ -616,12 +666,7 @@ export function rankStockItemsByMachineBom<T extends BlueprintStockItemInput>(
 
         const matchesOrgane =
           Boolean(targetCompNorm) &&
-          locCandidates.some(
-            (loc) =>
-              loc === targetCompNorm ||
-              loc.includes(targetCompNorm) ||
-              targetCompNorm.includes(loc)
-          );
+          locCandidates.some((loc) => matchesExactOrBoundaryToken(loc, targetCompNorm));
 
         if (matchesOrgane) {
           componentPdrRefs.add(r);
@@ -662,11 +707,7 @@ export function rankStockItemsByMachineBom<T extends BlueprintStockItemInput>(
       const matchesTargetComp = (candidateNorm: string) => {
         if (!targetCompNorm || !candidateNorm) return false;
         for (const alias of bpCompAliases) {
-          if (
-            candidateNorm === alias ||
-            alias.includes(candidateNorm) ||
-            candidateNorm.includes(alias)
-          ) {
+          if (matchesExactOrBoundaryToken(candidateNorm, alias)) {
             return true;
           }
         }
@@ -856,6 +897,9 @@ export function buildUnifiedMachineNexusElements(
         criticalite: w.criticalite || 'MAJEURE',
         duree_vie_estimee_heures: Number(w.duree_vie_estimee_heures) || 5000,
         heures_actuelles: Number(w.heures_actuelles) || 0,
+        ...(w.compteur_installation !== undefined && Number.isFinite(Number(w.compteur_installation))
+          ? { compteur_installation: Number(w.compteur_installation) }
+          : {}),
         date_installation: w.date_installation || w.date_montage || '',
         emplacement_machine: w.emplacement || w.emplacement_machine || 'Monté (Entrepôt)',
         technicien: w.technician || w.technicien || 'Entrepôt',
@@ -864,6 +908,8 @@ export function buildUnifiedMachineNexusElements(
         _source: 'ENTREPOT',
         _warehouseItemId: w.id_warehouse_item || w.id || whCode,
         _warehouseStatus: w.status || 'Monté / En service',
+        _compTemplateId: String(w.id_comp_template || w.id_templates || w.ref || '').trim() || undefined,
+        _partDesignationId: String(w.id_part_designation || w.id_part || w.part_type || w.ref || '').trim() || undefined,
       });
     });
   }
@@ -929,8 +975,9 @@ export function buildLedgerEntriesFromBlueprint(
   const defaultTech = String(
     machine.technician || machine.technicien_responsable || machine.technicien || 'tech'
   ).trim();
+  const initialCounter = Number(machine.compteur_actuel ?? machine.compteur ?? 0);
 
-  // Existing normalized refs for this machine in machineElementsLedger
+  // Existing normalized refs & template IDs for this machine in machineElementsLedger / unified view (Phase B.3)
   const existingRefsForMachine = new Set<string>();
   if (Array.isArray(existingLedger)) {
     existingLedger.forEach((item) => {
@@ -939,8 +986,17 @@ export function buildLedgerEntriesFromBlueprint(
         item.id_machine_registered || item.id_machine || item.code_machine || item.machine
       );
       if (itemMachNorm === targetMachNorm) {
-        const refNorm = normalizeToken(item.ref_element || item.ref);
-        if (refNorm) existingRefsForMachine.add(refNorm);
+        [
+          item.ref_element,
+          item.ref,
+          item._compTemplateId,
+          item._partDesignationId,
+          item.id_composant,
+          item.id_part,
+        ].forEach((candidateKey) => {
+          const kNorm = normalizeToken(candidateKey);
+          if (kNorm) existingRefsForMachine.add(kNorm);
+        });
       }
     });
   }
@@ -986,6 +1042,7 @@ export function buildLedgerEntriesFromBlueprint(
       criticalite: candidate.criticalite || 'CRITIQUE',
       duree_vie_estimee_heures: 5000,
       heures_actuelles: 0,
+      ...(initialCounter > 0 ? { compteur_installation: initialCounter } : {}),
       date_installation: today,
       emplacement_machine: candidate.emplacement_machine || '',
       ...(candidate.parent_component_key
@@ -1066,8 +1123,8 @@ export function buildLedgerEntriesFromBlueprint(
 
 /**
  * N4 — Post-Sortie Ledger Reset Helper:
- * Finds the matching `machineElementsLedger` record for a completed `Sortie` movement on `id_machine_registered` + `ref`
- * (or explicit `ledgerElementId`) and resets its wear counter (`heures_actuelles = 0`), `date_installation`, and `statut = 'OPERATIONNEL'`.
+ * Finds the matching `machineElementsLedger` record(s) for a completed `Sortie` movement on `id_machine_registered` + `ref`
+ * (or explicit `ledgerElementId`) and resets its wear counter (`heures_actuelles = 0`), `compteur_installation`, `date_installation`, and `statut = 'OPERATIONNEL'`.
  */
 export function applyReplacementMovementToLedger(
   machineElementsLedger: BlueprintLedgerElement[] = [],
@@ -1077,6 +1134,7 @@ export function applyReplacementMovementToLedger(
     date?: string;
     technicien?: string;
     ledgerElementId?: string;
+    compteur_installation?: number;
   } = {}
 ): {
   updatedLedger: BlueprintLedgerElement[];
@@ -1095,10 +1153,17 @@ export function applyReplacementMovementToLedger(
   }
 
   const installDate = movementPayload.date || new Date().toISOString().slice(0, 10);
+  const installCounter =
+    movementPayload.compteur_installation !== undefined &&
+    Number.isFinite(Number(movementPayload.compteur_installation))
+      ? Number(movementPayload.compteur_installation)
+      : undefined;
+
   let updatedElement: BlueprintLedgerElement | null = null;
 
   const updatedLedger = machineElementsLedger.map((item) => {
-    if (!item || updatedElement) return item;
+    if (!item) return item;
+    if (targetId && updatedElement) return item;
 
     const matchById = targetId && String(item.id || '').trim() === targetId;
     const itemMachNorm = normalizeToken(
@@ -1106,19 +1171,24 @@ export function applyReplacementMovementToLedger(
     );
     const itemRefNorm = normalizeToken(item.ref_element || item.ref);
     const matchByMachAndRef =
+      !targetId &&
       Boolean(targetMachNorm && targetRefNorm) &&
       itemMachNorm === targetMachNorm &&
       itemRefNorm === targetRefNorm;
 
     if (matchById || matchByMachAndRef) {
-      updatedElement = {
+      const nextItem: BlueprintLedgerElement = {
         ...item,
         heures_actuelles: 0,
+        ...(installCounter !== undefined ? { compteur_installation: installCounter } : {}),
         date_installation: installDate,
         technicien: movementPayload.technicien || item.technicien || 'Technicien',
         statut: 'OPERATIONNEL',
       };
-      return updatedElement;
+      if (!updatedElement) {
+        updatedElement = nextItem;
+      }
+      return nextItem;
     }
     return item;
   });

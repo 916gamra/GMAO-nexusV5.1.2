@@ -453,8 +453,16 @@ export interface GmaoStoreState {
   setMachineElementsLedger: (ledger: StateUpdater<MachineElement[]>) => void;
   addMachineElement: (element: Partial<MachineElement>) => void;
   updateMachineElement: (id: string, updates: Partial<MachineElement>) => void;
+  upsertMachineElementsBatch: (
+    elements: Partial<MachineElement>[],
+    options?: { sourceLabel?: string }
+  ) => { addedCount: number; updatedCount: number; skippedSystemCount: number };
+  updateMachineElementsBatch: (
+    updatesList: Array<{ id: string; updates: Partial<MachineElement> }>,
+    options?: { sourceLabel?: string }
+  ) => { updatedCount: number };
   deleteMachineElement: (id: string) => void;
-  duplicateBOMToTwins: (sourceMachineId: string, targetMachineIds: string[]) => void;
+  duplicateBOMToTwins: (sourceMachineId: string, targetMachineIds: string[]) => number;
   isValidMachineFamilies: (arr: IMachineFamily[]) => boolean;
   isValidMachineTemplates: (arr: IMachineTemplate[]) => boolean;
 

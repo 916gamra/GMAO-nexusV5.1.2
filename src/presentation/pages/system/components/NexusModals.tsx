@@ -10,6 +10,7 @@ import {
   X,
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
+import { useTranslation } from '../../../../i18n/I18nContext';
 import type { IMachine, ITechnician, IZone } from '../../../../types/domain';
 import type { MachineElement } from '../../../../types/store';
 import type { BlueprintLedgerElement } from '../../../../core/domain/Blueprint';
@@ -90,6 +91,9 @@ export function NexusModals({
   defaultMachineTechnician,
   activeTechnicians,
 }: NexusModalsProps) {
+  const { t } = useTranslation();
+  const isEditingEntrepot = Boolean(editingElement && editingElement._source === 'ENTREPOT');
+
   return (
     <>
       {/* 5. MODAL NEX-6 : ANALYSE D'ÉCARTS BLUEPRINT (AS-DESIGNED) VS NEXUS (AS-BUILT) */}
@@ -103,14 +107,17 @@ export function NexusModals({
                 </div>
                 <div>
                   <h3 className="text-sm font-bold text-slate-900">
-                    Analyse d&apos;Écarts BOM : {activeMachine.id_machine_registered} vs Blueprint{' '}
-                    {blueprintConformity.blueprintId}
+                    {t('nexus.modals.gapTitle', {
+                      machine: activeMachine.id_machine_registered,
+                      blueprint: blueprintConformity.blueprintId,
+                    })}
                   </h3>
                   <p className="text-xs text-slate-500">
-                    Taux de conformité As-Built :{' '}
-                    <b className="text-indigo-700">{blueprintConformity.conformityRate}%</b> (
-                    {blueprintConformity.mountedCount} montés / {blueprintConformity.totalTheoretical}{' '}
-                    théoriques)
+                    {t('nexus.modals.gapSubtitle', {
+                      rate: blueprintConformity.conformityRate,
+                      mounted: blueprintConformity.mountedCount,
+                      total: blueprintConformity.totalTheoretical,
+                    })}
                   </p>
                 </div>
               </div>
@@ -130,8 +137,10 @@ export function NexusModals({
                   <h4 className="font-bold text-rose-700 uppercase tracking-wider text-[11px] flex items-center gap-1.5">
                     <AlertTriangle className="w-3.5 h-3.5" />
                     <span>
-                      1. Éléments Théoriques Manquants sur {activeMachine.id_machine_registered} (
-                      {blueprintConformity.missingEntries.length})
+                      {t('nexus.modals.gapMissingSection', {
+                        machine: activeMachine.id_machine_registered,
+                        count: blueprintConformity.missingEntries.length,
+                      })}
                     </span>
                   </h4>
                   {canManageNexus && blueprintConformity.missingEntries.length > 0 && (
@@ -141,7 +150,11 @@ export function NexusModals({
                       className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-[11px] transition cursor-pointer"
                     >
                       <Sparkles className="w-3 h-3" />
-                      <span>Tout Monter ({blueprintConformity.missingEntries.length})</span>
+                      <span>
+                        {t('nexus.actions.mountAll', {
+                          count: blueprintConformity.missingEntries.length,
+                        })}
+                      </span>
                     </button>
                   )}
                 </div>
@@ -149,22 +162,22 @@ export function NexusModals({
                 {blueprintConformity.missingEntries.length === 0 ? (
                   <div className="p-3 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-800 font-semibold flex items-center gap-2">
                     <CheckCircle2 className="w-4 h-4 text-emerald-600" />
-                    <span>
-                      Aucun écart manquant : 100% des éléments théoriques du Blueprint sont montés sur la machine.
-                    </span>
+                    <span>{t('nexus.modals.gapNoMissing')}</span>
                   </div>
                 ) : (
                   <div className="border border-rose-200 rounded-xl overflow-hidden">
                     <table className="w-full text-left text-xs">
                       <thead className="bg-rose-50/70 border-b border-rose-200 text-rose-900 font-bold text-[10px] uppercase">
                         <tr>
-                          <th className="py-2 px-3">Type</th>
-                          <th className="py-2 px-3">Référence</th>
-                          <th className="py-2 px-3">Désignation</th>
-                          <th className="py-2 px-3">Emplacement / Organe</th>
-                          <th className="py-2 px-3 text-center">Qté</th>
-                          <th className="py-2 px-3">Dispo Stock</th>
-                          {canManageNexus && <th className="py-2 px-3 text-right">Action</th>}
+                          <th className="py-2 px-3">{t('nexus.modals.colType')}</th>
+                          <th className="py-2 px-3">{t('nexus.modals.colRef')}</th>
+                          <th className="py-2 px-3">{t('nexus.modals.colDesignation')}</th>
+                          <th className="py-2 px-3">{t('nexus.modals.colLocation')}</th>
+                          <th className="py-2 px-3 text-center">{t('nexus.modals.colQty')}</th>
+                          <th className="py-2 px-3">{t('nexus.modals.colStock')}</th>
+                          {canManageNexus && (
+                            <th className="py-2 px-3 text-right">{t('nexus.modals.colAction')}</th>
+                          )}
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-rose-100">
@@ -192,7 +205,7 @@ export function NexusModals({
                                     className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-[11px] transition cursor-pointer"
                                   >
                                     <Plus className="w-3 h-3" />
-                                    <span>Monter</span>
+                                    <span>{t('nexus.actions.mountSingle')}</span>
                                   </button>
                                 </td>
                               )}
@@ -210,12 +223,14 @@ export function NexusModals({
                 <h4 className="font-bold text-emerald-700 uppercase tracking-wider text-[11px] flex items-center gap-1.5">
                   <CheckCircle2 className="w-3.5 h-3.5" />
                   <span>
-                    2. Éléments Conformes au Blueprint ({blueprintConformity.matchedEntries.length})
+                    {t('nexus.modals.gapMatchedSection', {
+                      count: blueprintConformity.matchedEntries.length,
+                    })}
                   </span>
                 </h4>
                 {blueprintConformity.matchedEntries.length === 0 ? (
                   <div className="p-3 rounded-xl bg-slate-50 border border-slate-200 text-slate-500">
-                    Aucun élément du Blueprint n&apos;est encore monté sur cette machine.
+                    {t('nexus.modals.gapNoMatched')}
                   </div>
                 ) : (
                   <div className="flex flex-wrap gap-1.5">
@@ -239,13 +254,14 @@ export function NexusModals({
                 <h4 className="font-bold text-indigo-700 uppercase tracking-wider text-[11px] flex items-center gap-1.5">
                   <Layers className="w-3.5 h-3.5" />
                   <span>
-                    3. Éléments Spécifiques Terrain / Hors-Blueprint (
-                    {blueprintConformity.extraEntries.length})
+                    {t('nexus.modals.gapExtraSection', {
+                      count: blueprintConformity.extraEntries.length,
+                    })}
                   </span>
                 </h4>
                 {blueprintConformity.extraEntries.length === 0 ? (
                   <div className="p-3 rounded-xl bg-slate-50 border border-slate-200 text-slate-500">
-                    Aucun élément hors-blueprint détecté sur cette machine.
+                    {t('nexus.modals.gapNoExtra')}
                   </div>
                 ) : (
                   <div className="flex flex-wrap gap-1.5">
@@ -270,7 +286,7 @@ export function NexusModals({
                 onClick={() => setIsGapModalOpen(false)}
                 className="px-4 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold transition cursor-pointer"
               >
-                Fermer
+                {t('nexus.actions.close')}
               </button>
             </div>
           </div>
@@ -280,14 +296,16 @@ export function NexusModals({
       {/* 6. MODAL INTERACTIF D'AJOUT / MODIFICATION D'UN ÉLÉMENT */}
       {isAddModalOpen && canManageNexus && activeMachine && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-xs overflow-y-auto">
-          <div className="bg-white rounded-2xl border border-slate-200 shadow-xl max-w-xl w-full p-6 space-y-4 my-8">
+          <div className="bg-white rounded-2xl border border-slate-200 shadow-xl max-w-xl w-full p-6 space-y-4 my-8 max-h-[92vh] overflow-y-auto">
             <div className="flex items-center justify-between pb-3 border-b border-slate-100">
               <div className="flex items-center gap-2">
                 <Wrench className="w-5 h-5 text-emerald-600" />
                 <h3 className="text-sm font-bold text-slate-900">
                   {editingElement
-                    ? 'Modifier l’Élément Monté'
-                    : `Monter un Élément sur ${activeMachine.id_machine_registered}`}
+                    ? t('nexus.modals.editTitle')
+                    : t('nexus.modals.addTitle', {
+                        machine: activeMachine.id_machine_registered,
+                      })}
                 </h3>
               </div>
               <button
@@ -299,40 +317,52 @@ export function NexusModals({
               </button>
             </div>
 
+            {isEditingEntrepot && (
+              <div className="p-2.5 rounded-xl bg-indigo-50 border border-indigo-200 text-[11px] text-indigo-800 font-medium">
+                {t('nexus.modals.entrepotReadOnlyNotice')}
+              </div>
+            )}
+
             <form onSubmit={handleSaveElement} className="space-y-4 text-xs">
               <div className="grid grid-cols-2 gap-3">
                 {/* Type de pièce */}
                 <div>
-                  <label className="block font-bold text-slate-700 mb-1">Type d&apos;Élément</label>
+                  <label className="block font-bold text-slate-700 mb-1">
+                    {t('nexus.modals.fieldType')}
+                  </label>
                   <select
                     value={formData.element_type}
+                    disabled={isEditingEntrepot}
                     onChange={(e) =>
                       setFormData({
                         ...formData,
                         element_type: e.target.value,
-                        ref_element: '',
-                        designation: '',
+                        ...(editingElement ? {} : { ref_element: '', designation: '' }),
                       })
                     }
-                    className="w-full p-2 rounded-lg border border-slate-200 focus:outline-hidden focus:border-emerald-500"
+                    className={`w-full p-2 rounded-lg border border-slate-200 focus:outline-hidden focus:border-emerald-500 ${
+                      isEditingEntrepot ? 'bg-slate-100 text-slate-500 cursor-not-allowed' : ''
+                    }`}
                   >
-                    <option value="PDR">Pièce de Rechange Consommable (PDR)</option>
-                    <option value="COMPONENT">Composant Rotatif / Échange Standard</option>
-                    <option value="PART">Organe / Sous-ensemble Mécanique</option>
+                    <option value="PDR">{t('nexus.modals.typePdr')}</option>
+                    <option value="COMPONENT">{t('nexus.modals.typeComponent')}</option>
+                    <option value="PART">{t('nexus.modals.typePart')}</option>
                   </select>
                 </div>
 
                 {/* Criticité */}
                 <div>
-                  <label className="block font-bold text-slate-700 mb-1">Niveau de Criticité</label>
+                  <label className="block font-bold text-slate-700 mb-1">
+                    {t('nexus.modals.fieldCriticality')}
+                  </label>
                   <select
                     value={formData.criticalite}
                     onChange={(e) => setFormData({ ...formData, criticalite: e.target.value })}
                     className="w-full p-2 rounded-lg border border-slate-200 focus:outline-hidden focus:border-emerald-500"
                   >
-                    <option value="CRITIQUE">Critique (Arrêt Ligne Immédiat)</option>
-                    <option value="MAJEURE">Majeure (Dégradation Performance)</option>
-                    <option value="MINEURE">Mineure (Accessoire)</option>
+                    <option value="CRITIQUE">{t('nexus.modals.critCritical')}</option>
+                    <option value="MAJEURE">{t('nexus.modals.critMajor')}</option>
+                    <option value="MINEURE">{t('nexus.modals.critMinor')}</option>
                   </select>
                 </div>
               </div>
@@ -340,48 +370,58 @@ export function NexusModals({
               {/* Sélection ou Saisie de la référence */}
               <div>
                 <label className="block font-bold text-slate-700 mb-1">
-                  Référence de la Pièce / Organe (ADR-09)
+                  {t('nexus.modals.fieldRef')}
                 </label>
                 <div className="space-y-1.5">
-                  <select
-                    value={formData.ref_element}
-                    onChange={(e) => {
-                      const selectedRef = e.target.value;
-                      const found = referenceOptions.find((o) => o.ref === selectedRef);
-                      setFormData({
-                        ...formData,
-                        ref_element: selectedRef,
-                        designation: found?.designation || formData.designation,
-                      });
-                    }}
-                    className="w-full p-2 rounded-lg border border-slate-200 focus:outline-hidden focus:border-emerald-500 font-mono text-xs"
-                  >
-                    <option value="">
-                      -- Choisir depuis le Catalogue / Stock ({referenceOptions.length} dispo) --
-                    </option>
-                    {referenceOptions.map((opt) => (
-                      <option key={opt.ref} value={opt.ref}>
-                        {opt.ref} — {opt.designation} (Dispo: {opt.stock})
+                  {!isEditingEntrepot && (
+                    <select
+                      value={formData.ref_element}
+                      onChange={(e) => {
+                        const selectedRef = e.target.value;
+                        const found = referenceOptions.find((o) => o.ref === selectedRef);
+                        setFormData({
+                          ...formData,
+                          ref_element: selectedRef,
+                          designation: found?.designation || formData.designation,
+                        });
+                      }}
+                      className="w-full p-2 rounded-lg border border-slate-200 focus:outline-hidden focus:border-emerald-500 font-mono text-xs"
+                    >
+                      <option value="">
+                        {t('nexus.modals.selectRefPlaceholder', {
+                          count: referenceOptions.length,
+                        })}
                       </option>
-                    ))}
-                  </select>
+                      {referenceOptions.map((opt) => (
+                        <option key={opt.ref} value={opt.ref}>
+                          {opt.ref} — {opt.designation} (
+                          {t('nexus.modals.availLabel', { qty: opt.stock })})
+                        </option>
+                      ))}
+                    </select>
+                  )}
 
                   <input
                     type="text"
-                    placeholder="Ou saisir une référence libre..."
+                    disabled={isEditingEntrepot}
+                    placeholder={t('nexus.modals.freeRefPlaceholder')}
                     value={formData.ref_element}
                     onChange={(e) => setFormData({ ...formData, ref_element: e.target.value })}
-                    className="w-full p-2 rounded-lg border border-slate-200 focus:outline-hidden focus:border-emerald-500 font-mono text-xs"
+                    className={`w-full p-2 rounded-lg border border-slate-200 focus:outline-hidden focus:border-emerald-500 font-mono text-xs ${
+                      isEditingEntrepot ? 'bg-slate-100 text-slate-500 cursor-not-allowed' : ''
+                    }`}
                   />
                 </div>
               </div>
 
               {/* Désignation */}
               <div>
-                <label className="block font-bold text-slate-700 mb-1">Désignation Complète</label>
+                <label className="block font-bold text-slate-700 mb-1">
+                  {t('nexus.modals.fieldDesignation')}
+                </label>
                 <input
                   type="text"
-                  placeholder="ex: Roulement à billes SKF 6204 2RS C3"
+                  placeholder={t('nexus.modals.designationPlaceholder')}
                   value={formData.designation}
                   onChange={(e) => setFormData({ ...formData, designation: e.target.value })}
                   className="w-full p-2 rounded-lg border border-slate-200 focus:outline-hidden focus:border-emerald-500"
@@ -392,7 +432,9 @@ export function NexusModals({
               {formData.element_type === 'PDR' && machineOrganes.length > 0 && (
                 <div>
                   <label className="block font-bold text-slate-700 mb-1">
-                    Organe / Composant Parent sur {activeMachine.id_machine_registered} (Hiérarchie BOM)
+                    {t('nexus.modals.fieldParentOrgane', {
+                      machine: activeMachine.id_machine_registered,
+                    })}
                   </label>
                   <select
                     value={formData.parent_component_key}
@@ -406,7 +448,7 @@ export function NexusModals({
                     }}
                     className="w-full p-2 rounded-lg border border-slate-200 bg-purple-50/40 focus:outline-hidden focus:border-emerald-500 font-mono text-xs"
                   >
-                    <option value="">-- Aucun organe parent spécifique (Machine globale) --</option>
+                    <option value="">{t('nexus.modals.parentNone')}</option>
                     {machineOrganes.map((org) => (
                       <option key={org.ref_element} value={org.ref_element}>
                         [{org.element_type}] {org.ref_element} — {org.designation}
@@ -416,10 +458,12 @@ export function NexusModals({
                 </div>
               )}
 
-              <div className="grid grid-cols-3 gap-3">
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
                 {/* Quantité montée */}
                 <div>
-                  <label className="block font-bold text-slate-700 mb-1">Quantité Montée</label>
+                  <label className="block font-bold text-slate-700 mb-1">
+                    {t('nexus.modals.fieldQty')}
+                  </label>
                   <input
                     type="number"
                     min="1"
@@ -431,9 +475,34 @@ export function NexusModals({
                   />
                 </div>
 
+                {/* Unité */}
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1">
+                    {t('nexus.modals.fieldUnit')}
+                  </label>
+                  <input
+                    type="text"
+                    list="nexus-unit-options"
+                    value={formData.unite}
+                    onChange={(e) => setFormData({ ...formData, unite: e.target.value })}
+                    className="w-full p-2 rounded-lg border border-slate-200 focus:outline-hidden focus:border-emerald-500 font-mono"
+                  />
+                  <datalist id="nexus-unit-options">
+                    <option value="U" />
+                    <option value="pcs" />
+                    <option value="m" />
+                    <option value="L" />
+                    <option value="kg" />
+                    <option value="jeu" />
+                    <option value="kit" />
+                  </datalist>
+                </div>
+
                 {/* Durée de vie estimée */}
                 <div>
-                  <label className="block font-bold text-slate-700 mb-1">Vie Estimée (Heures)</label>
+                  <label className="block font-bold text-slate-700 mb-1">
+                    {t('nexus.modals.fieldLifeHours')}
+                  </label>
                   <input
                     type="number"
                     min="100"
@@ -451,7 +520,9 @@ export function NexusModals({
 
                 {/* Heures actuelles */}
                 <div>
-                  <label className="block font-bold text-slate-700 mb-1">Heures Actuelles</label>
+                  <label className="block font-bold text-slate-700 mb-1">
+                    {t('nexus.modals.fieldCurrentHours')}
+                  </label>
                   <input
                     type="number"
                     min="0"
@@ -468,7 +539,7 @@ export function NexusModals({
                 {/* Date d'installation */}
                 <div>
                   <label className="block font-bold text-slate-700 mb-1">
-                    Date d&apos;Installation
+                    {t('nexus.modals.fieldInstallDate')}
                   </label>
                   <input
                     type="date"
@@ -483,7 +554,7 @@ export function NexusModals({
                 {/* Technicien Responsable (SSOT Actif) */}
                 <div>
                   <label className="block font-bold text-slate-700 mb-1">
-                    Technicien Responsable
+                    {t('nexus.modals.fieldTechnician')}
                   </label>
                   <select
                     value={formData.technicien}
@@ -491,15 +562,15 @@ export function NexusModals({
                     className="w-full p-2 rounded-lg border border-slate-200 focus:outline-hidden focus:border-emerald-500"
                   >
                     <option value={defaultMachineTechnician}>
-                      {defaultMachineTechnician} (Référent Machine)
+                      {defaultMachineTechnician} {t('nexus.modals.machineReferentSuffix')}
                     </option>
                     {activeTechnicians
-                      .filter((t) => String(t.nom || t.name || '') !== defaultMachineTechnician)
-                      .map((t) => {
-                        const tName = String(t.nom || t.name || '');
+                      .filter((tItem) => String(tItem.nom || tItem.name || '') !== defaultMachineTechnician)
+                      .map((tItem) => {
+                        const tName = String(tItem.nom || tItem.name || '');
                         return (
-                          <option key={String(t.id_technician || t.id || tName)} value={tName}>
-                            {tName} ({String(t.id_zone || t.zone || 'Usine')})
+                          <option key={String(tItem.id_technician || tItem.id || tName)} value={tName}>
+                            {tName} ({String(tItem.id_zone || tItem.zone || 'Usine')})
                           </option>
                         );
                       })}
@@ -511,11 +582,11 @@ export function NexusModals({
                 {/* Emplacement machine */}
                 <div>
                   <label className="block font-bold text-slate-700 mb-1">
-                    Emplacement sur Machine
+                    {t('nexus.modals.fieldLocation')}
                   </label>
                   <input
                     type="text"
-                    placeholder="ex: Palier droit arbre primaire"
+                    placeholder={t('nexus.modals.locationPlaceholder')}
                     value={formData.emplacement_machine}
                     onChange={(e) =>
                       setFormData({ ...formData, emplacement_machine: e.target.value })
@@ -526,17 +597,33 @@ export function NexusModals({
 
                 {/* Statut */}
                 <div>
-                  <label className="block font-bold text-slate-700 mb-1">Statut Opérationnel</label>
+                  <label className="block font-bold text-slate-700 mb-1">
+                    {t('nexus.modals.fieldStatus')}
+                  </label>
                   <select
                     value={formData.statut}
                     onChange={(e) => setFormData({ ...formData, statut: e.target.value })}
                     className="w-full p-2 rounded-lg border border-slate-200 focus:outline-hidden focus:border-emerald-500"
                   >
-                    <option value="OPERATIONNEL">Opérationnel (En service)</option>
-                    <option value="A_REMPLACER">À Remplacer Prochainement</option>
-                    <option value="EN_REVISION">En Révision / Contrôle</option>
+                    <option value="OPERATIONNEL">{t('nexus.modals.statusOperational')}</option>
+                    <option value="A_REMPLACER">{t('nexus.modals.statusToReplace')}</option>
+                    <option value="EN_REVISION">{t('nexus.modals.statusInRevision')}</option>
                   </select>
                 </div>
+              </div>
+
+              {/* Remarques & Observations */}
+              <div>
+                <label className="block font-bold text-slate-700 mb-1">
+                  {t('nexus.modals.fieldRemarks')}
+                </label>
+                <textarea
+                  rows={2}
+                  placeholder={t('nexus.modals.remarksPlaceholder')}
+                  value={formData.remarques}
+                  onChange={(e) => setFormData({ ...formData, remarques: e.target.value })}
+                  className="w-full p-2 rounded-lg border border-slate-200 focus:outline-hidden focus:border-emerald-500 resize-y"
+                />
               </div>
 
               {/* Boutons d'action du formulaire */}
@@ -546,14 +633,16 @@ export function NexusModals({
                   onClick={() => setIsAddModalOpen(false)}
                   className="px-3.5 py-2 rounded-xl font-semibold bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 transition cursor-pointer"
                 >
-                  Annuler
+                  {t('nexus.actions.cancel')}
                 </button>
 
                 <button
                   type="submit"
                   className="px-4 py-2 rounded-xl font-semibold bg-emerald-600 hover:bg-emerald-700 text-white shadow-xs transition active:scale-95 cursor-pointer"
                 >
-                  {editingElement ? 'Enregistrer les Modifications' : 'Monter cet Élément'}
+                  {editingElement
+                    ? t('nexus.actions.saveChanges')
+                    : t('nexus.actions.mountThisElement')}
                 </button>
               </div>
             </form>

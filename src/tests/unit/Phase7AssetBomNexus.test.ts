@@ -576,7 +576,577 @@ describe('P0–P5 Core (alias Phase P7): Consumable PDR Truth, Organe FKs, Part 
     expect(otherMachineRow?.heures_actuelles).toBe(1500);
     expect(otherMachineRow?.date_installation).toBe('2025-05-01');
   });
+
+  it('Phase A.1: buildUnifiedMachineNexusElements preserves _compTemplateId and _partDesignationId on mounted ENTREPOT items', () => {
+    const warehouseItems = [
+      {
+        id_warehouse_item: 'MOT-SERIE-09',
+        id_comp_template: 'TPL-MOT-5KW',
+        designation: 'Moteur Broche 5kW',
+        nature: 'COMPONENT',
+        rattachement_type: 'MACHINE',
+        id_machine_registered: 'CNC-01',
+        status: 'En service',
+      },
+      {
+        id_warehouse_item: 'PART-MANDRIN-09',
+        id_part_designation: 'DES-MANDRIN-3M',
+        designation: 'Mandrin 3 Mors',
+        nature: 'PART',
+        rattachement_type: 'MACHINE',
+        id_machine_registered: 'CNC-01',
+        status: 'MONTE',
+      },
+    ];
+
+    const unified = buildUnifiedMachineNexusElements('CNC-01', [], warehouseItems);
+    expect(unified.length).toBe(2);
+    const comp = unified.find((u) => u.ref_element === 'MOT-SERIE-09');
+    expect(comp?._source).toBe('ENTREPOT');
+    expect(comp?._compTemplateId).toBe('TPL-MOT-5KW');
+
+    const part = unified.find((u) => u.ref_element === 'PART-MANDRIN-09');
+    expect(part?._source).toBe('ENTREPOT');
+    expect(part?._partDesignationId).toBe('DES-MANDRIN-3M');
+  });
+
+  it('Phase A.2: Closed-Loop Ledger Reset automatically resets wear hours in machineElementsLedger on SortieDemand approval, Corrective BT closure, and Preventive execution approval', async () => {
+    const { useGmaoStore } = await import('../../store/useGmaoStore');
+
+    useGmaoStore.setState({
+      machines: [
+        {
+          id_machine_registered: 'CNC-01',
+          code_machine: 'CNC-01',
+          designation: 'CNC 01',
+          id_zone_default: 'Z1',
+          is_active: true,
+        } as any,
+      ],
+      rawStock: [
+        {
+          id: 'STK-1',
+          ref: 'ROUL-6205',
+          designation: 'Roulement 6205',
+          stockInitial: 20,
+          seuil: 2,
+          prixUnitaire: 50,
+        } as any,
+        {
+          id: 'STK-2',
+          ref: 'COUR-HTD',
+          designation: 'Courroie HTD',
+          stockInitial: 20,
+          seuil: 2,
+          prixUnitaire: 80,
+        } as any,
+        {
+          id: 'STK-3',
+          ref: 'FILTRE-HYD',
+          designation: 'Filtre Hydraulique',
+          stockInitial: 20,
+          seuil: 2,
+          prixUnitaire: 120,
+        } as any,
+      ],
+      mouvements: [],
+      machineElementsLedger: [
+        {
+          id: 'BOM-1',
+          id_machine_registered: 'CNC-01',
+          element_type: 'PDR',
+          ref_element: 'ROUL-6205',
+          designation: 'Roulement 6205',
+          qte_montee: 2,
+          heures_actuelles: 4800,
+          duree_vie_estimee_heures: 5000,
+          date_installation: '2025-01-01',
+          statut: 'A_REMPLACER',
+        },
+        {
+          id: 'BOM-2',
+          id_machine_registered: 'CNC-01',
+          element_type: 'PDR',
+          ref_element: 'COUR-HTD',
+          designation: 'Courroie HTD',
+          qte_montee: 1,
+          heures_actuelles: 4950,
+          duree_vie_estimee_heures: 5000,
+          date_installation: '2025-01-01',
+          statut: 'A_REMPLACER',
+        },
+        {
+          id: 'BOM-3',
+          id_machine_registered: 'CNC-01',
+          element_type: 'PDR',
+          ref_element: 'FILTRE-HYD',
+          designation: 'Filtre Hydraulique',
+          qte_montee: 1,
+          heures_actuelles: 4600,
+          duree_vie_estimee_heures: 5000,
+          date_installation: '2025-01-01',
+          statut: 'A_REMPLACER',
+        },
+      ],
+    });
+
+    // 1. SortieDemand approval resets ROUL-6205
+    const demand = useGmaoStore.getState().handleSubmitSortieDemand({
+      id_machine_registered: 'CNC-01',
+      id_zone: 'Z1',
+      technicien: 'Tech-A',
+      submitted_by_id: 'TECH-A',
+      date: '2026-11-10',
+      items: [{ ref: 'ROUL-6205', designation: 'Roulement 6205', quantite: 2 }],
+    });
+    expect(demand).toBeTruthy();
+
+    useGmaoStore.getState().handleReviewSortieDemandValidation(demand!.id, {
+      decision: 'APPROVED',
+      validated_by_id: 'ADMIN-1',
+      validated_by_name: 'Admin',
+      actorRole: 'ADMIN',
+    });
+
+    const afterDemandLedger = useGmaoStore.getState().machineElementsLedger;
+    const roulAfterDemand = afterDemandLedger.find((e) => e.ref_element === 'ROUL-6205');
+    expect(roulAfterDemand?.heures_actuelles).toBe(0);
+    expect(roulAfterDemand?.statut).toBe('OPERATIONNEL');
+    expect(roulAfterDemand?.date_installation).toBe('2026-11-10');
+
+    // 2. Corrective BT closure resets COUR-HTD
+    const di = useGmaoStore.getState().handleAddDemandeIntervention({
+      code_machine: 'CNC-01',
+      anomalie: 'Rupture courroie',
+      priorite: 'HAUTE',
+    });
+    useGmaoStore.getState().handleConvertToBt(di.id!, { intervenant: 'Tech-B' });
+    useGmaoStore.getState().handleClotureIntervention(di.id!, {
+      actorRole: 'ADMIN',
+      action_realisee: 'Remplacement courroie HTD',
+      date_fin: '2026-11-15',
+      intervenant: 'Tech-B',
+      pieces_utilisees: [{ ref: 'COUR-HTD', designation: 'Courroie HTD', quantite: 1 }],
+    });
+
+    const afterBtLedger = useGmaoStore.getState().machineElementsLedger;
+    const courAfterBt = afterBtLedger.find((e) => e.ref_element === 'COUR-HTD');
+    expect(courAfterBt?.heures_actuelles).toBe(0);
+    expect(courAfterBt?.statut).toBe('OPERATIONNEL');
+    expect(courAfterBt?.date_installation).toBe('2026-11-15');
+
+    // 3. Preventive execution approval resets FILTRE-HYD
+    useGmaoStore.getState().setPreventiveTasks([
+      {
+        id: 'PM-TASK-1',
+        code: 'PM-CNC01-HYD',
+        id_machine: 'CNC-01',
+        composant: 'Circuit Hydraulique',
+        action_code: 'R',
+        frequence: 'Mensuel',
+        etat: 'À faire',
+      },
+    ]);
+    useGmaoStore.getState().handleMarkTaskDone('PM-TASK-1', {
+      actorRole: 'ADMIN',
+      date_realisation: '2026-11-20',
+      technicien: 'Tech-C',
+      usedPDR: [{ ref: 'FILTRE-HYD', designation: 'Filtre Hydraulique', qty: 1 }],
+    });
+
+    const afterPmLedger = useGmaoStore.getState().machineElementsLedger;
+    const filtreAfterPm = afterPmLedger.find((e) => e.ref_element === 'FILTRE-HYD');
+    expect(filtreAfterPm?.heures_actuelles).toBe(0);
+    expect(filtreAfterPm?.statut).toBe('OPERATIONNEL');
+  });
+
+  it('Phase A.3: upsertMachineElementsBatch atomically deduplicates (Machine + Ref) within the same batch and skips SYSTEM_GENERAL machines', async () => {
+    const { useGmaoStore } = await import('../../store/useGmaoStore');
+
+    useGmaoStore.setState({
+      machines: [
+        {
+          id_machine_registered: 'CNC-01',
+          code_machine: 'CNC-01',
+          asset_category: 'PRODUCTION',
+          is_active: true,
+        } as any,
+        {
+          id_machine_registered: 'EQP-COMP-01',
+          code_machine: 'EQP-COMP-01',
+          asset_category: 'SYSTEM_GENERAL',
+          is_active: true,
+        } as any,
+      ],
+      machineElementsLedger: [],
+    });
+
+    const res = useGmaoStore.getState().upsertMachineElementsBatch(
+      [
+        {
+          id_machine_registered: 'CNC-01',
+          element_type: 'PDR',
+          ref_element: 'ROUL-6205',
+          designation: 'Roulement 6205 v1',
+          qte_montee: 2,
+        },
+        // Duplicate (Machine + Ref) in the SAME batch should update in-place, not create a second row
+        {
+          id_machine_registered: 'CNC-01',
+          element_type: 'PDR',
+          ref_element: 'roul-6205',
+          designation: 'Roulement 6205 v2',
+          qte_montee: 4,
+        },
+        // SYSTEM_GENERAL machine must be rejected
+        {
+          id_machine_registered: 'EQP-COMP-01',
+          element_type: 'PDR',
+          ref_element: 'FILTRE-AIR',
+          designation: 'Filtre Air Compresseur',
+          qte_montee: 1,
+        },
+      ],
+      { sourceLabel: 'UNIT_TEST_BATCH' }
+    );
+
+    expect(res.addedCount).toBe(1);
+    expect(res.updatedCount).toBe(1);
+    expect(res.skippedSystemCount).toBe(1);
+
+    const ledger = useGmaoStore.getState().machineElementsLedger;
+    expect(ledger.length).toBe(1);
+    expect(ledger[0].qte_montee).toBe(4);
+    expect(ledger[0].designation).toBe('Roulement 6205 v2');
+  });
+
+  it('Phase B.1: calculateElementWearHours prioritizes machine meter counter delta (compteur_installation & meterReadings) and never freezes calendar estimation after handleSyncWearHours', async () => {
+    const { calculateElementWearHours } = await import(
+      '../../presentation/pages/system/NexusView'
+    );
+
+    const activeMachine = {
+      id_machine_registered: 'CNC-01',
+      compteur_actuel: 3500,
+      heures_fonctionnement_jour: 10,
+    };
+
+    // Case 1: Meter-Driven via explicit compteur_installation (3500 - 2000 = 1500h)
+    const meterItem = {
+      id: 'BOM-M1',
+      id_machine_registered: 'CNC-01',
+      ref_element: 'ROUL-6205',
+      heures_actuelles: 0,
+      compteur_installation: 2000,
+      date_installation: '2026-01-01',
+    };
+    const resMeter = calculateElementWearHours(meterItem as any, activeMachine as any, []);
+    expect(resMeter.source).toBe('METER');
+    expect(resMeter.hours).toBe(1500);
+    expect(resMeter.isEstimated).toBe(false);
+
+    // Case 2: Meter-Driven via meterReadings history when compteur_installation is absent
+    const meterReadings = [
+      { id: 'MR-1', machineId: 'CNC-01', date_releve: '2026-05-01', valeur: 2200 },
+      { id: 'MR-2', machineId: 'CNC-01', date_releve: '2026-11-01', valeur: 3500 },
+    ];
+    const readingItem = {
+      id: 'BOM-M2',
+      id_machine_registered: 'CNC-01',
+      ref_element: 'COUR-HTD',
+      heures_actuelles: 0,
+      date_installation: '2026-05-10',
+    };
+    const resReading = calculateElementWearHours(
+      readingItem as any,
+      activeMachine as any,
+      meterReadings as any
+    );
+    expect(resReading.source).toBe('METER');
+    expect(resReading.hours).toBe(1300); // 3500 - 2200
+
+    // Case 3: Calendar-Driven Dynamic Estimation does NOT freeze after a previous sync wrote heures_actuelles = 100
+    const machineWithoutCounter = {
+      id_machine_registered: 'CNC-02',
+      heures_fonctionnement_jour: 10,
+    };
+    const nowMs = new Date('2026-11-21T00:00:00.000Z').getTime();
+    const previouslySyncedCalendarItem = {
+      id: 'BOM-CAL',
+      id_machine_registered: 'CNC-02',
+      ref_element: 'FILTRE-01',
+      heures_actuelles: 100, // synced at day 10
+      wear_source: 'CALENDAR',
+      date_installation: '2026-11-01', // 20 days elapsed -> 20 * 10h = 200h
+    };
+    const resCal = calculateElementWearHours(
+      previouslySyncedCalendarItem as any,
+      machineWithoutCounter as any,
+      [],
+      nowMs
+    );
+    expect(resCal.source).toBe('CALENDAR');
+    expect(resCal.hours).toBe(200);
+    expect(resCal.isEstimated).toBe(true);
+  });
+
+  it('Phase B.2: matchesExactOrBoundaryToken and getCurrentIsoWeekKey prevent substring false positives (M6 vs M60, P1 vs COMP1) and follow ISO-8601 week rules', async () => {
+    const { matchesExactOrBoundaryToken } = await import('../../core/domain');
+    const { getCurrentIsoWeekKey } = await import(
+      '../../presentation/router/hooks/buildNexusAutomationCallbacks'
+    );
+
+    // Substring false positives must return false
+    expect(matchesExactOrBoundaryToken('M600', 'M6')).toBe(false);
+    expect(matchesExactOrBoundaryToken('COMP10', 'P1')).toBe(false);
+    expect(matchesExactOrBoundaryToken('Boulon M6 cassé', 'M6')).toBe(false); // 2-char code rejected in free text
+
+    // Exact match on short codes still works
+    expect(matchesExactOrBoundaryToken('M6', 'M6')).toBe(true);
+    expect(matchesExactOrBoundaryToken('P1', 'p1')).toBe(true);
+
+    // Token boundary match on multi-character refs (>= 3 chars) works cleanly
+    expect(matchesExactOrBoundaryToken('Remplacement ROUL-6205 sur arbre', 'ROUL-6205')).toBe(true);
+    expect(matchesExactOrBoundaryToken('Remplacement ROUL-62050 sur arbre', 'ROUL-6205')).toBe(false);
+
+    // ISO-8601 week key check
+    expect(getCurrentIsoWeekKey(new Date('2026-01-01T12:00:00Z'))).toBe('S1');
+    expect(getCurrentIsoWeekKey(new Date('2026-12-31T12:00:00Z'))).toBe('S52'); // clamped to 52-week planning grid
+  });
+
+  it('Phase B.3: buildLedgerEntriesFromBlueprint recognizes mounted serialized ENTREPOT items by _compTemplateId / _partDesignationId without creating duplicate ledger rows', () => {
+    const machine = {
+      id_machine_registered: 'CNC-01',
+      id_blueprint: 'BP-CNC',
+      compteur_actuel: 1850,
+    };
+
+    const blueprint = {
+      id_blueprint: 'BP-CNC',
+      components_theoriques: [
+        { id_component: 'TPL-MOT-5KW', libelle: 'Moteur Broche 5kW', qte: 1 },
+      ],
+      parts_theoriques: [
+        { id_part: 'DES-MANDRIN-3M', libelle: 'Mandrin 3 Mors', qte: 1 },
+      ],
+      pdr_theoriques: [
+        { id_pdr: 'ROUL-6205', libelle: 'Roulement 6205', qte: 2 },
+      ],
+    };
+
+    const unifiedMountedElements = buildUnifiedMachineNexusElements(
+      'CNC-01',
+      [],
+      [
+        {
+          id_warehouse_item: 'MOT-SERIE-09',
+          id_comp_template: 'TPL-MOT-5KW',
+          designation: 'Moteur Broche 5kW #09',
+          nature: 'COMPONENT',
+          rattachement_type: 'MACHINE',
+          id_machine_registered: 'CNC-01',
+          status: 'En service',
+        },
+        {
+          id_warehouse_item: 'PART-MANDRIN-09',
+          id_part_designation: 'DES-MANDRIN-3M',
+          designation: 'Mandrin 3 Mors #09',
+          nature: 'PART',
+          rattachement_type: 'MACHINE',
+          id_machine_registered: 'CNC-01',
+          status: 'MONTE',
+        },
+      ]
+    );
+
+    const res = buildLedgerEntriesFromBlueprint(machine, blueprint, unifiedMountedElements, []);
+    // Both TPL-MOT-5KW and DES-MANDRIN-3M are already mounted via ENTREPOT -> skippedCount = 2, only ROUL-6205 added
+    expect(res.skippedCount).toBe(2);
+    expect(res.addedEntries.length).toBe(1);
+    expect(res.addedEntries[0].ref_element).toBe('ROUL-6205');
+    expect(res.addedEntries[0].compteur_installation).toBe(1850);
+  });
+
+  it('Phase B.5: aligns serverRbacPolicy and AuthorizationService for Nexus BOM access and write protection', async () => {
+    const { canRoleMutateEntity, sanitizeBulkStateForRole } = await import(
+      '../../core/security/serverRbacPolicy'
+    );
+    const { AuthorizationService } = await import('../../core/security/AuthorizationService');
+    const { ROLES } = await import('../../core/security/Roles');
+
+    // TECHNICIEN & OPERATEUR cannot directly mutate machineElementsLedger on server
+    expect(canRoleMutateEntity('TECHNICIEN', 'machineElementsLedger', 'POST').allowed).toBe(false);
+    expect(canRoleMutateEntity('OPERATEUR', 'machineElementsLedger', 'PUT').allowed).toBe(false);
+    const bulkRes = sanitizeBulkStateForRole('TECHNICIEN', {
+      machineElementsLedger: [{ id: 'HACK-BOM-1' }],
+    });
+    expect(bulkRes.strippedKeys).toContain('machineElementsLedger');
+    expect(bulkRes.sanitizedState.machineElementsLedger).toBeUndefined();
+
+    // ADMIN, RESPONSABLE_MAINTENANCE, RESPONSABLE_MAGASIN can mutate machineElementsLedger on server
+    expect(canRoleMutateEntity('ADMIN', 'machineElementsLedger', 'POST').allowed).toBe(true);
+    expect(canRoleMutateEntity('RESPONSABLE_MAINTENANCE', 'machineElementsLedger', 'POST').allowed).toBe(true);
+    expect(canRoleMutateEntity('RESPONSABLE_MAGASIN', 'machineElementsLedger', 'POST').allowed).toBe(true);
+
+    // Client tab access allows RESPONSABLE_MAGASIN, TECHNICIEN, and VIEWER to open 'nexus' in read-only/operational mode
+    expect(AuthorizationService.canAccessTab(ROLES.RESPONSABLE_MAGASIN, 'nexus')).toBe(true);
+    expect(AuthorizationService.canAccessTab(ROLES.TECHNICIEN, 'nexus')).toBe(true);
+    expect(AuthorizationService.canAccessTab(ROLES.VIEWER, 'nexus')).toBe(true);
+  });
+
+  it('Phase C.1: duplicateBOMToTwins clones clean (resets wear/statut/date, uses target meter counter, translates ENTREPOT via templateId without duplicating serials or shadowing twin ENTREPOT)', async () => {
+    const { useGmaoStore } = await import('../../store/useGmaoStore');
+    const today = new Date().toISOString().split('T')[0];
+
+    useGmaoStore.setState({
+      machines: [
+        {
+          id_machine_registered: 'CNC-01',
+          code_machine: 'CNC-01',
+          id_templates: 'TPL-CNC-5X',
+          compteur_actuel: 9200,
+          technician: 'Tech-Source',
+          asset_category: 'PRODUCTION',
+          is_active: true,
+        } as any,
+        {
+          id_machine_registered: 'CNC-02',
+          code_machine: 'CNC-02',
+          id_templates: 'TPL-CNC-5X',
+          compteur_actuel: 1450,
+          technician: 'Tech-Twin-2',
+          asset_category: 'PRODUCTION',
+          is_active: true,
+        } as any,
+        {
+          id_machine_registered: 'CNC-03',
+          code_machine: 'CNC-03',
+          id_templates: 'TPL-CNC-5X',
+          compteur_actuel: 0,
+          technician: 'Tech-Twin-3',
+          asset_category: 'PRODUCTION',
+          is_active: true,
+        } as any,
+        {
+          id_machine_registered: 'EQP-SYS-01',
+          code_machine: 'EQP-SYS-01',
+          asset_category: 'SYSTEM_GENERAL',
+          is_active: true,
+        } as any,
+      ],
+      machineElementsLedger: [
+        {
+          id: 'BOM-SRC-1',
+          id_machine_registered: 'CNC-01',
+          element_type: 'PDR',
+          ref_element: 'ROUL-6205',
+          designation: 'Roulement SKF 6205',
+          qte_montee: 2,
+          unite: 'pcs',
+          criticalite: 'CRITIQUE',
+          duree_vie_estimee_heures: 5000,
+          heures_actuelles: 4950,
+          compteur_installation: 4250,
+          wear_source: 'METER',
+          date_installation: '2024-03-10',
+          technicien: 'Tech-Source',
+          statut: 'A_REMPLACER',
+        },
+      ],
+      warehouseItems: [
+        // Source mounted ENTREPOT component with template ID
+        {
+          id_warehouse_item: 'MOT-SERIE-01',
+          id_comp_template: 'TPL-MOT-5KW',
+          designation: 'Moteur Broche 5kW',
+          nature: 'COMPONENT',
+          rattachement_type: 'MACHINE',
+          id_machine_registered: 'CNC-01',
+          status: 'En service',
+          heures_actuelles: 7800,
+        } as any,
+        // Twin CNC-02 already has its OWN serialized motor of the same template -> must NOT be shadowed
+        {
+          id_warehouse_item: 'MOT-SERIE-02',
+          id_comp_template: 'TPL-MOT-5KW',
+          designation: 'Moteur Broche 5kW #02',
+          nature: 'COMPONENT',
+          rattachement_type: 'MACHINE',
+          id_machine_registered: 'CNC-02',
+          status: 'En service',
+        } as any,
+      ],
+    });
+
+    const addedCount = useGmaoStore
+      .getState()
+      .duplicateBOMToTwins('CNC-01', ['CNC-02', 'CNC-03', 'EQP-SYS-01']);
+
+    // CNC-02 gets ROUL-6205 (1) because TPL-MOT-5KW is already mounted via MOT-SERIE-02
+    // CNC-03 gets ROUL-6205 + TPL-MOT-5KW (2)
+    // EQP-SYS-01 gets 0 (SYSTEM_GENERAL skipped)
+    expect(addedCount).toBe(3);
+
+    const ledger = useGmaoStore.getState().machineElementsLedger;
+    const twin2Entries = ledger.filter((e) => e.id_machine_registered === 'CNC-02');
+    const twin3Entries = ledger.filter((e) => e.id_machine_registered === 'CNC-03');
+    const sysEntries = ledger.filter((e) => e.id_machine_registered === 'EQP-SYS-01');
+
+    expect(sysEntries.length).toBe(0);
+    expect(twin2Entries.length).toBe(1);
+    expect(twin2Entries[0].ref_element).toBe('ROUL-6205');
+    expect(twin2Entries[0].heures_actuelles).toBe(0);
+    expect(twin2Entries[0].statut).toBe('OPERATIONNEL');
+    expect(twin2Entries[0].date_installation).toBe(today);
+    expect((twin2Entries[0] as any).compteur_installation).toBe(1450); // target meter, NOT 4250
+    expect((twin2Entries[0] as any).wear_source).toBeUndefined();
+    expect(twin2Entries[0].technicien).toBe('Tech-Twin-2');
+
+    expect(twin3Entries.length).toBe(2);
+    const twin3Roul = twin3Entries.find((e) => e.ref_element === 'ROUL-6205');
+    const twin3Mot = twin3Entries.find((e) => e.ref_element === 'TPL-MOT-5KW');
+    expect(twin3Roul).toBeDefined();
+    expect((twin3Roul as any).compteur_installation).toBeUndefined(); // target meter is 0
+    expect(twin3Mot).toBeDefined();
+    expect(twin3Mot?.element_type).toBe('COMPONENT');
+    expect(twin3Mot?.heures_actuelles).toBe(0);
+    expect(twin3Mot?.statut).toBe('OPERATIONNEL');
+    // Physical serial ID from CNC-01 must NEVER be cloned onto any twin
+    expect(ledger.some((e) => e.ref_element === 'MOT-SERIE-01')).toBe(false);
+
+    // Re-running duplicateBOMToTwins is idempotent and returns 0
+    const secondRunCount = useGmaoStore
+      .getState()
+      .duplicateBOMToTwins('CNC-01', ['CNC-02', 'CNC-03']);
+    expect(secondRunCount).toBe(0);
+  });
+
+  it('Phase C.3: FR, AR, and EN nexus i18n dictionaries have 100% key-path parity with non-empty values', async () => {
+    const frNexus = (await import('../../i18n/locales/fr/nexus.json')).default;
+    const arNexus = (await import('../../i18n/locales/ar/nexus.json')).default;
+    const enNexus = (await import('../../i18n/locales/en/nexus.json')).default;
+
+    const collectKeys = (obj: Record<string, any>, prefix = ''): string[] => {
+      const keys: string[] = [];
+      for (const [k, v] of Object.entries(obj)) {
+        const path = prefix ? `${prefix}.${k}` : k;
+        if (v && typeof v === 'object' && !Array.isArray(v)) {
+          keys.push(...collectKeys(v, path));
+        } else {
+          expect(typeof v).toBe('string');
+          expect(String(v).trim().length).toBeGreaterThan(0);
+          keys.push(path);
+        }
+      }
+      return keys.sort();
+    };
+
+    const frKeys = collectKeys(frNexus);
+    const arKeys = collectKeys(arNexus);
+    const enKeys = collectKeys(enNexus);
+
+    expect(frKeys.length).toBeGreaterThan(100);
+    expect(arKeys).toEqual(frKeys);
+    expect(enKeys).toEqual(frKeys);
+  });
 });
-
-
-

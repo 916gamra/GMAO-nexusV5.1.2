@@ -356,9 +356,12 @@ export function getMachineAssetClass(
   machine: MachineLifecycleLike | null | undefined
 ): 'PRODUCTION' | 'SYSTEM_GENERAL' {
   if (!machine) return 'PRODUCTION';
-  return String(machine.asset_class || '').trim().toUpperCase() === 'SYSTEM_GENERAL'
-    ? 'SYSTEM_GENERAL'
-    : 'PRODUCTION';
+  const rawClass = String(
+    machine.asset_class || (machine as Record<string, unknown>).asset_category || ''
+  )
+    .trim()
+    .toUpperCase();
+  return rawClass === 'SYSTEM_GENERAL' ? 'SYSTEM_GENERAL' : 'PRODUCTION';
 }
 
 export function isSystemGeneralMachine(machine: MachineLifecycleLike | null | undefined): boolean {

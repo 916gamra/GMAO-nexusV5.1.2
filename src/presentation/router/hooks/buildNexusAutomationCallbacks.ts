@@ -26,9 +26,14 @@ export interface PreventiveRecommendationInput {
 }
 
 export function getCurrentIsoWeekKey(referenceDate: Date = new Date()): string {
-  const start = new Date(referenceDate.getFullYear(), 0, 1);
-  const days = Math.floor((referenceDate.getTime() - start.getTime()) / (24 * 60 * 60 * 1000));
-  const weekNum = Math.min(52, Math.max(1, Math.ceil((days + start.getDay() + 1) / 7)));
+  const d = new Date(
+    Date.UTC(referenceDate.getFullYear(), referenceDate.getMonth(), referenceDate.getDate())
+  );
+  const dayNum = d.getUTCDay() || 7;
+  d.setUTCDate(d.getUTCDate() + 4 - dayNum);
+  const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
+  const isoWeek = Math.ceil(((d.getTime() - yearStart.getTime()) / 86400000 + 1) / 7);
+  const weekNum = Math.min(52, Math.max(1, isoWeek));
   return `S${weekNum}`;
 }
 
@@ -88,14 +93,31 @@ export function buildNexusAutomationCallbacks(deps: NexusAutomationDeps) {
       return { skipped: true };
     }
     const machineId = String(machine.id_machine_registered || machine.id || '').trim();
+    const elRefUpper = String(element.ref_element || '').trim().toUpperCase();
     const composantLabel = `${element.designation || element.ref_element} (${element.ref_element})`;
-    const alreadyExists = (preventiveTasks || []).some(
-      (t) =>
-        String(t.id_machine || '').trim().toUpperCase() === machineId.toUpperCase() &&
-        (String(t.composant || '').trim().toLowerCase() === composantLabel.toLowerCase() ||
-          String(t.pdr_ref || '').trim().toUpperCase() ===
-            String(element.ref_element || '').trim().toUpperCase())
-    );
+    const alreadyExists = (preventiveTasks || []).some((t) => {
+      if (!t || t.is_active === false || String(t.statut || '').toUpperCase() === 'ARCHIVEE') {
+        return false;
+      }
+      const taskMach = String(t.id_machine || t.code_machine || (t as any).machine_id || '')
+        .trim()
+        .toUpperCase();
+      if (taskMach !== machineId.toUpperCase()) return false;
+      if (String(t.composant || '').trim().toLowerCase() === composantLabel.toLowerCase()) return true;
+      if (elRefUpper && String(t.pdr_ref || '').trim().toUpperCase() === elRefUpper) return true;
+      if (elRefUpper && String(t.id_composant || '').trim().toUpperCase() === elRefUpper) return true;
+      if (elRefUpper && String(t.id_part || '').trim().toUpperCase() === elRefUpper) return true;
+      if (
+        elRefUpper &&
+        Array.isArray(t.pdr_requises) &&
+        t.pdr_requises.some(
+          (p: any) => String(p?.ref || p?.reference || '').trim().toUpperCase() === elRefUpper
+        )
+      ) {
+        return true;
+      }
+      return false;
+    });
     if (alreadyExists) {
       return { skipped: true, reason: 'ALREADY_EXISTS', composantLabel };
     }

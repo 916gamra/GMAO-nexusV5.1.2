@@ -1,21 +1,29 @@
-import { useState, useMemo, useEffect, useRef } from 'react';
+import { useState, useMemo, useEffect, useRef, useCallback } from 'react';
 import AnimatedPage from '../../components/common/AnimatedPage';
 import {
   GitBranch, Wrench, Boxes, Plus, Trash2, Edit2, Copy, AlertTriangle, CheckCircle2,
-  Search, FileSpreadsheet, Zap, MapPin, Cpu, ShieldAlert, X, Sparkles, Package,
+  Search, FileSpreadsheet, Zap, MapPin, Cpu, ShieldAlert, Sparkles, Package,
   RefreshCw, History, ExternalLink, Layers, UserCheck, Upload, Download, CalendarPlus, GitCompare,
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { confirmAction } from '../../../utils/confirmAction';
 import { filterActiveMachines, filterProductionMachines, isSystemGeneralMachine } from '../../../utils/activeMachines';
-import { buildConsumablePdrInventory, buildUnifiedMachineNexusElements, buildLedgerEntriesFromBlueprint } from '../../../core/domain';
+import {
+  buildConsumablePdrInventory,
+  buildUnifiedMachineNexusElements,
+  buildLedgerEntriesFromBlueprint,
+  matchesExactOrBoundaryToken,
+} from '../../../core/domain';
 import { useAuth } from '../../../context/AuthContext';
+import { useTranslation } from '../../../i18n/I18nContext';
 import { AuthorizationService } from '../../../core/security/AuthorizationService';
 import { isTechnicianRole } from '../../../core/security/technicianScope';
 import { NexusModals, downloadNexusTemplateExcel, exportNexusBomExcel } from './components/NexusModals';
 import { DataGateway } from '../../../application/DataGateway';
+import { storageService } from '../../../utils/storageService';
+import { STORAGE_KEYS } from '../../../infrastructure/persistence/storageKeys';
 import type {
-  IBlueprint, ICompTemplate, IMachine, IMachineFamily, IMachineTemplate,
+  IBlueprint, ICompTemplate, IMachine, IMachineFamily, IMachineTemplate, IMeterReading,
   IMouvement, IPartDesignation, IPartType, IStockItem, ITechnician, IWarehouseItem, IZone,
 } from '../../../types/domain';
 import type {
@@ -23,6 +31,127 @@ import type {
   MachineElement,
   PreventiveTaskItem,
 } from '../../../types/store';
+
+/**
+ * Phase B.1 — Meter-Driven & Dynamic Calendar RUL Calculation:
+ * 1. Uses machine operating counter delta (`compteur_actuel - compteur_installation` or `meterReadings` delta since `date_installation`) when available.
+ * 2. Falls back to dynamic calendar estimation (`elapsedDays * (heures_fonctionnement_jour || 6.3)`), never freezing when `heures_actuelles` is persisted by `handleSyncWearHours`.
+ */
+export function calculateElementWearHours(
+  item: Partial<MachineElement> | null | undefined,
+  activeMachine?: Partial<IMachine> | null,
+  meterReadings: IMeterReading[] = [],
+  nowMs: number = Date.now()
+): { hours: number; isEstimated: boolean; source: 'METER' | 'CALENDAR' | 'MANUAL' } {
+  if (!item) return { hours: 0, isEstimated: false, source: 'MANUAL' };
+  const explicitHours = Math.max(0, Number(item.heures_actuelles || 0));
+
+  const machIdNorm = String(
+    activeMachine?.id_machine_registered ||
+      (activeMachine as any)?.code_machine ||
+      item.id_machine_registered ||
+      ''
+  )
+    .trim()
+    .toUpperCase();
+
+  const machineReadings =
+    machIdNorm && Array.isArray(meterReadings)
+      ? meterReadings
+          .filter(
+            (r) =>
+              r &&
+              String(r.machineId || (r as any).id_machine_registered || (r as any).code_machine || '')
+                .trim()
+                .toUpperCase() === machIdNorm &&
+              Number.isFinite(Number(r.valeur))
+          )
+          .sort((a, b) =>
+            String(a.date_releve || '').localeCompare(String(b.date_releve || ''))
+          )
+      : [];
+
+  const latestReadingVal =
+    machineReadings.length > 0
+      ? Math.max(...machineReadings.map((r) => Number(r.valeur) || 0))
+      : 0;
+
+  const machineCurrentCounter = Math.max(
+    Number((activeMachine as any)?.compteur_actuel ?? (activeMachine as any)?.compteur ?? 0) || 0,
+    latestReadingVal
+  );
+
+  // 1. Meter-Driven Delta (explicit compteur_installation or meterReadings baseline at date_installation)
+  if (machineCurrentCounter > 0) {
+    const rawInstallCounter = (item as any).compteur_installation;
+    if (
+      rawInstallCounter !== undefined &&
+      rawInstallCounter !== null &&
+      rawInstallCounter !== '' &&
+      Number.isFinite(Number(rawInstallCounter))
+    ) {
+      const baseCounter = Number(rawInstallCounter);
+      if (machineCurrentCounter >= baseCounter) {
+        const meterDelta = Math.round(machineCurrentCounter - baseCounter);
+        return {
+          hours: Math.max(explicitHours, meterDelta),
+          isEstimated: false,
+          source: 'METER',
+        };
+      }
+    } else if (item.date_installation && machineReadings.length > 0) {
+      const installDateIso = String(item.date_installation).slice(0, 10);
+      const readingsOnOrBefore = machineReadings.filter(
+        (r) => String(r.date_releve || '').slice(0, 10) <= installDateIso
+      );
+      const baselineReading =
+        readingsOnOrBefore.length > 0
+          ? readingsOnOrBefore[readingsOnOrBefore.length - 1]
+          : machineReadings[0];
+      const baseVal = Number(baselineReading?.valeur ?? 0);
+      if (Number.isFinite(baseVal) && machineCurrentCounter > baseVal) {
+        const meterDelta = Math.round(machineCurrentCounter - baseVal);
+        return {
+          hours: Math.max(explicitHours, meterDelta),
+          isEstimated: false,
+          source: 'METER',
+        };
+      }
+    }
+  }
+
+  // 2. Calendar-Driven Dynamic Estimation (never frozen after handleSyncWearHours)
+  const dailyRate =
+    Number(
+      (activeMachine as any)?.heures_fonctionnement_jour ??
+        (activeMachine as any)?.cadence_journaliere ??
+        6.3
+    ) || 6.3;
+
+  let calendarHours = 0;
+  if (item.date_installation) {
+    const installedMs = new Date(item.date_installation).getTime();
+    if (!Number.isNaN(installedMs)) {
+      const elapsedDays = Math.max(0, Math.floor((nowMs - installedMs) / (1000 * 60 * 60 * 24)));
+      calendarHours = Math.round(elapsedDays * dailyRate);
+    }
+  }
+
+  if (calendarHours > explicitHours) {
+    return { hours: calendarHours, isEstimated: true, source: 'CALENDAR' };
+  }
+
+  if (explicitHours > 0) {
+    const isCal = (item as any).wear_source === 'CALENDAR' || (calendarHours > 0 && calendarHours === explicitHours);
+    return {
+      hours: explicitHours,
+      isEstimated: isCal,
+      source: isCal ? 'CALENDAR' : 'MANUAL',
+    };
+  }
+
+  return { hours: 0, isEstimated: false, source: 'MANUAL' };
+}
 
 export interface NexusViewProps {
   machines?: IMachine[];
@@ -40,14 +169,27 @@ export interface NexusViewProps {
   machineElementsLedger?: MachineElement[];
   preventiveTasks?: PreventiveTaskItem[];
   correctiveInterventions?: CorrectiveInterventionItem[];
+  meterReadings?: IMeterReading[];
   onAddMachineElement?: (el: Partial<MachineElement>) => void;
   onUpdateMachineElement?: (id: string, el: Partial<MachineElement>) => void;
+  onUpsertMachineElementsBatch?: (
+    elements: Partial<MachineElement>[],
+    options?: { sourceLabel?: string }
+  ) => { addedCount: number; updatedCount: number; skippedSystemCount: number };
+  onUpdateMachineElementsBatch?: (
+    updatesList: Array<{ id: string; updates: Partial<MachineElement> }>,
+    options?: { sourceLabel?: string }
+  ) => { updatedCount: number };
   onDeleteMachineElement?: (id: string) => void;
   onDuplicateBOMToTwins?: (sourceMachineId: string, targetMachineIds: string[]) => number | void;
+  onUpdateWarehouseItem?: (idOrCode: string | number, updatedItem: IWarehouseItem) => void;
   onNavigateToQuickSortie?: (preset?: Record<string, unknown>) => void;
   setQuickSortiePreset?: (preset: Record<string, unknown> | null) => void;
   onCreateCorrectiveFromNexus?: (machine: any, item?: any) => any;
   onCreatePreventiveFromNexus?: (machine: any, item?: any) => any;
+  onNavigateToMachine?: (machId: string) => void;
+  onNavigateToPreventiveForMachine?: (machId: string) => void;
+  onNavigateToCorrectiveForMachine?: (machId: string) => void;
   onNavigate?: (tab: string) => void;
   showToast?: (message: string, type?: string) => void;
 }
@@ -72,18 +214,26 @@ export default function NexusView({
   machineElementsLedger = [],
   preventiveTasks = [],
   correctiveInterventions = [],
+  meterReadings = [],
   onAddMachineElement,
   onUpdateMachineElement,
+  onUpsertMachineElementsBatch,
+  onUpdateMachineElementsBatch,
   onDeleteMachineElement,
   onDuplicateBOMToTwins,
+  onUpdateWarehouseItem,
   onNavigateToQuickSortie,
   setQuickSortiePreset,
   onCreateCorrectiveFromNexus,
   onCreatePreventiveFromNexus,
+  onNavigateToMachine,
+  onNavigateToPreventiveForMachine,
+  onNavigateToCorrectiveForMachine,
   onNavigate = () => {},
   showToast,
 }: NexusViewProps) {
   const { user } = useAuth();
+  const { t } = useTranslation();
   const isTechUser = isTechnicianRole(user);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -264,26 +414,45 @@ export default function NexusView({
     );
   }, [currentMachineElements]);
 
-  // NEX-6: Index des tâches préventives et interventions correctives ouvertes sur la machine active
+  // NEX-6 & Phase B.2: Index des tâches préventives et interventions correctives ouvertes sur la machine active (correspondance exacte de jetons, sans faux positifs de sous-chaînes)
   const activeMachinePreventiveRefs = useMemo(() => {
     const refs = new Set<string>();
     if (!activeMachine || !Array.isArray(preventiveTasks)) return refs;
     const machNorm = String(activeMachine.id_machine_registered || '').trim().toUpperCase();
     for (const t of preventiveTasks) {
       if (!t || t.is_active === false || String(t.statut || '').toUpperCase() === 'ARCHIVEE') continue;
-      if (String(t.id_machine || '').trim().toUpperCase() !== machNorm) continue;
+      const taskMach = String(
+        t.id_machine || t.code_machine || (t as any).machine_id || (t as any).id_machine_registered || ''
+      )
+        .trim()
+        .toUpperCase();
+      if (taskMach !== machNorm) continue;
+
       if (t.pdr_ref) refs.add(String(t.pdr_ref).trim().toUpperCase());
       if (t.id_composant) refs.add(String(t.id_composant).trim().toUpperCase());
       if (t.id_part) refs.add(String(t.id_part).trim().toUpperCase());
       if (Array.isArray(t.pdr_requises)) {
         t.pdr_requises.forEach((p: any) => {
-          if (p?.ref) refs.add(String(p.ref).trim().toUpperCase());
+          const pRef = String(p?.ref || p?.reference || p?.id_pdr || '').trim().toUpperCase();
+          if (pRef) refs.add(pRef);
         });
       }
-      const compText = String(t.composant || '').toUpperCase();
+
+      const compText = String(t.composant || '').trim();
       currentMachineElements.forEach((el) => {
         const r = String(el.ref_element || '').trim().toUpperCase();
-        if (r && compText.includes(r)) refs.add(r);
+        if (!r) return;
+        const tplComp = String(el._compTemplateId || '').trim().toUpperCase();
+        const tplPart = String(el._partDesignationId || '').trim().toUpperCase();
+        if (
+          (tplComp && refs.has(tplComp)) ||
+          (tplPart && refs.has(tplPart)) ||
+          (compText && matchesExactOrBoundaryToken(compText, r)) ||
+          (compText && tplComp && matchesExactOrBoundaryToken(compText, tplComp)) ||
+          (compText && tplPart && matchesExactOrBoundaryToken(compText, tplPart))
+        ) {
+          refs.add(r);
+        }
       });
     }
     return refs;
@@ -297,64 +466,105 @@ export default function NexusView({
       if (!ci) continue;
       const st = String(ci.statut || ci.status || '').toUpperCase();
       if (st.includes('CLOTUR') || st.includes('FERM') || st.includes('RESOLU')) continue;
-      const ciMach = String(ci.code_machine || ci.id_machine || ci.machine || '')
+      const ciMach = String(
+        ci.code_machine || ci.id_machine || ci.id_machine_registered || ci.machine || ''
+      )
         .trim()
         .toUpperCase();
       if (ciMach !== machNorm) continue;
+
       if (ci.id_composant) refs.add(String(ci.id_composant).trim().toUpperCase());
       if (ci.id_part) refs.add(String(ci.id_part).trim().toUpperCase());
-      const anomText = `${ci.anomalie || ''} ${ci.travail_a_faire || ''}`.toUpperCase();
+      if ((ci as any).pdr_ref) refs.add(String((ci as any).pdr_ref).trim().toUpperCase());
+
+      const structuredSpareArrays = [
+        ci.pieces_utilisees,
+        ci.pieces_proposees,
+        ci.pdr_utilisees,
+        (ci as any).pdr_consommees,
+        (ci as any).pdr_requises,
+      ];
+      for (const arr of structuredSpareArrays) {
+        if (Array.isArray(arr)) {
+          arr.forEach((p: any) => {
+            const pRef = String(p?.ref || p?.reference || p?.id_pdr || p?.code || '')
+              .trim()
+              .toUpperCase();
+            if (pRef) refs.add(pRef);
+          });
+        }
+      }
+
+      const anomText = `${ci.anomalie || ''} ${ci.travail_a_faire || ''}`.trim();
       currentMachineElements.forEach((el) => {
         const r = String(el.ref_element || '').trim().toUpperCase();
-        if (r && anomText.includes(r)) refs.add(r);
+        if (!r) return;
+        const tplComp = String(el._compTemplateId || '').trim().toUpperCase();
+        const tplPart = String(el._partDesignationId || '').trim().toUpperCase();
+        if (
+          (tplComp && refs.has(tplComp)) ||
+          (tplPart && refs.has(tplPart)) ||
+          (anomText && matchesExactOrBoundaryToken(anomText, r))
+        ) {
+          refs.add(r);
+        }
       });
     }
     return refs;
   }, [activeMachine, correctiveInterventions, currentMachineElements]);
 
-  // NEX-4: Calcul intelligent des heures d'usure (heures saisies ou estimation calendaire 8h/j ouvré depuis date_installation)
-  const computeEffectiveWearHours = (item) => {
-    const explicitHours = Number(item?.heures_actuelles || 0);
-    if (explicitHours > 0) return { hours: explicitHours, isEstimated: false };
-    if (!item?.date_installation) return { hours: 0, isEstimated: false };
-    const installedMs = new Date(item.date_installation).getTime();
-    if (Number.isNaN(installedMs)) return { hours: 0, isEstimated: false };
-    const currentMs = new Date().getTime();
-    const elapsedDays = Math.max(0, Math.floor((currentMs - installedMs) / (1000 * 60 * 60 * 24)));
-    const estimatedHours = Math.round(elapsedDays * 6.3);
-    return { hours: estimatedHours, isEstimated: estimatedHours > 0 };
-  };
+  // NEX-4 & Phase B.1: Calcul intelligent des heures d'usure piloté par Compteur Machine / Relevés puis Estimation Calendaire Dynamique
+  const computeEffectiveWearHours = useCallback(
+    (item: any) => calculateElementWearHours(item, activeMachine, meterReadings),
+    [activeMachine, meterReadings]
+  );
 
   // NEX-4: Statut de stock PDR en direct pour chaque élément monté
-  const getPdrLiveStockStatus = (item) => {
-    if (item.element_type !== 'PDR') {
-      return {
-        isPdr: false,
-        available: null,
-        status: 'ORGANE',
-        label: item._source === 'ENTREPOT' ? 'Suivi Entrepôt' : 'Organe Machine',
-      };
-    }
-    const refNorm = String(item.ref_element || '').trim().toUpperCase();
-    const stockMatch = pdrStockMap.get(refNorm);
-    if (!stockMatch) {
+  const getPdrLiveStockStatus = useCallback(
+    (item: any) => {
+      if (item.element_type !== 'PDR') {
+        return {
+          isPdr: false,
+          available: null,
+          status: 'ORGANE',
+          label:
+            item._source === 'ENTREPOT'
+              ? t('nexus.table.stockEntrepot')
+              : t('nexus.table.stockOrgane'),
+        };
+      }
+      const refNorm = String(item.ref_element || '').trim().toUpperCase();
+      const stockMatch = pdrStockMap.get(refNorm);
+      if (!stockMatch) {
+        return {
+          isPdr: true,
+          available: 0,
+          status: 'UNLISTED',
+          label: t('nexus.table.stockUnlisted'),
+        };
+      }
+      const qty = Number(stockMatch.stockActuel ?? 0);
+      const min = Number(stockMatch.seuil ?? 2);
+      if (qty <= 0) {
+        return { isPdr: true, available: 0, status: 'OUT', label: t('nexus.table.stockOut') };
+      }
+      if (qty <= min) {
+        return {
+          isPdr: true,
+          available: qty,
+          status: 'LOW',
+          label: t('nexus.table.stockLow', { qty }),
+        };
+      }
       return {
         isPdr: true,
-        available: 0,
-        status: 'UNLISTED',
-        label: 'Non référencé Magasin',
+        available: qty,
+        status: 'OK',
+        label: t('nexus.table.stockOk', { qty }),
       };
-    }
-    const qty = Number(stockMatch.stockActuel ?? 0);
-    const min = Number(stockMatch.seuil ?? 2);
-    if (qty <= 0) {
-      return { isPdr: true, available: 0, status: 'OUT', label: 'Rupture (0)' };
-    }
-    if (qty <= min) {
-      return { isPdr: true, available: qty, status: 'LOW', label: `Stock Bas (${qty})` };
-    }
-    return { isPdr: true, available: qty, status: 'OK', label: `En Stock (${qty})` };
-  };
+    },
+    [pdrStockMap, t]
+  );
 
   // Filtrage selon le type et la recherche
   const displayedElements = useMemo(() => {
@@ -381,7 +591,7 @@ export default function NexusView({
 
       return true;
     });
-  }, [currentMachineElements, typeFilter, searchTerm]);
+  }, [currentMachineElements, typeFilter, searchTerm, computeEffectiveWearHours]);
 
   // NEX-2: Machines jumelles (Twins) actives partageant un id_templates non vide
   const twinMachines = useMemo(() => {
@@ -397,7 +607,7 @@ export default function NexusView({
     );
   }, [activeMachine, activeMachines]);
 
-  // NEX-5 & NEX-6: Analyse complète d'écarts As-Built vs Blueprint (Manquants, Conformes, Hors-Blueprint)
+  // NEX-5, NEX-6 & Phase B.3: Analyse complète d'écarts As-Built vs Blueprint (supporte la correspondance par _compTemplateId / _partDesignationId pour les organes sérialisés de l'Entrepôt)
   const blueprintConformity = useMemo(() => {
     if (!activeMachine || !activeBlueprint) return null;
     const { addedEntries, skippedCount, blueprintId } = buildLedgerEntriesFromBlueprint(
@@ -419,12 +629,26 @@ export default function NexusView({
       allTheoreticalEntries.map((e) => String(e.ref_element || '').trim().toUpperCase())
     );
 
+    const doesElementMatchTheoreticalBlueprint = (el: any) => {
+      const candidateKeys = [
+        el?.ref_element,
+        el?._compTemplateId,
+        el?._partDesignationId,
+        el?.id_composant,
+        el?.id_part,
+      ];
+      return candidateKeys.some((k) => {
+        const upper = String(k || '').trim().toUpperCase();
+        return Boolean(upper && theoreticalRefsSet.has(upper));
+      });
+    };
+
     const matchedEntries = currentMachineElements.filter((el) =>
-      theoreticalRefsSet.has(String(el.ref_element || '').trim().toUpperCase())
+      doesElementMatchTheoreticalBlueprint(el)
     );
 
     const extraEntries = currentMachineElements.filter(
-      (el) => !theoreticalRefsSet.has(String(el.ref_element || '').trim().toUpperCase())
+      (el) => !doesElementMatchTheoreticalBlueprint(el)
     );
 
     const totalTheoretical = addedEntries.length + skippedCount;
@@ -516,7 +740,7 @@ export default function NexusView({
       outOfStockPdrCount,
       totalWorkshopElements,
     };
-  }, [currentMachineElements, machineElementsLedger, pdrStockMap]);
+  }, [currentMachineElements, machineElementsLedger, computeEffectiveWearHours, getPdrLiveStockStatus]);
 
   // NEX-3: Suggestions automatiques respectant strictement la frontière ADR-09
   const referenceOptions = useMemo(() => {
@@ -640,29 +864,93 @@ export default function NexusView({
   const handleSaveElement = (e) => {
     e.preventDefault();
     if (!canManageNexus || !activeMachine) return;
-    if (!formData.ref_element.trim()) {
-      showToast?.('Veuillez sélectionner ou saisir une référence valide.', 'error');
+    const cleanRef = formData.ref_element.trim();
+    if (!cleanRef) {
+      showToast?.(t('nexus.toasts.invalidRef'), 'error');
+      return;
+    }
+
+    // Phase C.2: Guard against duplicate (Machine + Ref) mounting on this machine
+    const cleanRefUpper = cleanRef.toUpperCase();
+    const isDuplicateRef = currentMachineElements.some((el) => {
+      const elRefUpper = String(el.ref_element || '').trim().toUpperCase();
+      if (elRefUpper !== cleanRefUpper) return false;
+      if (editingElement && String(el.id) === String(editingElement.id)) return false;
+      return true;
+    });
+    if (isDuplicateRef) {
+      showToast?.(
+        t('nexus.toasts.duplicateRef', {
+          ref: cleanRef,
+          machine: activeMachine.id_machine_registered,
+        }),
+        'error'
+      );
       return;
     }
 
     const payload = {
       ...formData,
+      ref_element: cleanRef,
+      unite: formData.unite.trim() || 'U',
       emplacement_machine:
         formData.emplacement_machine || formData.parent_component_key || '',
     };
 
-    if (editingElement && editingElement._source !== 'ENTREPOT') {
+    if (editingElement && editingElement._source === 'ENTREPOT') {
+      // Phase A: Never create a shadow duplicate record in machineElementsLedger for an ENTREPOT item!
+      // Update the underlying mounted warehouseItem directly in warehouseItems SSOT.
+      const whId = String(editingElement._warehouseItemId || editingElement.ref_element || '').trim();
+      const targetWh = (warehouseItems || []).find(
+        (w) =>
+          String(w.id_warehouse_item || w.id || w.ref || w.code || '')
+            .trim()
+            .toUpperCase() === whId.toUpperCase()
+      );
+      if (targetWh && typeof onUpdateWarehouseItem === 'function') {
+        const mappedWhStatus =
+          payload.statut === 'A_REMPLACER'
+            ? 'À remplacer'
+            : payload.statut === 'EN_REVISION'
+            ? 'En révision'
+            : targetWh.status || 'En service';
+        onUpdateWarehouseItem(targetWh.id_warehouse_item || targetWh.id || whId, {
+          ...targetWh,
+          designation: payload.designation || targetWh.designation,
+          criticalite: payload.criticalite,
+          duree_vie_estimee_heures: Number(payload.duree_vie_estimee_heures) || 5000,
+          heures_actuelles: Number(payload.heures_actuelles) || 0,
+          date_installation: payload.date_installation,
+          emplacement: payload.emplacement_machine || targetWh.emplacement,
+          emplacement_machine: payload.emplacement_machine,
+          technician: payload.technicien,
+          technicien: payload.technicien,
+          status: mappedWhStatus,
+          remarques: payload.remarques,
+        });
+        showToast?.(t('nexus.toasts.entrepotSynced', { ref: cleanRef }), 'success');
+      } else {
+        showToast?.(t('nexus.toasts.entrepotOpenHint', { ref: cleanRef }), 'info');
+      }
+    } else if (editingElement) {
       onUpdateMachineElement?.(editingElement.id, payload);
-      showToast?.(`Élément ${formData.ref_element} mis à jour avec succès.`, 'success');
+      showToast?.(t('nexus.toasts.elementUpdated', { ref: cleanRef }), 'success');
     } else {
+      const currentCounter = Number(
+        (activeMachine as any)?.compteur_actuel ?? (activeMachine as any)?.compteur ?? 0
+      );
       onAddMachineElement?.({
         ...payload,
         id_machine_registered: activeMachine.id_machine_registered,
+        ...(Number.isFinite(currentCounter) && currentCounter > 0
+          ? { compteur_installation: currentCounter }
+          : {}),
       });
       showToast?.(
-        editingElement?._source === 'ENTREPOT'
-          ? `Paramètres d'usure de ${formData.ref_element} enregistrés dans le registre Nexus de ${activeMachine.id_machine_registered}.`
-          : `Élément ${formData.ref_element} rattaché à la machine ${activeMachine.id_machine_registered}.`,
+        t('nexus.toasts.elementAdded', {
+          ref: cleanRef,
+          machine: activeMachine.id_machine_registered,
+        }),
         'success'
       );
     }
@@ -674,27 +962,40 @@ export default function NexusView({
   const handleCloneToTwins = () => {
     if (!canManageNexus || !activeMachine) return;
     if (!twinMachines.length) {
-      showToast?.('Aucune machine jumelle active détectée pour ce modèle.', 'info');
+      showToast?.(t('nexus.toasts.noTwins'), 'info');
       return;
     }
     const twinIds = twinMachines.map((m) => m.id_machine_registered);
-    onDuplicateBOMToTwins?.(activeMachine.id_machine_registered, twinIds);
-    showToast?.(
-      `Nomenclature dupliquée avec succès vers ${twinIds.length} machine(s) jumelle(s) (${twinIds.join(', ')}).`,
-      'success'
-    );
+    const clonedCount = onDuplicateBOMToTwins?.(activeMachine.id_machine_registered, twinIds);
+    if (clonedCount === 0) {
+      showToast?.(
+        t('nexus.toasts.clonedUpToDate', { twins: twinIds.join(', ') }),
+        'info'
+      );
+    } else {
+      showToast?.(
+        t('nexus.toasts.clonedSuccess', {
+          count: typeof clonedCount === 'number' ? clonedCount : currentMachineElements.length,
+          twinsCount: twinIds.length,
+          twins: twinIds.join(', '),
+        }),
+        'success'
+      );
+    }
   };
 
   // N3: Initialiser la nomenclature As-Built de la machine depuis son Blueprint
   const handleInitializeFromBlueprint = () => {
     if (!canManageNexus) return;
     if (!activeMachine) {
-      showToast?.('Veuillez sélectionner une machine active.', 'warning');
+      showToast?.(t('nexus.toasts.selectActiveMachine'), 'warning');
       return;
     }
     if (!activeBlueprint) {
       showToast?.(
-        `Aucun Blueprint associé à la machine ${activeMachine.id_machine_registered}. Liez un Blueprint dans Parc Machines ou Blueprints.`,
+        t('nexus.toasts.noBlueprintLinked', {
+          machine: activeMachine.id_machine_registered,
+        }),
         'info'
       );
       return;
@@ -703,33 +1004,55 @@ export default function NexusView({
     const { addedEntries, skippedCount, blueprintId } = buildLedgerEntriesFromBlueprint(
       activeMachine,
       activeBlueprint,
-      machineElementsLedger,
+      currentMachineElements,
       consumablePdrItems
     );
 
     if (addedEntries.length === 0) {
       showToast?.(
         skippedCount > 0
-          ? `Tous les éléments du Blueprint ${blueprintId} (${skippedCount}) sont déjà présents sur ${activeMachine.id_machine_registered}.`
-          : `Le Blueprint ${blueprintId} ne contient aucun élément théorique (PDR / Composant) à initialiser.`,
+          ? t('nexus.toasts.blueprintAlreadyComplete', {
+              id: blueprintId,
+              count: skippedCount,
+              machine: activeMachine.id_machine_registered,
+            })
+          : t('nexus.toasts.blueprintEmpty', { id: blueprintId }),
         'info'
       );
       return;
     }
 
-    addedEntries.forEach((entry) => {
-      onAddMachineElement?.({
-        ...entry,
-        technicien:
-          entry.technicien && entry.technicien !== 'tech'
-            ? String(entry.technicien)
-            : defaultMachineTechnician,
+    const normalizedEntries = addedEntries.map((entry) => ({
+      ...entry,
+      technicien:
+        entry.technicien && entry.technicien !== 'tech'
+          ? String(entry.technicien)
+          : defaultMachineTechnician,
+    }));
+
+    if (typeof onUpsertMachineElementsBatch === 'function') {
+      onUpsertMachineElementsBatch(normalizedEntries, {
+        sourceLabel: `BLUEPRINT_INIT:${blueprintId}`,
       });
-    });
+    } else {
+      normalizedEntries.forEach((entry) => {
+        onAddMachineElement?.(entry);
+      });
+    }
 
     showToast?.(
-      `${addedEntries.length} élément(s) initialisé(s) depuis le Blueprint ${blueprintId} pour ${activeMachine.id_machine_registered}` +
-        (skippedCount > 0 ? ` (${skippedCount} déjà présent(s) ignoré(s)).` : '.'),
+      skippedCount > 0
+        ? t('nexus.toasts.blueprintInitializedSkipped', {
+            added: addedEntries.length,
+            id: blueprintId,
+            machine: activeMachine.id_machine_registered,
+            skipped: skippedCount,
+          })
+        : t('nexus.toasts.blueprintInitialized', {
+            added: addedEntries.length,
+            id: blueprintId,
+            machine: activeMachine.id_machine_registered,
+          }),
       'success'
     );
   };
@@ -746,7 +1069,10 @@ export default function NexusView({
           : defaultMachineTechnician,
     });
     showToast?.(
-      `Élément ${entry.ref_element} monté sur ${activeMachine.id_machine_registered} depuis le Blueprint.`,
+      t('nexus.toasts.missingMounted', {
+        ref: entry.ref_element,
+        machine: activeMachine.id_machine_registered,
+      }),
       'success'
     );
   };
@@ -756,7 +1082,10 @@ export default function NexusView({
     if (!canTriggerCorrective || !activeMachine || !item) return;
     onCreateCorrectiveFromNexus?.(activeMachine, item);
     showToast?.(
-      `Demande d'Intervention Corrective ouverte pour ${item.ref_element} sur ${activeMachine.id_machine_registered}.`,
+      t('nexus.toasts.correctiveCreated', {
+        ref: item.ref_element,
+        machine: activeMachine.id_machine_registered,
+      }),
       'success'
     );
   };
@@ -767,13 +1096,20 @@ export default function NexusView({
     const res = onCreatePreventiveFromNexus?.(activeMachine, item);
     if (res?.skipped) {
       showToast?.(
-        `Une routine préventive existe déjà pour ${item.ref_element} sur ${activeMachine.id_machine_registered}.`,
+        t('nexus.toasts.preventiveExists', {
+          ref: item.ref_element,
+          machine: activeMachine.id_machine_registered,
+        }),
         'info'
       );
       return;
     }
     showToast?.(
-      `Routine préventive (${res?.frequence || 'Mensuel'}) planifiée pour ${item.ref_element} sur ${activeMachine.id_machine_registered}.`,
+      t('nexus.toasts.preventiveCreated', {
+        freq: res?.frequence || 'Mensuel',
+        ref: item.ref_element,
+        machine: activeMachine.id_machine_registered,
+      }),
       'success'
     );
   };
@@ -782,28 +1118,37 @@ export default function NexusView({
   const handleSyncFromMovements = () => {
     if (!canManageNexus || !activeMachine || unregisteredMovementPdrs.length === 0) return;
 
-    unregisteredMovementPdrs.forEach((pdr, idx) => {
-      onAddMachineElement?.({
-        id: `BOM-HIST-${activeMachine.id_machine_registered}-${pdr.ref_element.replace(/[^a-zA-Z0-9]/g, '')}-${idx + 1}`,
-        id_machine_registered: activeMachine.id_machine_registered,
-        element_type: 'PDR',
-        ref_element: pdr.ref_element,
-        designation: pdr.designation,
-        qte_montee: pdr.qte_montee,
-        unite: 'U',
-        criticalite: 'MAJEURE',
-        duree_vie_estimee_heures: 5000,
-        heures_actuelles: 0,
-        date_installation: pdr.date_installation,
-        emplacement_machine: pdr.emplacement_machine || 'Historique Sorties PDR',
-        technicien: pdr.technicien || defaultMachineTechnician,
-        statut: 'OPERATIONNEL',
-        remarques: 'Synchronisé depuis historique des Sorties PDR',
+    const batchEntries: Partial<MachineElement>[] = unregisteredMovementPdrs.map((pdr, idx) => ({
+      id: `BOM-HIST-${activeMachine.id_machine_registered}-${pdr.ref_element.replace(/[^a-zA-Z0-9]/g, '')}-${idx + 1}`,
+      id_machine_registered: activeMachine.id_machine_registered,
+      element_type: 'PDR',
+      ref_element: pdr.ref_element,
+      designation: pdr.designation,
+      qte_montee: pdr.qte_montee,
+      unite: 'U',
+      criticalite: 'MAJEURE',
+      duree_vie_estimee_heures: 5000,
+      heures_actuelles: 0,
+      date_installation: pdr.date_installation,
+      emplacement_machine: pdr.emplacement_machine || 'Historique Sorties PDR',
+      technicien: pdr.technicien || defaultMachineTechnician,
+      statut: 'OPERATIONNEL',
+      remarques: 'Synchronisé depuis historique des Sorties PDR',
+    }));
+
+    if (typeof onUpsertMachineElementsBatch === 'function') {
+      onUpsertMachineElementsBatch(batchEntries, {
+        sourceLabel: `MOVEMENTS_SYNC:${activeMachine.id_machine_registered}`,
       });
-    });
+    } else {
+      batchEntries.forEach((entry) => onAddMachineElement?.(entry));
+    }
 
     showToast?.(
-      `${unregisteredMovementPdrs.length} pièce(s) PDR importée(s) depuis l'historique des sorties de ${activeMachine.id_machine_registered}.`,
+      t('nexus.toasts.historySynced', {
+        count: unregisteredMovementPdrs.length,
+        machine: activeMachine.id_machine_registered,
+      }),
       'success'
     );
   };
@@ -811,35 +1156,48 @@ export default function NexusView({
   // NEX-4: Synchroniser et persister les heures d'usure estimées sur les éléments du registre de la machine
   const handleSyncWearHours = () => {
     if (!canManageNexus || !activeMachine) return;
-    let updatedCount = 0;
     let alertTriggeredCount = 0;
+    const batchUpdates: Array<{ id: string; updates: Partial<MachineElement> }> = [];
 
     currentMachineElements.forEach((item) => {
       if (item._source === 'ENTREPOT') return;
-      const { hours, isEstimated } = computeEffectiveWearHours(item);
+      const { hours, source } = computeEffectiveWearHours(item);
       const maxH = Number(item.duree_vie_estimee_heures) || 5000;
       const wearRatio = Math.round((hours / maxH) * 100);
       const nextStatut = wearRatio >= 85 ? 'A_REMPLACER' : item.statut;
 
-      if ((isEstimated && hours !== item.heures_actuelles) || nextStatut !== item.statut) {
-        onUpdateMachineElement?.(item.id, {
-          heures_actuelles: hours,
-          statut: nextStatut,
+      if (hours !== item.heures_actuelles || nextStatut !== item.statut) {
+        batchUpdates.push({
+          id: item.id,
+          updates: {
+            heures_actuelles: hours,
+            statut: nextStatut,
+            wear_source: source,
+          } as Partial<MachineElement>,
         });
-        updatedCount++;
         if (nextStatut === 'A_REMPLACER' && item.statut !== 'A_REMPLACER') {
           alertTriggeredCount++;
         }
       }
     });
 
-    if (updatedCount === 0) {
-      showToast?.('Les compteurs d’usure de cette machine sont déjà à jour.', 'info');
+    if (batchUpdates.length === 0) {
+      showToast?.(t('nexus.toasts.wearUpToDate'), 'info');
     } else {
+      if (typeof onUpdateMachineElementsBatch === 'function') {
+        onUpdateMachineElementsBatch(batchUpdates, {
+          sourceLabel: `WEAR_SYNC:${activeMachine.id_machine_registered}`,
+        });
+      } else {
+        batchUpdates.forEach((u) => onUpdateMachineElement?.(u.id, u.updates));
+      }
       showToast?.(
-        `Usure actualisée sur ${updatedCount} élément(s)${
-          alertTriggeredCount > 0 ? ` (${alertTriggeredCount} passé(s) en alerte À Remplacer)` : ''
-        }.`,
+        alertTriggeredCount > 0
+          ? t('nexus.toasts.wearUpdatedAlerts', {
+              count: batchUpdates.length,
+              alerts: alertTriggeredCount,
+            })
+          : t('nexus.toasts.wearUpdated', { count: batchUpdates.length }),
         'success'
       );
     }
@@ -852,7 +1210,7 @@ export default function NexusView({
     if (item._source === 'ENTREPOT' || item.element_type === 'COMPONENT' || item.element_type === 'PART') {
       onNavigate?.('entrepot');
       showToast?.(
-        `Le remplacement d'un organe (${item.ref_element}) s'effectue via le cycle des Composants/Parts dans l'Entrepôt, et non par sortie PDR consommable.`,
+        t('nexus.toasts.replaceEntrepotRedirect', { ref: item.ref_element }),
         'info'
       );
       return;
@@ -883,7 +1241,10 @@ export default function NexusView({
     }
 
     showToast?.(
-      `Sortie PDR pré-remplie pour remplacer ${item.ref_element} sur ${activeMachine.id_machine_registered}.`,
+      t('nexus.toasts.quickSortiePrefilled', {
+        ref: item.ref_element,
+        machine: activeMachine.id_machine_registered,
+      }),
       'info'
     );
   };
@@ -934,6 +1295,21 @@ export default function NexusView({
         let updatedCount = 0;
         let skippedCount = 0;
         const today = new Date().toISOString().split('T')[0];
+
+        // Phase A: Local deduplication Map across existing ledger AND incoming Excel rows (prevents Stale Closure duplicates)
+        const existingIdByPair = new Map<string, string>();
+        (machineElementsLedger || []).forEach((el) => {
+          const m = String(el?.id_machine_registered || '').trim().toUpperCase();
+          const r = String(el?.ref_element || '').trim().toUpperCase();
+          if (m && r && el.id) {
+            existingIdByPair.set(`${m}::${r}`, String(el.id));
+          }
+        });
+
+        const deduplicatedPayloadsByPair = new Map<
+          string,
+          { payload: Partial<MachineElement>; isUpdate: boolean }
+        >();
 
         rows.forEach((row, idx) => {
           const rawMachineId = String(
@@ -1001,7 +1377,16 @@ export default function NexusView({
           const emplacementMachine =
             emplacementRaw === '—' ? parentComponentKey : emplacementRaw || parentComponentKey;
 
-          const payload = {
+          const pairKey = `${canonicalMachineId.toUpperCase()}::${rawRef.toUpperCase()}`;
+          const existingId = existingIdByPair.get(pairKey);
+          const alreadyInBatch = deduplicatedPayloadsByPair.get(pairKey);
+          const resolvedId =
+            existingId ||
+            alreadyInBatch?.payload.id ||
+            `BOM-IMP-${canonicalMachineId}-${rawRef.replace(/[^a-zA-Z0-9]/g, '')}-${idx + 1}`;
+
+          const payload: Partial<MachineElement> = {
+            id: resolvedId,
             id_machine_registered: canonicalMachineId,
             element_type: elementType,
             ref_element: rawRef,
@@ -1040,26 +1425,37 @@ export default function NexusView({
             remarques: String(row['Remarques'] || row['remarques'] || 'Import Excel BOM').trim(),
           };
 
-          const existingEntry = (machineElementsLedger || []).find(
-            (el) =>
-              String(el.id_machine_registered || '').trim().toUpperCase() ===
-                canonicalMachineId.toUpperCase() &&
-              String(el.ref_element || '').trim().toUpperCase() === rawRef.toUpperCase()
-          );
-
-          if (existingEntry) {
-            onUpdateMachineElement?.(existingEntry.id, payload);
-            updatedCount++;
-          } else {
-            onAddMachineElement?.({
-              ...payload,
-              id: `BOM-IMP-${canonicalMachineId}-${rawRef.replace(/[^a-zA-Z0-9]/g, '')}-${idx + 1}`,
-            });
-            addedCount++;
-          }
+          deduplicatedPayloadsByPair.set(pairKey, {
+            payload,
+            isUpdate: Boolean(existingId || alreadyInBatch),
+          });
         });
 
-        if (addedCount + updatedCount > 0) {
+        const batchList: Partial<MachineElement>[] = [];
+        for (const entry of deduplicatedPayloadsByPair.values()) {
+          batchList.push(entry.payload);
+          if (entry.isUpdate) {
+            updatedCount++;
+          } else {
+            addedCount++;
+          }
+        }
+
+        if (batchList.length > 0) {
+          if (typeof onUpsertMachineElementsBatch === 'function') {
+            onUpsertMachineElementsBatch(batchList, {
+              sourceLabel: `EXCEL_IMPORT:${file.name}`,
+            });
+          } else {
+            for (const entry of deduplicatedPayloadsByPair.values()) {
+              if (entry.isUpdate && entry.payload.id) {
+                onUpdateMachineElement?.(entry.payload.id, entry.payload);
+              } else {
+                onAddMachineElement?.(entry.payload);
+              }
+            }
+          }
+
           DataGateway.appendAuditEvent({
             actionType: 'NEXUS_BOM_EXCEL_IMPORT',
             entityType: 'MACHINE',
@@ -1118,23 +1514,23 @@ export default function NexusView({
           <div>
             <div className="flex items-center gap-2 flex-wrap">
               <h2 className="text-base font-bold text-slate-900">
-                Nexus Matrix : Registre Central des Éléments & BOM Machines
+                {t('nexus.title')}
               </h2>
               <span className="text-xs text-slate-400">·</span>
               <span className="text-xs font-semibold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-200">
-                As-Built SSOT
+                {t('nexus.badgeAsBuilt')}
               </span>
               {systemGeneralCount > 0 && (
                 <span
                   className="text-[11px] font-medium text-indigo-700 bg-indigo-50 px-2 py-0.5 rounded-md border border-indigo-200"
-                  title="Les équipements Système Général (utilités, incendie) sont gérés via le Mode Ronde Préventif"
+                  title={t('nexus.badgeProductionTooltip')}
                 >
-                  Machines Production ({activeMachines.length})
+                  {t('nexus.badgeProductionMachines', { count: activeMachines.length })}
                 </span>
               )}
             </div>
             <p className="text-xs text-slate-500 mt-1 max-w-3xl leading-relaxed">
-              Point central de rattachement des pièces de rechange consommables (PDR), composants rotatifs et organes mécaniques montés sur chaque machine de production active.
+              {t('nexus.subtitle')}
             </p>
           </div>
         </div>
@@ -1147,8 +1543,10 @@ export default function NexusView({
               onClick={handleInitializeFromBlueprint}
               title={
                 activeBlueprint
-                  ? `Initialiser depuis Blueprint ${activeBlueprint.id_blueprint || activeBlueprint.id}`
-                  : 'Aucun Blueprint rattaché à cette machine'
+                  ? t('nexus.actions.initBlueprintTooltip', {
+                      id: activeBlueprint.id_blueprint || activeBlueprint.id,
+                    })
+                  : t('nexus.actions.noBlueprintTooltip')
               }
               className={`inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold border shadow-2xs transition active:scale-95 cursor-pointer ${
                 activeBlueprint
@@ -1157,7 +1555,7 @@ export default function NexusView({
               }`}
             >
               <Sparkles className="w-4 h-4 text-indigo-600" />
-              <span>Initialiser depuis Blueprint</span>
+              <span>{t('nexus.actions.initBlueprint')}</span>
             </button>
           )}
 
@@ -1165,11 +1563,11 @@ export default function NexusView({
             <button
               type="button"
               onClick={handleSyncWearHours}
-              title="Calculer et actualiser les heures d'usure depuis la date d'installation"
+              title={t('nexus.actions.syncWearTooltip')}
               className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-200 shadow-2xs transition active:scale-95 cursor-pointer"
             >
               <RefreshCw className="w-3.5 h-3.5 text-amber-700" />
-              <span>Actualiser Usure (RUL)</span>
+              <span>{t('nexus.actions.syncWear')}</span>
             </button>
           )}
 
@@ -1179,21 +1577,21 @@ export default function NexusView({
               <button
                 type="button"
                 onClick={handleDownloadTemplateExcel}
-                title="Télécharger un modèle Excel (.xlsx) prêt à remplir pour l'import BOM"
+                title={t('nexus.actions.downloadTemplateTooltip')}
                 className="inline-flex items-center gap-1.5 px-2.5 py-2 rounded-xl text-xs font-semibold bg-slate-50 hover:bg-slate-100 text-slate-700 border border-slate-200 shadow-2xs transition active:scale-95 cursor-pointer"
               >
                 <Download className="w-3.5 h-3.5 text-slate-600" />
-                <span>Modèle Excel</span>
+                <span>{t('nexus.actions.downloadTemplate')}</span>
               </button>
 
               <button
                 type="button"
                 onClick={() => fileInputRef.current?.click()}
-                title="Importer une nomenclature BOM depuis un fichier Excel (.xlsx / .xls)"
+                title={t('nexus.actions.importExcelTooltip')}
                 className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 shadow-2xs transition active:scale-95 cursor-pointer"
               >
                 <Upload className="w-3.5 h-3.5 text-indigo-600" />
-                <span>Importer (.xlsx)</span>
+                <span>{t('nexus.actions.importExcel')}</span>
               </button>
             </>
           )}
@@ -1201,11 +1599,11 @@ export default function NexusView({
           <button
             type="button"
             onClick={handleExportBOMExcel}
-            title="Type B : Export externe de la nomenclature As-Built (consultation uniquement — non réimportable dans UnifiedImportPipeline)"
+            title={t('nexus.actions.exportExcelTooltip')}
             className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 shadow-2xs transition active:scale-95 cursor-pointer"
           >
             <FileSpreadsheet className="w-4 h-4 text-emerald-600" />
-            <span>Exporter BOM (.xlsx — Type B)</span>
+            <span>{t('nexus.actions.exportExcel')}</span>
           </button>
 
           {canManageNexus && activeMachine && (
@@ -1215,7 +1613,7 @@ export default function NexusView({
               className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-semibold bg-emerald-600 hover:bg-emerald-700 text-white shadow-xs transition active:scale-95 cursor-pointer"
             >
               <Plus className="w-4 h-4" />
-              <span>Monter un Élément</span>
+              <span>{t('nexus.actions.mountElement')}</span>
             </button>
           )}
         </div>
@@ -1225,43 +1623,45 @@ export default function NexusView({
       <div className="grid grid-cols-2 md:grid-cols-5 gap-3.5">
         <div className="p-4 rounded-xl bg-white border border-slate-200 shadow-2xs">
           <div className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">
-            Éléments Montés
+            {t('nexus.kpi.mountedTitle')}
           </div>
           <div className="text-xl font-bold font-mono text-slate-900 mt-1">
             {kpis.totalMounted}
           </div>
           <div className="text-[10px] text-slate-400 mt-0.5 truncate">
-            Machine : {activeMachine?.id_machine_registered || 'Aucune'}
+            {t('nexus.kpi.machinePrefix', {
+              code: activeMachine?.id_machine_registered || t('nexus.kpi.none'),
+            })}
           </div>
         </div>
 
         <div className="p-4 rounded-xl bg-white border border-slate-200 shadow-2xs">
           <div className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">
-            Pièces Critiques
+            {t('nexus.kpi.criticalTitle')}
           </div>
           <div className="text-xl font-bold font-mono text-amber-600 mt-1">
             {kpis.criticalCount}
           </div>
           <div className="text-[10px] text-slate-400 mt-0.5">
-            Surveillance renforcée
+            {t('nexus.kpi.criticalSub')}
           </div>
         </div>
 
         <div className="p-4 rounded-xl bg-white border border-slate-200 shadow-2xs">
           <div className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">
-            Alertes Usure / RUL
+            {t('nexus.kpi.alertsTitle')}
           </div>
           <div className="text-xl font-bold font-mono text-rose-600 mt-1">
             {kpis.alertCount}
           </div>
           <div className="text-[10px] text-slate-400 mt-0.5">
-            Usure ≥ 85% ou À remplacer
+            {t('nexus.kpi.alertsSub')}
           </div>
         </div>
 
         <div className="p-4 rounded-xl bg-white border border-slate-200 shadow-2xs">
           <div className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">
-            Ruptures Stock PDR
+            {t('nexus.kpi.outOfStockTitle')}
           </div>
           <div
             className={`text-xl font-bold font-mono mt-1 ${
@@ -1271,19 +1671,19 @@ export default function NexusView({
             {kpis.outOfStockPdrCount}
           </div>
           <div className="text-[10px] text-slate-400 mt-0.5">
-            PDR montées à stock 0
+            {t('nexus.kpi.outOfStockSub')}
           </div>
         </div>
 
         <div className="p-4 rounded-xl bg-white border border-slate-200 shadow-2xs col-span-2 md:col-span-1">
           <div className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">
-            Registre Usine
+            {t('nexus.kpi.workshopRegistryTitle')}
           </div>
           <div className="text-xl font-bold font-mono text-emerald-700 mt-1">
             {kpis.totalWorkshopElements}
           </div>
           <div className="text-[10px] text-slate-400 mt-0.5">
-            Total entrées BOM Ledger
+            {t('nexus.kpi.workshopRegistrySub')}
           </div>
         </div>
       </div>
@@ -1293,10 +1693,10 @@ export default function NexusView({
         <div className="bg-white rounded-2xl border border-dashed border-slate-300 p-10 text-center space-y-3">
           <Cpu className="w-10 h-10 text-slate-300 mx-auto" />
           <div className="text-sm font-bold text-slate-800">
-            Aucune machine de production active enregistrée
+            {t('nexus.empty.noMachineTitle')}
           </div>
           <p className="text-xs text-slate-500 max-w-md mx-auto">
-            Enregistrez ou réactivez une machine de production dans le Parc Machines pour gérer sa nomenclature As-Built et ses pièces montées.
+            {t('nexus.empty.noMachineDesc')}
           </p>
           <button
             type="button"
@@ -1304,7 +1704,7 @@ export default function NexusView({
             className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold bg-emerald-600 hover:bg-emerald-700 text-white shadow-xs transition cursor-pointer"
           >
             <ExternalLink className="w-3.5 h-3.5" />
-            <span>Ouvrir le Parc Machines</span>
+            <span>{t('nexus.actions.openMachinesPark')}</span>
           </button>
         </div>
       ) : (
@@ -1314,45 +1714,85 @@ export default function NexusView({
               <div className="flex items-center gap-2 flex-wrap">
                 <Cpu className="w-4 h-4 text-emerald-600" />
                 <h3 className="text-xs font-bold uppercase tracking-wider text-slate-700">
-                  Machine de Production Sélectionnée
+                  {t('nexus.machineCard.selectedTitle')}
                 </h3>
                 <div className="flex items-center gap-1.5 ml-2 flex-wrap">
                   <button
                     type="button"
-                    onClick={() => onNavigate?.('machines')}
+                    onClick={() => {
+                      if (typeof onNavigateToMachine === 'function') {
+                        onNavigateToMachine(activeMachine.id_machine_registered);
+                      } else {
+                        onNavigate?.('machines');
+                      }
+                    }}
                     className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-semibold bg-slate-100 hover:bg-slate-200 text-slate-700 transition cursor-pointer"
-                    title="Voir dans le Parc Machines"
+                    title={`${t('nexus.machineCard.parkLink')} — ${activeMachine.id_machine_registered}`}
                   >
                     <ExternalLink className="w-2.5 h-2.5" />
-                    <span>Parc Machines</span>
+                    <span>{t('nexus.machineCard.parkLink')}</span>
                   </button>
                   <button
                     type="button"
-                    onClick={() => onNavigate?.('preventive')}
+                    onClick={() => {
+                      try {
+                        storageService.setItem(
+                          STORAGE_KEYS.PREVENTIVE_TARGET_MACHINE,
+                          activeMachine.id_machine_registered
+                        );
+                      } catch {
+                        // ignore storage errors
+                      }
+                      if (typeof onNavigateToPreventiveForMachine === 'function') {
+                        onNavigateToPreventiveForMachine(activeMachine.id_machine_registered);
+                      } else {
+                        onNavigate?.('preventive');
+                      }
+                    }}
                     className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-semibold bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 transition cursor-pointer"
-                    title="Accéder au Planning Préventif"
+                    title={`${t('nexus.machineCard.preventiveLink', { count: activeMachinePreventiveRefs.size })} — ${activeMachine.id_machine_registered}`}
                   >
                     <CalendarPlus className="w-2.5 h-2.5" />
-                    <span>Préventif ({activeMachinePreventiveRefs.size})</span>
+                    <span>
+                      {t('nexus.machineCard.preventiveLink', {
+                        count: activeMachinePreventiveRefs.size,
+                      })}
+                    </span>
                   </button>
                   <button
                     type="button"
-                    onClick={() => onNavigate?.('corrective')}
+                    onClick={() => {
+                      if (typeof onNavigateToCorrectiveForMachine === 'function') {
+                        onNavigateToCorrectiveForMachine(activeMachine.id_machine_registered);
+                      } else {
+                        onNavigate?.('corrective');
+                      }
+                    }}
                     className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-semibold bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-200 transition cursor-pointer"
-                    title="Accéder à la Maintenance Corrective"
+                    title={`${t('nexus.machineCard.correctiveLink', { count: activeMachineOpenCorrectiveRefs.size })} — ${activeMachine.id_machine_registered}`}
                   >
                     <Wrench className="w-2.5 h-2.5" />
-                    <span>Correctif ({activeMachineOpenCorrectiveRefs.size})</span>
+                    <span>
+                      {t('nexus.machineCard.correctiveLink', {
+                        count: activeMachineOpenCorrectiveRefs.size,
+                      })}
+                    </span>
                   </button>
                   {activeBlueprint && (
                     <button
                       type="button"
                       onClick={() => onNavigate?.('blueprints')}
                       className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-semibold bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 transition cursor-pointer"
-                      title="Ouvrir le Blueprint d'ingénierie"
+                      title={t('nexus.machineCard.blueprintLink', {
+                        id: activeBlueprint.id_blueprint || activeBlueprint.id,
+                      })}
                     >
                       <Layers className="w-2.5 h-2.5" />
-                      <span>Blueprint: {activeBlueprint.id_blueprint || activeBlueprint.id}</span>
+                      <span>
+                        {t('nexus.machineCard.blueprintLink', {
+                          id: activeBlueprint.id_blueprint || activeBlueprint.id,
+                        })}
+                      </span>
                     </button>
                   )}
                 </div>
@@ -1364,7 +1804,7 @@ export default function NexusView({
                   <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
                   <input
                     type="text"
-                    placeholder="Chercher code machine (ex: DET-01, PRH-01)..."
+                    placeholder={t('nexus.machineCard.searchPlaceholder')}
                     value={machineSearch}
                     onChange={(e) => setMachineSearch(e.target.value)}
                     className="w-full pl-8 pr-3 py-1.5 text-xs rounded-lg border border-slate-200 focus:outline-hidden focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
@@ -1388,28 +1828,41 @@ export default function NexusView({
             {/* Fiche synthétique de la machine */}
             <div className="grid grid-cols-2 md:grid-cols-6 gap-3 p-3.5 rounded-xl bg-slate-50/80 border border-slate-200/80 text-xs">
               <div>
-                <span className="text-slate-400 block text-[10px] uppercase font-bold">Identifiant</span>
+                <span className="text-slate-400 block text-[10px] uppercase font-bold">
+                  {t('nexus.machineCard.idLabel')}
+                </span>
                 <span className="font-mono font-bold text-slate-900">
                   {activeMachine.id_machine_registered}
                 </span>
               </div>
               <div>
-                <span className="text-slate-400 block text-[10px] uppercase font-bold">Désignation</span>
+                <span className="text-slate-400 block text-[10px] uppercase font-bold">
+                  {t('nexus.machineCard.designationLabel')}
+                </span>
                 <span className="font-semibold text-slate-800 truncate block">
-                  {activeMachine.designation || activeMachine.nom || 'Équipement de Production'}
+                  {activeMachine.designation ||
+                    activeMachine.nom ||
+                    t('nexus.machineCard.defaultDesignation')}
                 </span>
               </div>
               <div>
-                <span className="text-slate-400 block text-[10px] uppercase font-bold">Zone / Atelier</span>
+                <span className="text-slate-400 block text-[10px] uppercase font-bold">
+                  {t('nexus.machineCard.zoneLabel')}
+                </span>
                 <span className="font-medium text-slate-700 flex items-center gap-1">
                   <MapPin className="w-3 h-3 text-slate-400" />
-                  {activeZone?.nom || activeZone?.code_zone || activeMachine.id_zone_default || 'Atelier'}
+                  {activeZone?.nom ||
+                    activeZone?.code_zone ||
+                    activeMachine.id_zone_default ||
+                    t('nexus.machineCard.defaultZone')}
                 </span>
               </div>
               <div>
-                <span className="text-slate-400 block text-[10px] uppercase font-bold">Modèle & Famille</span>
+                <span className="text-slate-400 block text-[10px] uppercase font-bold">
+                  {t('nexus.machineCard.modelFamilyLabel')}
+                </span>
                 <span className="font-medium text-slate-700 truncate block">
-                  {activeMachine.id_templates || 'Standard'}{' '}
+                  {activeMachine.id_templates || t('nexus.machineCard.defaultModel')}{' '}
                   {activeFamily
                     ? `(${activeFamily.nom || activeFamily.libelle || activeFamily.name})`
                     : ''}
@@ -1417,7 +1870,7 @@ export default function NexusView({
               </div>
               <div>
                 <span className="text-slate-400 block text-[10px] uppercase font-bold">
-                  Technicien Référent
+                  {t('nexus.machineCard.technicianLabel')}
                 </span>
                 <span className="font-semibold text-slate-700 flex items-center gap-1 truncate">
                   <UserCheck className="w-3 h-3 text-emerald-600 shrink-0" />
@@ -1425,10 +1878,12 @@ export default function NexusView({
                 </span>
               </div>
               <div>
-                <span className="text-slate-400 block text-[10px] uppercase font-bold">Statut Machine</span>
+                <span className="text-slate-400 block text-[10px] uppercase font-bold">
+                  {t('nexus.machineCard.statusLabel')}
+                </span>
                 <span className="inline-flex items-center gap-1 font-semibold text-emerald-700">
                   <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
-                  {activeMachine.status || 'OPÉRATIONNEL'}
+                  {activeMachine.status || t('nexus.machineCard.defaultStatus')}
                 </span>
               </div>
             </div>
@@ -1438,15 +1893,22 @@ export default function NexusView({
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 p-3 rounded-xl bg-indigo-50/60 border border-indigo-200/80 text-xs">
                 <div className="flex items-center gap-2.5 flex-wrap">
                   <span className="px-2 py-0.5 rounded-md font-mono font-bold text-[10px] bg-indigo-600 text-white">
-                    Conformité Blueprint : {blueprintConformity.conformityRate}%
+                    {t('nexus.banners.conformityBadge', {
+                      rate: blueprintConformity.conformityRate,
+                    })}
                   </span>
                   <span className="text-slate-700">
-                    <b>{blueprintConformity.mountedCount}</b> / {blueprintConformity.totalTheoretical} élément(s) théoriques du Blueprint{' '}
-                    <b className="font-mono">{blueprintConformity.blueprintId}</b> sont montés
+                    {t('nexus.banners.conformitySummary', {
+                      mounted: blueprintConformity.mountedCount,
+                      total: blueprintConformity.totalTheoretical,
+                      id: blueprintConformity.blueprintId,
+                    })}
                     {blueprintConformity.extraEntries.length > 0 && (
                       <span className="text-indigo-800 font-semibold">
                         {' '}
-                        (+{blueprintConformity.extraEntries.length} hors-blueprint)
+                        {t('nexus.banners.extraCount', {
+                          count: blueprintConformity.extraEntries.length,
+                        })}
                       </span>
                     )}
                     .
@@ -1459,7 +1921,7 @@ export default function NexusView({
                     className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-bold bg-white hover:bg-indigo-50 text-indigo-700 border border-indigo-200 shadow-2xs transition cursor-pointer"
                   >
                     <GitCompare className="w-3.5 h-3.5" />
-                    <span>Analyser Écarts BOM</span>
+                    <span>{t('nexus.actions.analyzeGap')}</span>
                   </button>
                   {canManageNexus && blueprintConformity.missingCount > 0 && (
                     <button
@@ -1468,7 +1930,11 @@ export default function NexusView({
                       className="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-bold bg-indigo-600 hover:bg-indigo-700 text-white shadow-2xs transition cursor-pointer"
                     >
                       <Sparkles className="w-3.5 h-3.5" />
-                      <span>Monter les {blueprintConformity.missingCount} manquant(s)</span>
+                      <span>
+                        {t('nexus.actions.mountMissing', {
+                          count: blueprintConformity.missingCount,
+                        })}
+                      </span>
                     </button>
                   )}
                 </div>
@@ -1481,8 +1947,11 @@ export default function NexusView({
                 <div className="flex items-center gap-2">
                   <History className="w-4 h-4 text-amber-700 shrink-0" />
                   <span className="text-amber-950">
-                    <b>{unregisteredMovementPdrs.length} pièce(s) PDR</b> ont été sorties du magasin pour{' '}
-                    <b>{activeMachine.id_machine_registered}</b> mais ne figurent pas encore dans sa nomenclature Nexus (
+                    {t('nexus.banners.historyDiscovered', {
+                      count: unregisteredMovementPdrs.length,
+                      machine: activeMachine.id_machine_registered,
+                    })}{' '}
+                    (
                     <span className="font-mono">
                       {unregisteredMovementPdrs
                         .slice(0, 3)
@@ -1499,7 +1968,11 @@ export default function NexusView({
                   className="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-bold bg-amber-600 hover:bg-amber-700 text-white shadow-2xs transition cursor-pointer shrink-0"
                 >
                   <Plus className="w-3.5 h-3.5" />
-                  <span>Importer dans le BOM ({unregisteredMovementPdrs.length})</span>
+                  <span>
+                    {t('nexus.actions.importFromHistory', {
+                      count: unregisteredMovementPdrs.length,
+                    })}
+                  </span>
                 </button>
               </div>
             )}
@@ -1510,8 +1983,8 @@ export default function NexusView({
                 <div className="flex items-center gap-2">
                   <Boxes className="w-4 h-4 text-blue-600 shrink-0" />
                   <span>
-                    <b>{twinMachines.length} Machine(s) jumelle(s) active(s)</b> de même modèle (
-                    {twinMachines.map((t) => t.id_machine_registered).join(', ')}).
+                    {t('nexus.banners.twinsDetected', { count: twinMachines.length })} (
+                    {twinMachines.map((tw) => tw.id_machine_registered).join(', ')}).
                   </span>
                 </div>
 
@@ -1522,7 +1995,7 @@ export default function NexusView({
                     className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold bg-blue-600 hover:bg-blue-700 text-white shadow-2xs transition active:scale-95 cursor-pointer shrink-0"
                   >
                     <Copy className="w-3.5 h-3.5" />
-                    <span>Cloner la Nomenclature vers les Sœurs</span>
+                    <span>{t('nexus.actions.cloneToTwins')}</span>
                   </button>
                 )}
               </div>
@@ -1535,26 +2008,34 @@ export default function NexusView({
               {/* Filtres par onglets */}
               <div className="flex items-center gap-1 overflow-x-auto pb-1 sm:pb-0">
                 {[
-                  { id: 'ALL', label: `Tous (${currentMachineElements.length})` },
+                  { id: 'ALL', label: t('nexus.filters.all', { count: currentMachineElements.length }) },
                   {
                     id: 'PDR',
-                    label: `PDR (${currentMachineElements.filter((e) => e.element_type === 'PDR').length})`,
+                    label: t('nexus.filters.pdr', {
+                      count: currentMachineElements.filter((e) => e.element_type === 'PDR').length,
+                    }),
                   },
                   {
                     id: 'COMPONENT',
-                    label: `Composants (${currentMachineElements.filter((e) => e.element_type === 'COMPONENT').length})`,
+                    label: t('nexus.filters.component', {
+                      count: currentMachineElements.filter((e) => e.element_type === 'COMPONENT').length,
+                    }),
                   },
                   {
                     id: 'PART',
-                    label: `Organes (${currentMachineElements.filter((e) => e.element_type === 'PART').length})`,
+                    label: t('nexus.filters.part', {
+                      count: currentMachineElements.filter((e) => e.element_type === 'PART').length,
+                    }),
                   },
                   {
                     id: 'CRITICAL',
-                    label: `Critiques (${currentMachineElements.filter((e) => e.criticalite === 'CRITIQUE').length})`,
+                    label: t('nexus.filters.critical', {
+                      count: currentMachineElements.filter((e) => e.criticalite === 'CRITIQUE').length,
+                    }),
                   },
                   {
                     id: 'ALERT',
-                    label: `À Remplacer (${kpis.alertCount})`,
+                    label: t('nexus.filters.alert', { count: kpis.alertCount }),
                   },
                 ].map((tab) => (
                   <button
@@ -1577,7 +2058,7 @@ export default function NexusView({
                 <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
                 <input
                   type="text"
-                  placeholder="Filtrer réf, organe parent, emplacement..."
+                  placeholder={t('nexus.filters.searchPlaceholder')}
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
                   className="w-full pl-8 pr-3 py-1.5 text-xs rounded-lg border border-slate-200 focus:outline-hidden focus:border-emerald-500"
@@ -1590,10 +2071,10 @@ export default function NexusView({
               <div className="text-center py-12 px-4 border border-dashed border-slate-200 rounded-xl space-y-3">
                 <Boxes className="w-10 h-10 text-slate-300 mx-auto" />
                 <div className="text-xs font-bold text-slate-700">
-                  Aucun élément monté ne correspond aux critères
+                  {t('nexus.empty.noElementsTitle')}
                 </div>
                 <p className="text-[11px] text-slate-400 max-w-md mx-auto">
-                  Utilisez le bouton &laquo; Monter un Élément &raquo; ou &laquo; Initialiser depuis Blueprint &raquo; pour rattacher des pièces de rechange (PDR), composants ou organes à cette machine.
+                  {t('nexus.empty.noElementsDesc')}
                 </p>
                 {canManageNexus && (
                   <div className="flex items-center justify-center gap-2 pt-1">
@@ -1603,7 +2084,7 @@ export default function NexusView({
                       className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-emerald-600 text-white hover:bg-emerald-700 shadow-2xs transition cursor-pointer"
                     >
                       <Plus className="w-3.5 h-3.5" />
-                      <span>Monter le premier élément</span>
+                      <span>{t('nexus.actions.mountFirstElement')}</span>
                     </button>
                     {activeBlueprint && (
                       <button
@@ -1612,7 +2093,7 @@ export default function NexusView({
                         className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-indigo-50 text-indigo-700 border border-indigo-200 hover:bg-indigo-100 transition cursor-pointer"
                       >
                         <Sparkles className="w-3.5 h-3.5" />
-                        <span>Initialiser depuis Blueprint</span>
+                        <span>{t('nexus.actions.initBlueprint')}</span>
                       </button>
                     )}
                   </div>
@@ -1623,20 +2104,21 @@ export default function NexusView({
                 <table className="w-full text-left text-xs">
                   <thead className="bg-slate-50 border-b border-slate-200 text-slate-500 font-semibold uppercase text-[10px]">
                     <tr>
-                      <th className="py-2.5 px-3">Type</th>
-                      <th className="py-2.5 px-3">Référence & Désignation</th>
-                      <th className="py-2.5 px-3">Organe Parent & Emplacement</th>
-                      <th className="py-2.5 px-3 text-center">Qté Montée</th>
-                      <th className="py-2.5 px-3">Dispo Magasin</th>
-                      <th className="py-2.5 px-3">Criticité</th>
-                      <th className="py-2.5 px-3">Usure & RUL</th>
-                      <th className="py-2.5 px-3">Statut & Suivi</th>
-                      <th className="py-2.5 px-3 text-right">Actions & Ponts GMAO</th>
+                      <th className="py-2.5 px-3">{t('nexus.table.type')}</th>
+                      <th className="py-2.5 px-3">{t('nexus.table.refDesignation')}</th>
+                      <th className="py-2.5 px-3">{t('nexus.table.parentLocation')}</th>
+                      <th className="py-2.5 px-3 text-center">{t('nexus.table.qtyMounted')}</th>
+                      <th className="py-2.5 px-3">{t('nexus.table.stockAvail')}</th>
+                      <th className="py-2.5 px-3">{t('nexus.table.criticality')}</th>
+                      <th className="py-2.5 px-3">{t('nexus.table.wearRul')}</th>
+                      <th className="py-2.5 px-3">{t('nexus.table.statusTracking')}</th>
+                      <th className="py-2.5 px-3 text-right">{t('nexus.table.actionsBridges')}</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
                     {displayedElements.map((item) => {
-                      const { hours: effectiveHours, isEstimated } = computeEffectiveWearHours(item);
+                      const { hours: effectiveHours, isEstimated, source: wearSource } =
+                        computeEffectiveWearHours(item);
                       const maxH = Number(item.duree_vie_estimee_heures) || 5000;
                       const lifeRatio = Math.min(100, Math.round((effectiveHours / maxH) * 100));
                       const isHighWear = lifeRatio >= 85 || item.statut === 'A_REMPLACER';
@@ -1678,9 +2160,9 @@ export default function NexusView({
                               {item._source === 'ENTREPOT' && (
                                 <span
                                   className="inline-flex items-center gap-1 px-1.5 py-0.2 rounded text-[9px] font-bold bg-indigo-50 text-indigo-700 border border-indigo-200"
-                                  title="Organe/Part monté en service depuis l'Entrepôt (vue unifiée N2)"
+                                  title={t('nexus.table.actionWarehouse')}
                                 >
-                                  Sync Entrepôt · Monté
+                                  {t('nexus.table.syncEntrepot')}
                                 </span>
                               )}
                             </div>
@@ -1694,11 +2176,11 @@ export default function NexusView({
                             <div className="space-y-0.5">
                               {item.parent_component_key && (
                                 <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-mono font-bold bg-purple-50 text-purple-800 border border-purple-200">
-                                  Organe: {item.parent_component_key}
+                                  {t('nexus.table.parentBadge', { key: item.parent_component_key })}
                                 </span>
                               )}
                               <div className="text-[11px] text-slate-600">
-                                {item.emplacement_machine || 'Non spécifié'}
+                                {item.emplacement_machine || t('nexus.table.unspecifiedLocation')}
                               </div>
                             </div>
                           </td>
@@ -1758,6 +2240,14 @@ export default function NexusView({
                                 0,
                                 Math.min(100, Math.round((remainingH / maxH) * 100))
                               );
+                              const wearSourceHint =
+                                wearSource === 'METER'
+                                  ? ` — ${t('nexus.table.sourceMeter')}`
+                                  : isEstimated && item.date_installation
+                                  ? ` — ${t('nexus.table.sourceCalendar', {
+                                      date: item.date_installation,
+                                    })}`
+                                  : '';
 
                               return (
                                 <div className="space-y-1">
@@ -1775,11 +2265,7 @@ export default function NexusView({
                                   </div>
                                   <div
                                     className="w-full h-1.5 rounded-full bg-slate-200 overflow-hidden"
-                                    title={`Usure : ${effectiveHours}h / ${maxH}h (RUL: ${remainingH}h)${
-                                      isEstimated
-                                        ? ` — Estimé depuis ${item.date_installation}`
-                                        : ''
-                                    }`}
+                                    title={`${effectiveHours}h / ${maxH}h (RUL: ${remainingH}h)${wearSourceHint}`}
                                   >
                                     <div
                                       className={`h-full rounded-full transition-all duration-300 ${
@@ -1818,7 +2304,7 @@ export default function NexusView({
                                 {item.statut === 'A_REMPLACER'
                                   ? 'A_REMPLACER'
                                   : isHighWear
-                                  ? 'USURE ≥ 85%'
+                                  ? t('nexus.table.highWearBadge')
                                   : item.statut || 'OPERATIONNEL'}
                               </span>
 
@@ -1826,17 +2312,17 @@ export default function NexusView({
                                 {hasPreventiveRoutine && (
                                   <span
                                     className="px-1.5 py-0.2 rounded text-[9px] font-mono font-bold bg-emerald-50 text-emerald-800 border border-emerald-200"
-                                    title="Cet élément est couvert par une routine préventive active"
+                                    title={t('nexus.table.pmActive')}
                                   >
-                                    PM Actif
+                                    {t('nexus.table.pmActive')}
                                   </span>
                                 )}
                                 {hasOpenCorrectiveDi && (
                                   <span
                                     className="px-1.5 py-0.2 rounded text-[9px] font-mono font-bold bg-amber-50 text-amber-800 border border-amber-200"
-                                    title="Une Demande d'Intervention Corrective est ouverte pour cet élément"
+                                    title={t('nexus.table.diOpen')}
                                   >
-                                    DI Ouverte
+                                    {t('nexus.table.diOpen')}
                                   </span>
                                 )}
                               </div>
@@ -1853,7 +2339,7 @@ export default function NexusView({
                                   <button
                                     type="button"
                                     onClick={() => handleReplaceElementViaMouvement(item)}
-                                    title="Remplacer cette pièce PDR via Mouvement de Sortie pré-rempli"
+                                    title={t('nexus.table.actionReplace')}
                                     className="p-1.5 rounded-lg text-emerald-700 hover:bg-emerald-50 border border-transparent hover:border-emerald-200 transition cursor-pointer"
                                   >
                                     <Zap className="w-3.5 h-3.5" />
@@ -1865,7 +2351,7 @@ export default function NexusView({
                                 <button
                                   type="button"
                                   onClick={() => handleTriggerCorrectiveFromElement(item)}
-                                  title="Ouvrir une Demande d'Intervention (DI Corrective) pour cet élément"
+                                  title={t('nexus.table.actionCorrective')}
                                   className="p-1.5 rounded-lg text-amber-700 hover:bg-amber-50 border border-transparent hover:border-amber-200 transition cursor-pointer"
                                 >
                                   <Wrench className="w-3.5 h-3.5" />
@@ -1877,7 +2363,7 @@ export default function NexusView({
                                 <button
                                   type="button"
                                   onClick={() => handleTriggerPreventiveFromElement(item)}
-                                  title="Planifier une routine de surveillance préventive pour cet élément"
+                                  title={t('nexus.table.actionPreventive')}
                                   className="p-1.5 rounded-lg text-indigo-700 hover:bg-indigo-50 border border-transparent hover:border-indigo-200 transition cursor-pointer"
                                 >
                                   <CalendarPlus className="w-3.5 h-3.5" />
@@ -1889,7 +2375,7 @@ export default function NexusView({
                                 <button
                                   type="button"
                                   onClick={() => handleOpenEditModal(item)}
-                                  title="Modifier les caractéristiques"
+                                  title={t('nexus.table.actionEdit')}
                                   className="p-1.5 rounded-lg text-slate-500 hover:text-slate-800 hover:bg-slate-100 transition cursor-pointer"
                                 >
                                   <Edit2 className="w-3.5 h-3.5" />
@@ -1903,13 +2389,14 @@ export default function NexusView({
                                   onClick={() => {
                                     onNavigate?.('entrepot');
                                     showToast?.(
-                                      `Organe ${item.ref_element} géré dans l'Entrepôt (statut: ${
-                                        item._warehouseStatus || 'Monté'
-                                      }).`,
+                                      t('nexus.toasts.warehouseManagedHint', {
+                                        ref: item.ref_element,
+                                        status: item._warehouseStatus || 'Monté',
+                                      }),
                                       'info'
                                     );
                                   }}
-                                  title="Cet organe est rattaché depuis l'Entrepôt — cliquer pour gérer son statut"
+                                  title={t('nexus.table.actionWarehouse')}
                                   className="p-1.5 rounded-lg text-indigo-600 hover:text-indigo-800 hover:bg-indigo-50 transition cursor-pointer"
                                 >
                                   <Boxes className="w-3.5 h-3.5" />
@@ -1921,19 +2408,22 @@ export default function NexusView({
                                     onClick={async () => {
                                       if (
                                         await confirmAction({
-                                          title: "Détacher l'élément",
-                                          message: `Détacher ${item.ref_element} de la machine ${activeMachine.id_machine_registered} ?`,
+                                          title: t('nexus.toasts.detachTitle'),
+                                          message: t('nexus.toasts.detachConfirm', {
+                                            ref: item.ref_element,
+                                            machine: activeMachine.id_machine_registered,
+                                          }),
                                           variant: 'danger',
                                         })
                                       ) {
                                         onDeleteMachineElement?.(item.id);
                                         showToast?.(
-                                          `Élément ${item.ref_element} détaché du registre.`,
+                                          t('nexus.toasts.detached', { ref: item.ref_element }),
                                           'info'
                                         );
                                       }
                                     }}
-                                    title="Détacher de la machine"
+                                    title={t('nexus.table.actionDetach')}
                                     className="p-1.5 rounded-lg text-rose-500 hover:text-rose-700 hover:bg-rose-50 transition cursor-pointer"
                                   >
                                     <Trash2 className="w-3.5 h-3.5" />

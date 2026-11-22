@@ -65,6 +65,8 @@ export function useAppRouterProps({
   machineElementsLedger,
   addMachineElement,
   updateMachineElement,
+  upsertMachineElementsBatch,
+  updateMachineElementsBatch,
   deleteMachineElement,
   duplicateBOMToTwins,
   preventiveTasks,
@@ -900,17 +902,13 @@ export function useAppRouterProps({
       },
 
       nexus: {
-        types,
-        diagnostics,
         families: effectiveFamilies,
-        templates: effectiveTemplates,
+        _templates: effectiveTemplates,
         blueprints,
         zones,
         technicians,
-        operations,
         machines,
         stockItems,
-        compFamilies,
         compTemplates,
         partTypes,
         partDesignations,
@@ -919,16 +917,45 @@ export function useAppRouterProps({
         machineElementsLedger,
         preventiveTasks,
         correctiveInterventions,
+        meterReadings: meterReadings || [],
         onAddMachineElement: addMachineElement,
         onUpdateMachineElement: updateMachineElement,
+        onUpsertMachineElementsBatch: upsertMachineElementsBatch,
+        onUpdateMachineElementsBatch: updateMachineElementsBatch,
         onDeleteMachineElement: deleteMachineElement,
         onDuplicateBOMToTwins: duplicateBOMToTwins,
+        onUpdateWarehouseItem: handleUpdateWarehouseItem,
         onNavigateToQuickSortie: navigation.handleNavigateToQuickSortieFromNexus,
         setQuickSortiePreset: filters.setQuickSortiePreset,
         onCreateCorrectiveFromNexus,
         onCreatePreventiveFromNexus,
+        onNavigateToMachine: (machId: string) => {
+          if (filters?.setMchFamilyFilter) filters.setMchFamilyFilter('ALL');
+          if (filters?.setMchTemplateFilter) filters.setMchTemplateFilter('ALL');
+          if (filters?.setMchZoneFilter) filters.setMchZoneFilter('ALL');
+          if (filters?.setMchSearch && typeof machId === 'string') {
+            filters.setMchSearch(machId.trim());
+          }
+          navigateTo('machines');
+        },
+        onNavigateToPreventiveForMachine: (machId: string) => {
+          if (typeof machId === 'string' && machId.trim()) {
+            try {
+              storageService.setItem(STORAGE_KEYS.PREVENTIVE_TARGET_MACHINE, machId.trim());
+            } catch {
+              // ignore storage errors
+            }
+          }
+          navigateTo('preventive');
+        },
+        onNavigateToCorrectiveForMachine: (machId: string) => {
+          if (filters?.setCorrSearch && typeof machId === 'string') {
+            filters.setCorrSearch(machId.trim());
+          }
+          navigateTo('corrective');
+        },
         onNavigate: navigateTo,
-        showToast,
+        showToast: resolvedShowToast,
       },
 
       preventive: {
@@ -1191,6 +1218,13 @@ export function useAppRouterProps({
     handleDeleteCorrectiveIntervention,
     handleBulkImportCorrective,
     handleResetCorrectiveToSeed,
+    machineElementsLedger,
+    addMachineElement,
+    updateMachineElement,
+    upsertMachineElementsBatch,
+    updateMachineElementsBatch,
+    deleteMachineElement,
+    duplicateBOMToTwins,
     setShowAddArticleModal,
     setShowAddMachineModal,
     setShowAddUserModal,

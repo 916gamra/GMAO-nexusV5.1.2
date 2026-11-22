@@ -588,6 +588,47 @@ export function createPreventiveSlice(set: StoreSet, get: StoreGet): PreventiveS
           }
         }
 
+        // N4 Closed-Loop: Reset wear counter in machineElementsLedger for approved preventive spares on target machine
+        const targetPmMachine = String(
+          latestExec.machineCode || targetTaskBefore?.id_machine || ''
+        ).trim();
+        if (targetPmMachine && spares.length > 0 && typeof get().setMachineElementsLedger === 'function') {
+          const targetMachObj = (get().machines || []).find(
+            (m: any) =>
+              String(m?.id_machine_registered || m?.code_machine || m?.id || '')
+                .trim()
+                .toUpperCase() === targetPmMachine.toUpperCase()
+          );
+          const execCounter = Number(
+            validationData?.compteur_releve ??
+              validationData?.dernier_releve ??
+              (targetMachObj as any)?.compteur_actuel ??
+              (targetMachObj as any)?.compteur ??
+              0
+          );
+          let currLedger = get().machineElementsLedger || [];
+          let ledgerChanged = false;
+          const installDate = String(latestExec.executedAt || new Date().toISOString().slice(0, 10));
+          const techName = String(latestExec.executorName || actor.actorName).trim();
+          for (const sp of spares) {
+            if (!sp?.ref || !(Number(sp.qty) > 0)) continue;
+            const { updatedElement, updatedLedger } = applyReplacementMovementToLedger(currLedger, {
+              id_machine_registered: targetPmMachine,
+              ref: sp.ref,
+              date: installDate,
+              technicien: techName,
+              ...(execCounter > 0 ? { compteur_installation: execCounter } : {}),
+            });
+            if (updatedElement) {
+              currLedger = updatedLedger as any;
+              ledgerChanged = true;
+            }
+          }
+          if (ledgerChanged) {
+            get().setMachineElementsLedger(currLedger as any);
+          }
+        }
+
         // Honor createFollowUpDi on direct Admin/Supervisor completion as well!
         let generatedDiId = latestExec.generated_di_id ? String(latestExec.generated_di_id) : undefined;
         if (
@@ -866,6 +907,45 @@ export function createPreventiveSlice(set: StoreSet, get: StoreGet): PreventiveS
           for (const mv of newMovements) {
             onAddMouvement(mv);
           }
+        }
+      }
+
+      // N4 Closed-Loop: Reset wear counter in machineElementsLedger for approved preventive spares on target machine
+      const targetApprovedPmMachine = String(existing.machineCode || '').trim();
+      if (targetApprovedPmMachine && sparesUsed.length > 0 && typeof get().setMachineElementsLedger === 'function') {
+        const targetMachObj = (get().machines || []).find(
+          (m: any) =>
+            String(m?.id_machine_registered || m?.code_machine || m?.id || '')
+              .trim()
+              .toUpperCase() === targetApprovedPmMachine.toUpperCase()
+        );
+        const execCounter = Number(
+          decisionData?.compteur_releve ??
+            existing.compteur_releve ??
+            (targetMachObj as any)?.compteur_actuel ??
+            (targetMachObj as any)?.compteur ??
+            0
+        );
+        let currLedger = get().machineElementsLedger || [];
+        let ledgerChanged = false;
+        const installDate = String(existing.executedAt || nowIso.slice(0, 10));
+        const techName = String(existing.executorName || validatorName).trim();
+        for (const sp of sparesUsed) {
+          if (!sp?.ref || !(Number(sp.qty) > 0)) continue;
+          const { updatedElement, updatedLedger } = applyReplacementMovementToLedger(currLedger, {
+            id_machine_registered: targetApprovedPmMachine,
+            ref: sp.ref,
+            date: installDate,
+            technicien: techName,
+            ...(execCounter > 0 ? { compteur_installation: execCounter } : {}),
+          });
+          if (updatedElement) {
+            currLedger = updatedLedger as any;
+            ledgerChanged = true;
+          }
+        }
+        if (ledgerChanged) {
+          get().setMachineElementsLedger(currLedger as any);
         }
       }
 
