@@ -419,11 +419,6 @@ export class AutoBackupService {
           const raw = typeof localStorage !== 'undefined' ? localStorage.getItem(key) : null;
           if (raw) {
             value = JSON.parse(raw);
-          } else {
-            const cached = storageService.getItem(key, undefined);
-            if (cached !== undefined && cached !== null) {
-              value = cached;
-            }
           }
         }
         const canonicalProp = STORAGE_KEY_TO_CANONICAL_PROP[key];
