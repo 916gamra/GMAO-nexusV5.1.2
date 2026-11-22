@@ -26,6 +26,13 @@ import {
   LayoutGrid,
   X,
 } from 'lucide-react';
+import { useAuth } from '../../../context/AuthContext';
+import {
+  canNavigateToGuideTab,
+  executeGuideTabNavigation,
+  findGuideDocForTab,
+  resolveGuideInternalHref,
+} from './guideNavigation';
 
 interface GuideViewProps {
   onNavigateToTab?: (tabId: string) => void;
@@ -278,28 +285,24 @@ function parseFrontmatter(raw: string, filePath: string): ParsedMarkdownDoc {
   };
 }
 
-function renderInlineFormatting(text: string): React.ReactNode[] {
-  // Handle inline math $\text{...}$, bold **...**, inline code `...`, and italics *...*
-  const tokens = text.split(/(\*\*[^*]+\*\*|`[^`]+`|\$[^$]+\$)/g);
+function renderInlineFormatting(
+  text: string,
+  onOpenHref?: (href: string) => void
+): React.ReactNode[] {
+  // Handle inline code `...`, math $...$, bold **...**, markdown links [label](href), and italics *...*
+  const tokens = text.split(/(`[^`]+`|\$[^$]+\$|\*\*[^*]+\*\*|\[[^\]]+\]\([^)]+\)|\*[^*\n]+\*)/g);
   return tokens.map((tok, idx) => {
-    if (tok.startsWith('**') && tok.endsWith('**')) {
-      return (
-        <strong key={idx} className="font-bold text-slate-900">
-          {tok.slice(2, -2)}
-        </strong>
-      );
-    }
-    if (tok.startsWith('`') && tok.endsWith('`')) {
+    if (tok.startsWith('`') && tok.endsWith('`') && tok.length >= 2) {
       return (
         <code
           key={idx}
-          className="px-1.5 py-0.5 mx-0.5 rounded-md bg-slate-100 border border-slate-200 font-mono text-[11.5px] text-amber-800 font-semibold"
+          className="px-1.5 py-0.5 mx-0.5 rounded-md bg-slate-100 border border-slate-200 font-mono text-[11.5px] text-amber-800 font-semibold select-text"
         >
           {tok.slice(1, -1)}
         </code>
       );
     }
-    if (tok.startsWith('$') && tok.endsWith('$')) {
+    if (tok.startsWith('$') && tok.endsWith('$') && tok.length >= 2) {
       const cleanFormula = tok
         .slice(1, -1)
         .replace(/\\text\{([^}]+)\}/g, '$1')
@@ -317,23 +320,77 @@ function renderInlineFormatting(text: string): React.ReactNode[] {
       return (
         <span
           key={idx}
-          className="px-2 py-0.5 mx-0.5 rounded bg-amber-50 border border-amber-200 font-mono text-xs font-bold text-amber-900"
+          className="px-2 py-0.5 mx-0.5 rounded bg-amber-50 border border-amber-200 font-mono text-xs font-bold text-amber-900 select-text"
         >
           {cleanFormula}
         </span>
+      );
+    }
+    if (tok.startsWith('**') && tok.endsWith('**') && tok.length > 4) {
+      return (
+        <strong key={idx} className="font-bold text-slate-900">
+          {tok.slice(2, -2)}
+        </strong>
+      );
+    }
+    if (tok.startsWith('[') && tok.includes('](') && tok.endsWith(')')) {
+      const match = tok.match(/^\[([^\]]+)\]\(([^)]+)\)$/);
+      if (match) {
+        const [, label, rawHref] = match;
+        const href = rawHref.trim();
+        if (/^https?:\/\//i.test(href)) {
+          return (
+            <a
+              key={idx}
+              href={href}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="font-semibold text-amber-700 underline decoration-amber-400/70 underline-offset-2 hover:text-amber-900"
+            >
+              {label}
+            </a>
+          );
+        }
+        if (!/^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(href) && onOpenHref) {
+          return (
+            <button
+              key={idx}
+              type="button"
+              onClick={() => onOpenHref(href)}
+              className="font-semibold text-amber-700 underline decoration-amber-400/70 underline-offset-2 hover:text-amber-900 cursor-pointer"
+            >
+              {label}
+            </button>
+          );
+        }
+        return <React.Fragment key={idx}>{label}</React.Fragment>;
+      }
+    }
+    if (tok.startsWith('*') && tok.endsWith('*') && tok.length > 2) {
+      return (
+        <em key={idx} className="italic text-slate-800">
+          {tok.slice(1, -1)}
+        </em>
       );
     }
     return <React.Fragment key={idx}>{tok}</React.Fragment>;
   });
 }
 
-function MarkdownBodyRenderer({ markdown }: { markdown: string }) {
+export function MarkdownBodyRenderer({
+  markdown,
+  onOpenHref,
+}: {
+  markdown: string;
+  onOpenHref?: (href: string) => void;
+}) {
   const blocks = useMemo(() => {
     const lines = markdown.split('\n');
     const result: Array<
       | { type: 'h2'; text: string }
       | { type: 'h3'; text: string }
       | { type: 'hr' }
+      | { type: 'blockquote'; lines: string[] }
       | { type: 'code'; code: string }
       | { type: 'formula'; formula: string }
       | { type: 'table'; headers: string[]; rows: string[][] }
@@ -464,12 +521,27 @@ function MarkdownBodyRenderer({ markdown }: { markdown: string }) {
         continue;
       }
 
+      // Blockquote > ...
+      if (trimmed.startsWith('>')) {
+        const quoteLines: string[] = [];
+        while (i < lines.length && lines[i].trim().startsWith('>')) {
+          const stripped = lines[i].trim().replace(/^>\s?/, '');
+          if (stripped) quoteLines.push(stripped);
+          i++;
+        }
+        if (quoteLines.length > 0) {
+          result.push({ type: 'blockquote', lines: quoteLines });
+        }
+        continue;
+      }
+
       // Paragraph
       const pLines: string[] = [];
       while (
         i < lines.length &&
         lines[i].trim() !== '' &&
         !lines[i].trim().startsWith('#') &&
+        !lines[i].trim().startsWith('>') &&
         !lines[i].trim().startsWith('- ') &&
         !/^\d+\.\s+/.test(lines[i].trim()) &&
         !lines[i].trim().startsWith('|') &&
@@ -487,17 +559,29 @@ function MarkdownBodyRenderer({ markdown }: { markdown: string }) {
   }, [markdown]);
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-4 select-text">
       {blocks.map((block, index) => {
         if (block.type === 'hr') {
           return <hr key={index} className="border-slate-200 my-5" />;
+        }
+        if (block.type === 'blockquote') {
+          return (
+            <blockquote
+              key={index}
+              className="border-l-4 border-amber-500 bg-amber-50/60 px-4 py-3 rounded-r-2xl text-xs sm:text-[13px] text-slate-700 space-y-1.5 leading-relaxed"
+            >
+              {block.lines.map((qLine, qi) => (
+                <p key={qi}>{renderInlineFormatting(qLine, onOpenHref)}</p>
+              ))}
+            </blockquote>
+          );
         }
         if (block.type === 'h2') {
           return (
             <div key={index} className="pt-3 pb-1 border-b border-slate-200/80 flex items-center gap-2.5">
               <span className="w-1.5 h-5 rounded-full bg-amber-500 shrink-0" />
               <h2 className="text-base sm:text-lg font-black text-slate-900 tracking-tight">
-                {block.text}
+                {renderInlineFormatting(block.text, onOpenHref)}
               </h2>
             </div>
           );
@@ -506,7 +590,7 @@ function MarkdownBodyRenderer({ markdown }: { markdown: string }) {
           return (
             <h3 key={index} className="text-sm font-extrabold text-slate-900 pt-2 flex items-center gap-2">
               <ChevronRight className="w-4 h-4 text-amber-600 shrink-0" />
-              <span>{block.text}</span>
+              <span>{renderInlineFormatting(block.text, onOpenHref)}</span>
             </h3>
           );
         }
@@ -514,7 +598,7 @@ function MarkdownBodyRenderer({ markdown }: { markdown: string }) {
           return (
             <div
               key={index}
-              className="p-3.5 rounded-2xl bg-gradient-to-r from-amber-50/90 to-orange-50/50 border border-amber-200/80 font-mono text-xs sm:text-sm font-bold text-slate-900 text-center shadow-2xs"
+              className="p-3.5 rounded-2xl bg-gradient-to-r from-amber-50/90 to-orange-50/50 border border-amber-200/80 font-mono text-xs sm:text-sm font-bold text-slate-900 text-center shadow-2xs select-text"
             >
               {block.formula}
             </div>
@@ -524,7 +608,7 @@ function MarkdownBodyRenderer({ markdown }: { markdown: string }) {
           return (
             <pre
               key={index}
-              className="p-4 rounded-2xl bg-slate-900 text-amber-300 font-mono text-xs overflow-x-auto border border-slate-800 leading-relaxed"
+              className="p-4 rounded-2xl bg-slate-900 text-amber-300 font-mono text-xs overflow-x-auto border border-slate-800 leading-relaxed select-text"
             >
               <code>{block.code}</code>
             </pre>
@@ -538,7 +622,7 @@ function MarkdownBodyRenderer({ markdown }: { markdown: string }) {
                   <tr className="bg-slate-100/90 border-b border-slate-200 text-slate-700 font-black uppercase tracking-wider text-[10.5px]">
                     {block.headers.map((h, hi) => (
                       <th key={hi} className="py-2.5 px-3.5">
-                        {renderInlineFormatting(h)}
+                        {renderInlineFormatting(h, onOpenHref)}
                       </th>
                     ))}
                   </tr>
@@ -548,7 +632,7 @@ function MarkdownBodyRenderer({ markdown }: { markdown: string }) {
                     <tr key={ri} className="hover:bg-amber-50/40 transition-colors">
                       {row.map((cell, ci) => (
                         <td key={ci} className="py-2.5 px-3.5 text-slate-700 leading-relaxed">
-                          {renderInlineFormatting(cell)}
+                          {renderInlineFormatting(cell, onOpenHref)}
                         </td>
                       ))}
                     </tr>
@@ -564,7 +648,7 @@ function MarkdownBodyRenderer({ markdown }: { markdown: string }) {
               {block.items.map((item, ii) => (
                 <li key={ii} className="flex items-start gap-2.5 text-xs sm:text-[13px] text-slate-700 leading-relaxed">
                   <span className="w-1.5 h-1.5 rounded-full bg-amber-500 mt-2 shrink-0" />
-                  <div className="flex-1">{renderInlineFormatting(item)}</div>
+                  <div className="flex-1">{renderInlineFormatting(item, onOpenHref)}</div>
                 </li>
               ))}
             </ul>
@@ -578,7 +662,7 @@ function MarkdownBodyRenderer({ markdown }: { markdown: string }) {
                   <span className="w-5 h-5 rounded-lg bg-amber-100 border border-amber-200 text-amber-900 font-black text-[11px] flex items-center justify-center shrink-0 mt-0.5">
                     {ii + 1}
                   </span>
-                  <div className="flex-1">{renderInlineFormatting(item)}</div>
+                  <div className="flex-1">{renderInlineFormatting(item, onOpenHref)}</div>
                 </li>
               ))}
             </ol>
@@ -586,7 +670,7 @@ function MarkdownBodyRenderer({ markdown }: { markdown: string }) {
         }
         return (
           <p key={index} className="text-xs sm:text-[13px] text-slate-700 leading-relaxed">
-            {renderInlineFormatting(block.text)}
+            {renderInlineFormatting(block.text, onOpenHref)}
           </p>
         );
       })}
@@ -595,6 +679,7 @@ function MarkdownBodyRenderer({ markdown }: { markdown: string }) {
 }
 
 export default function GuideView({ onNavigateToTab }: GuideViewProps) {
+  const { currentUser } = useAuth();
   const allDocs = useMemo<ParsedMarkdownDoc[]>(() => {
     const parsed = Object.entries(rawMarkdownFiles).map(([path, content]) =>
       parseFrontmatter(content, path)
@@ -676,15 +761,35 @@ export default function GuideView({ onNavigateToTab }: GuideViewProps) {
     scrollCardIntoStripCenter(groupId);
   };
 
-  const handleSelectDocByTab = (tabId: string) => {
-    const targetDoc = allDocs.find((d) => d.tabId === tabId);
+  const handleOpenScreen = (rawTabId: string) => {
+    executeGuideTabNavigation(currentUser, rawTabId, onNavigateToTab);
+  };
+
+  const handleSelectDocByTab = (tabId: string, preferredGroupId?: string | null) => {
+    const targetDoc = findGuideDocForTab(
+      allDocs,
+      tabId,
+      preferredGroupId ?? selectedGroupId,
+      audienceFilter
+    );
     if (targetDoc) {
       setSelectedGroupId(targetDoc.groupId);
-      setAudienceFilter('all');
       setSelectedDocId(targetDoc.id);
       scrollCardIntoStripCenter(targetDoc.groupId);
-    } else if (onNavigateToTab) {
-      onNavigateToTab(tabId);
+    } else {
+      handleOpenScreen(tabId);
+    }
+  };
+
+  const handleOpenMarkdownHref = (href: string) => {
+    const resolved = resolveGuideInternalHref(allDocs, href, activeDoc);
+    if (!resolved) return;
+    if (resolved.doc) {
+      setSelectedGroupId(resolved.doc.groupId);
+      setSelectedDocId(resolved.doc.id);
+      scrollCardIntoStripCenter(resolved.doc.groupId);
+    } else if (resolved.tabId) {
+      handleOpenScreen(resolved.tabId);
     }
   };
 
@@ -709,7 +814,7 @@ export default function GuideView({ onNavigateToTab }: GuideViewProps) {
     'shadow-[0_8px_20px_-4px_rgba(15,23,42,0.14),0_3px_8px_-2px_rgba(15,23,42,0.08),inset_0_1px_1px_rgba(255,255,255,0.95)]';
 
   return (
-    <AnimatedPage className="space-y-5 pb-10 select-none font-sans">
+    <AnimatedPage className="space-y-5 pb-10 font-sans">
       {/* 1. En-tête Exécutif Partagé (BDR Light GMAO Header Card + Orange/Amber Sidebar Theme) */}
       <div className="bg-white px-5 py-4 md:px-6 md:py-5 rounded-2xl border border-slate-200/90 shadow-[0_12px_32px_-6px_rgba(0,0,0,0.12),0_4px_12px_-2px_rgba(0,0,0,0.06)] hover:shadow-[0_16px_40px_-8px_rgba(0,0,0,0.16),0_6px_16px_-3px_rgba(0,0,0,0.08)] hover:-translate-y-0.5 transition-all duration-300 ease-out flex flex-col xl:flex-row xl:items-center xl:justify-between gap-4 relative overflow-hidden group/header">
         {/* Subtle Ambient Glow matching Sidebar Amber/Orange Color */}
@@ -958,28 +1063,37 @@ export default function GuideView({ onNavigateToTab }: GuideViewProps) {
               {!isReaderOpen && (
                 <div className="pt-2.5 border-t border-slate-200/70 flex flex-wrap items-center gap-1.5">
                   {group.tabs.map((t) => {
-                    const hasPageDoc = allDocs.some((d) => d.tabId === t.tabId);
+                    const hasPageDoc = allDocs.some(
+                      (d) => d.tabId === t.tabId && d.groupId === group.groupId
+                    ) || allDocs.some((d) => d.tabId === t.tabId);
+                    const canOpenScreen = canNavigateToGuideTab(currentUser, t.tabId);
+                    const isClickable = hasPageDoc || (Boolean(onNavigateToTab) && canOpenScreen);
                     return (
                       <button
-                        key={t.tabId}
+                        key={`${group.groupId}-${t.tabId}`}
                         type="button"
+                        disabled={!isClickable}
                         onClick={(e) => {
                           e.stopPropagation();
                           if (hasPageDoc) {
-                            handleSelectDocByTab(t.tabId);
-                          } else if (onNavigateToTab) {
-                            onNavigateToTab(t.tabId);
+                            handleSelectDocByTab(t.tabId, group.groupId);
+                          } else if (canOpenScreen) {
+                            handleOpenScreen(t.tabId);
                           }
                         }}
-                        className={`inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[10.5px] font-bold transition cursor-pointer ${
-                          hasPageDoc
-                            ? 'bg-white border border-amber-200/90 text-amber-900 hover:bg-amber-600 hover:text-white hover:border-amber-600'
-                            : 'bg-white border border-slate-200 text-slate-600 hover:border-slate-400 hover:text-slate-900'
+                        className={`inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[10.5px] font-bold transition ${
+                          !isClickable
+                            ? 'bg-slate-50 border border-slate-200 text-slate-400 cursor-not-allowed opacity-70'
+                            : hasPageDoc
+                            ? 'bg-white border border-amber-200/90 text-amber-900 hover:bg-amber-600 hover:text-white hover:border-amber-600 cursor-pointer'
+                            : 'bg-white border border-slate-200 text-slate-600 hover:border-slate-400 hover:text-slate-900 cursor-pointer'
                         }`}
                         title={
                           hasPageDoc
                             ? `Lire le guide de l'écran ${t.label}`
-                            : `Ouvrir directement l'écran ${t.label}`
+                            : canOpenScreen
+                            ? `Ouvrir directement l'écran ${t.label}`
+                            : `Accès restreint à l'écran ${t.label}`
                         }
                       >
                         <span>{t.label}</span>
@@ -1170,13 +1284,13 @@ export default function GuideView({ onNavigateToTab }: GuideViewProps) {
                         )}
                       </div>
 
-                      {/* Bouton d'action circulaire 3D flottant pour ouvrir la page correspondante */}
-                      {activeDoc.tabId && onNavigateToTab && (
+                      {/* Bouton d'action circulaire 3D flottant pour ouvrir la page correspondante (gardé RBAC) */}
+                      {activeDoc.tabId && onNavigateToTab && canNavigateToGuideTab(currentUser, activeDoc.tabId) && (
                         <Action3DButton
                           variant="circle"
                           color="amber"
                           icon={ExternalLink}
-                          onClick={() => onNavigateToTab(activeDoc.tabId!)}
+                          onClick={() => handleOpenScreen(activeDoc.tabId!)}
                           title={`Ouvrir l’écran : ${TAB_LABELS[activeDoc.tabId!] || activeDoc.tabId}`}
                           ariaLabel={`Ouvrir l’écran : ${TAB_LABELS[activeDoc.tabId!] || activeDoc.tabId}`}
                           className={floatingCircleDepth}
@@ -1187,7 +1301,7 @@ export default function GuideView({ onNavigateToTab }: GuideViewProps) {
                     {/* Résumé exécutif */}
                     {activeDoc.summary && (
                       <div
-                        className={`mt-4 p-3.5 rounded-2xl text-xs leading-relaxed border ${
+                        className={`mt-4 p-3.5 rounded-2xl text-xs leading-relaxed border select-text ${
                           activeDoc.docType === 'architecture'
                             ? 'bg-white/5 border-white/10 text-amber-100'
                             : 'bg-white border-amber-200/80 text-slate-700 shadow-2xs'
@@ -1202,8 +1316,11 @@ export default function GuideView({ onNavigateToTab }: GuideViewProps) {
                   </div>
 
                   {/* Corps du Document Markdown */}
-                  <div className="p-5 sm:p-7">
-                    <MarkdownBodyRenderer markdown={activeDoc.body} />
+                  <div className="p-5 sm:p-7 select-text">
+                    <MarkdownBodyRenderer
+                      markdown={activeDoc.body}
+                      onOpenHref={handleOpenMarkdownHref}
+                    />
                   </div>
 
                   {/* Pied de document : Navigation croisée avec bouton 3D flottant intégré dans chaque carte */}
@@ -1214,8 +1331,15 @@ export default function GuideView({ onNavigateToTab }: GuideViewProps) {
                       </span>
                       <div className="flex flex-wrap items-center gap-2.5">
                         {activeDoc.relatedTabs.map((relTab) => {
-                          const linkedDoc = allDocs.find((d) => d.tabId === relTab);
+                          const linkedDoc = findGuideDocForTab(
+                            allDocs,
+                            relTab,
+                            activeDoc.groupId,
+                            audienceFilter
+                          );
+                          const canOpenRelTab = canNavigateToGuideTab(currentUser, relTab);
                           const label = TAB_LABELS[relTab] || relTab;
+                          const canClickLabel = Boolean(linkedDoc) || (Boolean(onNavigateToTab) && canOpenRelTab);
                           return (
                             <div
                               key={relTab}
@@ -1223,29 +1347,37 @@ export default function GuideView({ onNavigateToTab }: GuideViewProps) {
                             >
                               <button
                                 type="button"
+                                disabled={!canClickLabel}
                                 onClick={() => {
                                   if (linkedDoc) {
+                                    setSelectedGroupId(linkedDoc.groupId);
                                     setSelectedDocId(linkedDoc.id);
-                                  } else if (onNavigateToTab) {
-                                    onNavigateToTab(relTab);
+                                  } else if (canOpenRelTab) {
+                                    handleOpenScreen(relTab);
                                   }
                                 }}
-                                className="inline-flex items-center gap-1.5 text-xs font-bold text-slate-800 hover:text-amber-700 transition cursor-pointer"
+                                className={`inline-flex items-center gap-1.5 text-xs font-bold transition ${
+                                  canClickLabel
+                                    ? 'text-slate-800 hover:text-amber-700 cursor-pointer'
+                                    : 'text-slate-400 cursor-not-allowed'
+                                }`}
                                 title={
                                   linkedDoc
                                     ? `Lire le guide : ${linkedDoc.title}`
-                                    : `Ouvrir l'écran : ${label}`
+                                    : canOpenRelTab
+                                    ? `Ouvrir l'écran : ${label}`
+                                    : `Accès restreint : ${label}`
                                 }
                               >
                                 <BookOpen className="w-3.5 h-3.5 text-amber-600 shrink-0" />
                                 <span>{label}</span>
                               </button>
-                              {onNavigateToTab && (
+                              {onNavigateToTab && canOpenRelTab && (
                                 <Action3DButton
                                   variant="circle"
                                   color="amber"
                                   icon={ExternalLink}
-                                  onClick={() => onNavigateToTab(relTab)}
+                                  onClick={() => handleOpenScreen(relTab)}
                                   title={`Aller directement à l'écran ${label}`}
                                   ariaLabel={`Aller directement à l'écran ${label}`}
                                   className={`!w-8 !h-8 ${floatingCircleDepth}`}

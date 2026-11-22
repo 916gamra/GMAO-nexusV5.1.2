@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import {
   Coins,
   CheckCircle2,
@@ -192,10 +192,42 @@ export default function SettingsCurrencyTab({
     );
   };
 
-  const sampleUnitPrice = 1500;
-  const sampleVatAmount = (sampleUnitPrice * (Number(config.vatRatePercent) || 0)) / 100;
-  const sampleTtcAmount = sampleUnitPrice + sampleVatAmount;
-  const sampleGlobalStock = 284500;
+  const rawStock = useGmaoStore((s) => s.rawStock);
+  const mouvements = useGmaoStore((s) => s.mouvements);
+  const getStockItems = useGmaoStore((s) => s.stockItems);
+
+  const liveStockValuation = useMemo(() => {
+    const computed = typeof getStockItems === 'function' ? getStockItems() : rawStock;
+    let totalValue = 0;
+    let skuCount = 0;
+    let pricedSkuCount = 0;
+    for (const item of computed || []) {
+      skuCount += 1;
+      const qty = Math.max(0, Number(item.stockActuel ?? item.stockInitial ?? 0) || 0);
+      const unitPrice = Math.max(
+        0,
+        Number(
+          item.prix_unitaire ??
+            item.prixUnitaire ??
+            (item as { pmp?: number }).pmp ??
+            item.prix ??
+            0
+        ) || 0
+      );
+      if (unitPrice > 0) pricedSkuCount += 1;
+      totalValue += qty * unitPrice;
+    }
+    return { totalValue, skuCount, pricedSkuCount };
+  }, [rawStock, mouvements, getStockItems]);
+
+  const parsedUsdRate = Number(usdRateInput);
+  const parsedEurRate = Number(eurRateInput);
+  const inverseUsdToMad = parsedUsdRate > 0 ? (1 / parsedUsdRate).toFixed(2) : null;
+  const inverseEurToMad = parsedEurRate > 0 ? (1 / parsedEurRate).toFixed(2) : null;
+
+  const previewBaseAmount = 1000;
+  const previewVatAmount = (previewBaseAmount * (Number(config.vatRatePercent) || 0)) / 100;
+  const previewTotalWithVat = previewBaseAmount + previewVatAmount;
 
   return (
     <div className="space-y-6" data-testid="settings-currency-tab">
@@ -427,6 +459,11 @@ export default function SettingsCurrencyTab({
                   onChange={(e) => setUsdRateInput(e.target.value)}
                   className={`${SETTINGS_INPUT_CLASS} font-mono font-bold disabled:opacity-60 disabled:cursor-not-allowed`}
                 />
+                {inverseUsdToMad && (
+                  <p className="mt-1 text-[10.5px] font-mono text-slate-500">
+                    Équivalence : 1 USD ≈ {inverseUsdToMad} MAD
+                  </p>
+                )}
               </div>
 
               <div>
@@ -442,6 +479,11 @@ export default function SettingsCurrencyTab({
                   onChange={(e) => setEurRateInput(e.target.value)}
                   className={`${SETTINGS_INPUT_CLASS} font-mono font-bold disabled:opacity-60 disabled:cursor-not-allowed`}
                 />
+                {inverseEurToMad && (
+                  <p className="mt-1 text-[10.5px] font-mono text-slate-500">
+                    Équivalence : 1 EUR ≈ {inverseEurToMad} MAD
+                  </p>
+                )}
               </div>
             </div>
 
@@ -475,52 +517,62 @@ export default function SettingsCurrencyTab({
           </div>
         </SettingsSectionCard>
 
-        {/* Live Formatting Simulation */}
+        {/* Live Formatting Preview & Real SSOT Stock Valuation */}
         <SettingsSectionCard
           testId="currency-preview-box"
-          title="3. Simulation d'Affichage Comptable & Bons de Commande"
-          description="Aperçu en temps réel du formatage monétaire dans les grilles Stock PDR, Achats et Finance."
+          title="3. Aperçu du Formatage Monétaire & Valorisation Réelle"
+          description="Vérification en temps réel du rendu des montants dans l'application (aperçu de formatage uniquement — aucune facturation ni commande)."
           icon={<Info />}
         >
           <div className="space-y-4">
             <div className="bg-slate-50/70 rounded-2xl p-4 border border-slate-200/80 space-y-2.5">
-              <div className="flex items-center justify-between text-xs pb-2 border-b border-slate-200/80">
+              <div className="flex items-center justify-between gap-2 text-xs pb-2 border-b border-slate-200/80">
                 <span className="font-bold text-slate-700">
-                  Simulation Bon de Commande ({config.fiscalYear})
+                  Échelle d&apos;aperçu (base 1 000 MAD · Exercice {config.fiscalYear})
                 </span>
-                <span className="font-mono text-[11px] px-2.5 py-0.5 rounded-full bg-white border border-slate-200 text-sky-800 font-bold">
+                <span className="font-mono text-[11px] px-2.5 py-0.5 rounded-full bg-white border border-slate-200 text-sky-800 font-bold shrink-0">
                   ISO: {spec.code} ({spec.numericIsoCode})
                 </span>
               </div>
 
               <div className="flex items-center justify-between text-xs py-1">
-                <span className="text-slate-600">Montant Hors Taxes (HT)</span>
+                <span className="text-slate-600">Montant unitaire HT (référence)</span>
                 <span className="font-mono font-bold text-slate-900">
-                  {formatCurrency(sampleUnitPrice, { decimals: 2 })}
+                  {formatCurrency(previewBaseAmount, { decimals: 2 })}
                 </span>
               </div>
 
               <div className="flex items-center justify-between text-xs py-1">
-                <span className="text-slate-600">TVA ({config.vatRatePercent}%)</span>
+                <span className="text-slate-600">TVA configurée ({config.vatRatePercent}%)</span>
                 <span className="font-mono font-semibold text-slate-700">
-                  {formatCurrency(sampleVatAmount, { decimals: 2 })}
+                  {formatCurrency(previewVatAmount, { decimals: 2 })}
                 </span>
               </div>
 
               <div className="flex items-center justify-between text-xs pt-2 border-t border-slate-200/80">
-                <span className="font-bold text-slate-800">Total TTC Facturé</span>
+                <span className="font-bold text-slate-800">Rendu TTC formaté</span>
                 <span className="font-mono font-extrabold text-sky-800 text-sm">
-                  {formatCurrency(sampleTtcAmount, { decimals: 2 })}
+                  {formatCurrency(previewTotalWithVat, { decimals: 2 })}
                 </span>
               </div>
             </div>
 
-            <div className="bg-emerald-50/60 rounded-2xl p-3.5 border border-emerald-200/80 flex items-center justify-between">
-              <span className="text-xs font-bold text-emerald-950">
-                Valorisation Globale Stock PDR (Exemple)
-              </span>
-              <span className="font-mono font-extrabold text-emerald-700 text-sm">
-                {formatCurrency(sampleGlobalStock)}
+            <div
+              data-testid="currency-live-stock-valuation"
+              className="bg-emerald-50/60 rounded-2xl p-3.5 border border-emerald-200/80 flex items-center justify-between gap-3"
+            >
+              <div className="min-w-0">
+                <span className="text-xs font-bold text-emerald-950 block">
+                  Valorisation Réelle du Stock PDR (Live SSOT)
+                </span>
+                <span className="text-[11px] text-emerald-800/80 block">
+                  {liveStockValuation.skuCount > 0
+                    ? `${liveStockValuation.skuCount} article(s) PDR · ${liveStockValuation.pricedSkuCount} valorisé(s)`
+                    : 'Stock usine vide — aucune valeur fictive injectée'}
+                </span>
+              </div>
+              <span className="font-mono font-extrabold text-emerald-700 text-sm shrink-0">
+                {formatCurrency(liveStockValuation.totalValue)}
               </span>
             </div>
 
