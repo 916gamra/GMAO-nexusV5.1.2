@@ -53,6 +53,7 @@ export function applyAppearanceDomFromStorage(
  */
 export function canViewMakerCheckerValidation(user: AuthActorInput): boolean {
   if (!user) return false;
-  if (isTechnicianRole(user)) return false;
+  const actorObj = typeof user === 'string' ? { role: user } : { role: user.role };
+  if (isTechnicianRole(actorObj)) return false;
   return AuthorizationService.canAccessTab(user, 'validation_center');
 }

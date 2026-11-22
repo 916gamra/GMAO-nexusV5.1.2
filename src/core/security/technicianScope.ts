@@ -1,7 +1,7 @@
 import { ROLES } from './Roles';
 
 export interface TechnicianActorUser {
-  id?: string;
+  id?: string | number;
   role?: string;
   personnelId?: string;
   personnelName?: string;

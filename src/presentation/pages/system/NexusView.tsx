@@ -23,9 +23,10 @@ import { DataGateway } from '../../../application/DataGateway';
 import { storageService } from '../../../utils/storageService';
 import { STORAGE_KEYS } from '../../../infrastructure/persistence/storageKeys';
 import type {
-  IBlueprint, ICompTemplate, IMachine, IMachineFamily, IMachineTemplate, IMeterReading,
+  IBlueprint, ICompTemplate, IMachine, IMachineFamily, IMachineTemplate,
   IMouvement, IPartDesignation, IPartType, IStockItem, ITechnician, IWarehouseItem, IZone,
 } from '../../../types/domain';
+import type { IMeterReading } from '../../../types/meter';
 import type {
   CorrectiveInterventionItem,
   MachineElement,

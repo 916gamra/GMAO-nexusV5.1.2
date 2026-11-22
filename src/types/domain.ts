@@ -3,6 +3,8 @@
  * Enforces strict domain contracts across all 3-Tier Asset, Warehouse, Stock, Personnel, and Maintenance slices.
  */
 
+export type { IMeterReading, MeterReadingSource, MeterUnit } from './meter';
+
 export type AlertStatus = 'OK' | 'ALERTE' | 'RUPTURE';
 
 export type MovementType = 'Sortie' | 'Entrée' | 'Sortie Interne' | 'Entrée Fournisseur';
