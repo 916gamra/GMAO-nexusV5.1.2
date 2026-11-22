@@ -45,15 +45,21 @@ export default function LanguageSwitcher({ className = '' }) {
         onClick={() => setIsOpen((prev) => !prev)}
         aria-expanded={isOpen}
         aria-haspopup="menu"
-        aria-label={`Changer la langue (actuellement ${activeLang?.label || language})`}
-        title={`Langue : ${activeLang?.label || language}`}
+        aria-label={t(
+          'header.change_language_aria',
+          `Changer la langue (actuellement ${activeLang?.label || language})`,
+          { label: activeLang?.label || language }
+        )}
+        title={t('header.language_tooltip', `Langue : ${activeLang?.label || language}`, {
+          label: activeLang?.label || language,
+        })}
         className="h-8 flex items-center gap-1 sm:gap-1.5 px-2 sm:px-2.5 rounded-full bg-slate-100/90 hover:bg-slate-200/80 border border-slate-200/90 text-xs font-bold text-slate-700 transition shadow-2xs hover:shadow-xs cursor-pointer shrink-0 focus-visible:ring-2 focus-visible:ring-emerald-500 focus-visible:outline-hidden group"
       >
         <Languages size={14} className="text-slate-500 group-hover:text-emerald-700 transition-colors shrink-0" aria-hidden="true" />
         <span className="px-1.5 py-0.2 rounded-md bg-white text-emerald-800 shadow-2xs ring-1 ring-emerald-500/20 text-[10.5px] font-bold font-mono leading-none">
           {activeLang?.flag || language.toUpperCase()}
         </span>
-        <span className="hidden 2xl:inline text-[11px] font-bold text-slate-700">
+        <span className="hidden xl:inline text-[11px] font-bold text-slate-700">
           {activeLang?.label || language.toUpperCase()}
         </span>
         <ChevronDown
@@ -70,7 +76,7 @@ export default function LanguageSwitcher({ className = '' }) {
         >
           <div className="px-3.5 py-1.5 border-b border-slate-100 mb-1">
             <div className="text-[10px] font-extrabold uppercase tracking-wider text-slate-400 font-mono">
-              LANGUE DU SYSTÈME
+              {t('header.system_language', 'LANGUE DU SYSTÈME')}
             </div>
             <div className="text-xs font-bold text-slate-800">
               {t('common.language_select', 'Sélection de la langue')}
@@ -87,7 +93,9 @@ export default function LanguageSwitcher({ className = '' }) {
                   role="menuitemradio"
                   aria-checked={isActive}
                   onClick={() => handleSelectLanguage(lang.code)}
-                  aria-label={`Changer la langue en ${lang.label}`}
+                  aria-label={t('header.switch_language_to', `Changer la langue en ${lang.label}`, {
+                    label: lang.label,
+                  })}
                   className={`w-full flex items-center justify-between px-2.5 py-2 rounded-xl transition-all duration-150 cursor-pointer text-xs ${
                     isActive
                       ? 'bg-emerald-50/90 text-emerald-950 font-bold border border-emerald-200/60 shadow-2xs'

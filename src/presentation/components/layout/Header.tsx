@@ -36,25 +36,26 @@ import ShellModeSwitcher from '../common/ShellModeSwitcher';
 import { useTranslation } from '../../../i18n/I18nContext';
 
 // NH-9: Isolated 1Hz Shift Clock component to prevent re-rendering the entire Header every second
-function HeaderShiftClock({ tooltip }: { tooltip?: string }) {
+function HeaderShiftClock({ tooltip, locale = 'fr-FR' }: { tooltip?: string; locale?: string }) {
   const [currentTime, setCurrentTime] = useState(() => {
     const d = new Date();
-    return d.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    return d.toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit', second: '2-digit' });
   });
 
   useEffect(() => {
     const timer = setInterval(() => {
       const d = new Date();
-      setCurrentTime(d.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit', second: '2-digit' }));
+      setCurrentTime(d.toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit', second: '2-digit' }));
     }, 1000);
     return () => clearInterval(timer);
-  }, []);
+  }, [locale]);
 
   return (
     <div
-      className="hidden 2xl:flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-slate-100/90 border border-slate-200/90 text-slate-700 text-[11px] font-mono font-bold tabular-nums shadow-2xs select-none shrink-0"
+      data-testid="header-shift-clock"
+      className="hidden xl:flex items-center gap-1.5 px-2.5 py-1.5 rounded-full bg-slate-100/90 border border-slate-200/90 text-slate-700 text-[11px] font-mono font-bold tabular-nums shadow-2xs select-none shrink-0"
       title={tooltip || 'Horloge de poste industrielle (Temps Réel)'}
-      aria-label={`Heure locale de poste : ${currentTime}`}
+      aria-label={`${tooltip || 'Horloge'} : ${currentTime}`}
     >
       <Clock className="w-3.5 h-3.5 text-accent-main animate-pulse shrink-0" aria-hidden="true" />
       <span>{currentTime}</span>
@@ -85,7 +86,8 @@ export default function Header({
   desktopSidebarCollapsed = false,
   onToggleDesktopSidebar,
 }: any) {
-  const { t } = useTranslation();
+  const { t, language } = useTranslation();
+  const clockLocale = language === 'en' ? 'en-GB' : language === 'ar' ? 'ar-MA-u-nu-latn' : 'fr-FR';
   const [topologyMenuOpen, setTopologyMenuOpen] = useState(false);
   const [syncMenuOpen, setSyncMenuOpen] = useState(false);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
@@ -150,17 +152,18 @@ export default function Header({
       }
       SecurityService.saveSessionSecure(
         'gmao_session_idle_expired',
-        'Écran verrouillé — Veuillez saisir votre mot de passe pour reprendre votre session.'
+        t(
+          'header.lock_screen_banner',
+          'Écran verrouillé — Veuillez saisir votre mot de passe pour reprendre votre session.'
+        )
       );
     } catch {
       // ignore storage errors
     }
     setUserMenuOpen(false);
-    showToast?.('Écran verrouillé par sécurité', 'info');
+    showToast?.(t('header.lock_screen_toast', 'Écran verrouillé par sécurité'), 'info');
     onLogout?.({ preserveActiveTab: true });
   };
-
-
 
   useEffect(() => {
     function handleClickOutside(event) {
@@ -177,8 +180,20 @@ export default function Header({
         setNotifMenuOpen(false);
       }
     }
+    function handleEscapeKey(event: KeyboardEvent) {
+      if (event.key === 'Escape') {
+        setTopologyMenuOpen(false);
+        setSyncMenuOpen(false);
+        setUserMenuOpen(false);
+        setNotifMenuOpen(false);
+      }
+    }
     document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
+    window.addEventListener('keydown', handleEscapeKey);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+      window.removeEventListener('keydown', handleEscapeKey);
+    };
   }, []);
   const activeParent = getParentModuleForTab(currentTab);
   const childTabs = useMemo(() => {
@@ -588,8 +603,8 @@ export default function Header({
           <button
             onClick={() => setMobileMenuOpen(true)}
             className="flex lg:hidden w-8 h-8 rounded-full bg-white border border-zinc-200/90 items-center justify-center text-zinc-700 hover:text-black hover:border-zinc-300 shadow-xs hover:shadow-md cursor-pointer transition-all shrink-0 focus-visible:ring-2 focus-visible:ring-emerald-500 focus-visible:outline-hidden"
-            aria-label="Ouvrir le menu de navigation complet"
-            title="Menu complet des modules et sections (Toutes les pages)"
+            aria-label={t('header.open_menu_aria', 'Ouvrir le menu de navigation complet')}
+            title={t('header.open_menu_title', 'Menu complet des modules et sections')}
             aria-haspopup="dialog"
           >
             <Menu size={15} />
@@ -690,7 +705,7 @@ export default function Header({
                   </span>
                 </div>
                 <div className="hidden 2xl:block text-[9.5px] font-semibold text-emerald-700 tracking-tight truncate max-w-[115px]">
-                  Pièces de Rechange
+                  {t('header.brand_subtitle', 'Pièces de Rechange')}
                 </div>
               </div>
             </button>
@@ -703,7 +718,7 @@ export default function Header({
                 : 'hidden md:flex px-2.5 py-1 rounded-full bg-white border border-zinc-200/90 shadow-[0_2px_8px_rgba(0,0,0,0.04)]'
             }`}
             role="navigation"
-            aria-label="Fil d'Ariane intelligent (Breadcrumbs)"
+            aria-label={t('header.breadcrumbs_aria', "Fil d'Ariane (Breadcrumbs)")}
           >
             <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse shrink-0" aria-hidden="true" />
             <ol className="flex items-center gap-1.5 text-xs tracking-tight truncate m-0 p-0 list-none">
@@ -747,7 +762,7 @@ export default function Header({
         {/* Center: Scrollable Responsive Sub-Tabs Navigation with Overflow Affordance */}
         <nav
           role="navigation"
-          aria-label="Sous-onglets de navigation"
+          aria-label={t('header.subtabs_aria', 'Sous-onglets de navigation')}
           className="flex items-center justify-center flex-1 min-w-0 mx-1 sm:mx-1.5 overflow-hidden gap-1"
         >
           {childTabs.length > 0 && (
@@ -760,8 +775,8 @@ export default function Header({
                     container?.scrollBy({ left: -160, behavior: 'smooth' });
                   }}
                   className="hidden md:flex 2xl:hidden w-6 h-6 rounded-full bg-zinc-100 hover:bg-zinc-200 border border-zinc-200/80 items-center justify-center text-zinc-600 hover:text-zinc-900 shrink-0 cursor-pointer transition"
-                  title="Faire défiler les onglets vers la gauche"
-                  aria-label="Défiler les onglets vers la gauche"
+                  title={t('header.scroll_tabs_left', 'Faire défiler les onglets vers la gauche')}
+                  aria-label={t('header.scroll_tabs_left', 'Faire défiler les onglets vers la gauche')}
                 >
                   <ChevronLeft size={13} />
                 </button>
@@ -830,8 +845,8 @@ export default function Header({
                     container?.scrollBy({ left: 160, behavior: 'smooth' });
                   }}
                   className="hidden md:flex 2xl:hidden w-6 h-6 rounded-full bg-zinc-100 hover:bg-zinc-200 border border-zinc-200/80 items-center justify-center text-zinc-600 hover:text-zinc-900 shrink-0 cursor-pointer transition"
-                  title="Faire défiler les onglets vers la droite"
-                  aria-label="Défiler les onglets vers la droite"
+                  title={t('header.scroll_tabs_right', 'Faire défiler les onglets vers la droite')}
+                  aria-label={t('header.scroll_tabs_right', 'Faire défiler les onglets vers la droite')}
                 >
                   <ChevronRight size={13} />
                 </button>
@@ -868,7 +883,7 @@ export default function Header({
                     }`}
                     aria-hidden="true"
                   />
-                  <span className="hidden 2xl:inline text-[11px] tracking-tight">{t('header.to_validate', 'À valider')}</span>
+                  <span className="hidden xl:inline text-[11px] tracking-tight">{t('header.to_validate', 'À valider')}</span>
                   <span
                     className={`px-1.5 py-0.2 rounded-full text-[10px] font-black font-mono leading-tight ${
                       isValidationCenterActive
@@ -946,7 +961,7 @@ export default function Header({
                   <span className="relative inline-flex rounded-full h-2 w-2 bg-accent-main" />
                 </span>
                 <Cloud size={14} className="text-accent-main group-hover:scale-110 transition-transform shrink-0" />
-                <span className="hidden 2xl:inline text-[11px] font-extrabold tracking-tight">{t('header.sync_server', 'Sync Serveur')}</span>
+                <span className="hidden xl:inline text-[11px] font-extrabold tracking-tight">{t('header.sync_server', 'Sync Serveur')}</span>
                 <ChevronDown
                   size={12}
                   className={`text-accent-main transition-transform duration-200 shrink-0 ${syncMenuOpen ? 'rotate-180' : ''}`}
@@ -966,7 +981,12 @@ export default function Header({
           )}
 
           {/* Live Industrial Shift Clock (Configurable via Appearance — NH-9 isolated 1Hz component) */}
-          {headerClockEnabled && <HeaderShiftClock tooltip={t('header.clock_tooltip', 'Horloge de poste industrielle (Temps Réel)')} />}
+          {headerClockEnabled && (
+            <HeaderShiftClock
+              tooltip={t('header.clock_tooltip', 'Horloge de poste industrielle (Temps Réel)')}
+              locale={clockLocale}
+            />
+          )}
 
           {/* Offline Language Switcher (Fixed-width trigger + floating popover — NH-13) */}
           <LanguageSwitcher />
@@ -977,7 +997,7 @@ export default function Header({
             onClick={handleLockScreen}
             data-testid="header-lock-screen-btn"
             className="w-8 h-8 rounded-full bg-white hover:bg-amber-50 border border-zinc-200 hover:border-amber-300 flex items-center justify-center text-zinc-600 hover:text-amber-700 transition shadow-[0_2px_6px_rgba(0,0,0,0.04)] hover:shadow-md cursor-pointer shrink-0 focus-visible:ring-2 focus-visible:ring-amber-500 focus-visible:outline-hidden group"
-            title={t('header.lock_screen', "Verrouiller l'écran (Protéger le poste sans perdre vos données)")}
+            title={t('header.lock_screen_tooltip', "Verrouiller l'écran (Protéger le poste sans perdre vos données)")}
             aria-label={t('header.lock_screen', "Verrouiller l'écran")}
           >
             <Lock size={14} className="text-zinc-600 group-hover:text-amber-700 transition-colors shrink-0" aria-hidden="true" />
@@ -1002,7 +1022,7 @@ export default function Header({
                 <div className="absolute right-0 top-full mt-2 w-72 bg-white rounded-2xl shadow-2xl border border-slate-200/90 py-2 z-50 animate-in fade-in slide-in-from-top-2 duration-150">
                   <div className="px-3.5 py-1.5 border-b border-slate-100 mb-1">
                     <div className="text-[10px] font-extrabold uppercase tracking-wider text-amber-700 font-mono">
-                      Type B — Export Externe (Non Réimportable)
+                      {t('header.type_b_banner', 'Type B — Export Externe (Non Réimportable)')}
                     </div>
                     <div className="text-xs font-bold text-slate-800">
                       {t('header.topology_hub_subtitle', 'Rapports & consultation externe')}
@@ -1044,7 +1064,7 @@ export default function Header({
                         Classeur 1 : GMAO_Topology_Master
                       </div>
                       <div className="text-[10px] text-slate-500 font-medium">
-                        6 feuilles (Zones, Machines, Staff, BOM...)
+                        {t('header.workbook_1_desc', '6 feuilles (Zones, Machines, Staff, BOM...)')}
                       </div>
                     </div>
                   </button>
@@ -1064,7 +1084,7 @@ export default function Header({
                         Classeur 2 : GMAO_Inventory_Materials
                       </div>
                       <div className="text-[10px] text-slate-500 font-medium">
-                        3 feuilles (PDR, Warehouse, Part Types)
+                        {t('header.workbook_2_desc', '3 feuilles (PDR, Warehouse, Part Types)')}
                       </div>
                     </div>
                   </button>
@@ -1084,7 +1104,7 @@ export default function Header({
                         Classeur 3 : GMAO_Movements_Unified
                       </div>
                       <div className="text-[10px] text-slate-500 font-medium">
-                        2 feuilles (Mouvements, Sortie Externe)
+                        {t('header.workbook_3_desc', '2 feuilles (Mouvements, Sortie Externe)')}
                       </div>
                     </div>
                   </button>
@@ -1100,7 +1120,7 @@ export default function Header({
               data-testid="header-import-btn"
               className="hidden sm:flex w-8 h-8 rounded-full bg-white border border-zinc-200 items-center justify-center text-zinc-600 hover:text-black hover:border-zinc-300 transition shadow-[0_2px_6px_rgba(0,0,0,0.04)] hover:shadow-md cursor-pointer shrink-0 focus-visible:ring-2 focus-visible:ring-emerald-500 focus-visible:outline-hidden"
               title={t('header.import_excel', 'Importer un paquet JSON officiel (Type A — UnifiedImportPipeline)')}
-              aria-label="Importer un paquet JSON officiel Type A"
+              aria-label={t('header.import_excel', 'Importer un paquet JSON officiel Type A')}
             >
               <Upload size={15} aria-hidden="true" />
             </button>
@@ -1111,11 +1131,12 @@ export default function Header({
             <ShellModeSwitcher compact />
           </div>
 
+          {/* Standalone Shortcuts icon kept only on ultra-wide (2xl+); always available via F1 & User Menu */}
           <button
             onClick={onOpenShortcuts}
-            className="hidden lg:flex w-8 h-8 rounded-full bg-white border border-zinc-200 items-center justify-center text-zinc-600 hover:text-black hover:border-zinc-300 transition shadow-[0_2px_6px_rgba(0,0,0,0.04)] hover:shadow-md cursor-pointer shrink-0 focus-visible:ring-2 focus-visible:ring-emerald-500 focus-visible:outline-hidden"
+            className="hidden 2xl:flex w-8 h-8 rounded-full bg-white border border-zinc-200 items-center justify-center text-zinc-600 hover:text-black hover:border-zinc-300 transition shadow-[0_2px_6px_rgba(0,0,0,0.04)] hover:shadow-md cursor-pointer shrink-0 focus-visible:ring-2 focus-visible:ring-emerald-500 focus-visible:outline-hidden"
             title={t('header.shortcuts', 'Raccourcis clavier (F1)')}
-            aria-label="Afficher la liste des raccourcis clavier"
+            aria-label={t('header.shortcuts', 'Raccourcis clavier (F1)')}
           >
             <Keyboard size={15} aria-hidden="true" />
           </button>
@@ -1230,9 +1251,9 @@ export default function Header({
                 title={
                   currentUser?.personnelId
                     ? `${currentUser.name} (${currentUser.personnelId})`
-                    : 'Mon Compte'
+                    : t('header.my_account', 'Mon Compte')
                 }
-                aria-label={`Compte utilisateur de ${currentUser?.name || 'Administrateur'}`}
+                aria-label={`${t('header.my_account', 'Mon Compte')} : ${currentUser?.name || 'Administrateur'}`}
               >
                 {/* Rounded Avatar Icon matching sidebar accent */}
                 <div
@@ -1264,7 +1285,7 @@ export default function Header({
               {userMenuOpen && (
                 <div
                   role="menu"
-                  aria-label="Menu du compte utilisateur"
+                  aria-label={t('header.user_menu_aria', 'Menu du compte utilisateur')}
                   className="absolute right-0 top-full mt-2 w-64 bg-white rounded-2xl shadow-2xl border border-slate-200/90 py-2 z-50 animate-in fade-in slide-in-from-top-2 duration-150"
                 >
                   <div className="px-3.5 py-2.5 border-b border-slate-100">

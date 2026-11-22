@@ -6,6 +6,9 @@ import FloatingSidebar from '../../presentation/components/layout/FloatingSideba
 import MobileSidebarDrawer from '../../presentation/components/layout/MobileSidebarDrawer';
 import MainLayout from '../../presentation/components/layout/MainLayout';
 import AppearanceLayoutSelector from '../../presentation/components/settings/AppearanceLayoutSelector';
+import ShellModeSwitcher from '../../presentation/components/common/ShellModeSwitcher';
+import LanguageSwitcher from '../../presentation/components/common/LanguageSwitcher';
+import AutoSaveIndicator from '../../presentation/components/common/AutoSaveIndicator';
 import {
   PARENT_MODULES,
   SETTINGS_PARENT_MODULE,
@@ -513,5 +516,132 @@ describe('Phase A — Header, Sidebar & MainLayout P0 Security, Cold Boot & Unif
     expect(cssContent).toContain('.scrollbar-none');
     expect(cssContent).toContain('[data-animations="off"]');
     expect(cssContent).toContain('[data-sidebar-theme="dark"] aside svg.sidebar-l2-icon');
+  });
+
+  // =========================================================================
+  // PHASE C — Touch/Keyboard Ergonomics, xl: Breakpoints & FR/AR/EN i18n
+  // =========================================================================
+
+  it('Phase C (FloatingSidebar ergonomics): expands on click/tap and collapses on Escape and outside click', async () => {
+    await React.act(async () => {
+      root.render(
+        <I18nProvider>
+          <FloatingSidebar currentTab="dashboard" setCurrentTab={vi.fn()} counts={{}} />
+        </I18nProvider>
+      );
+    });
+
+    // Initially collapsed
+    const trigger = container.querySelector('[data-testid="floating-dock-trigger"]') as HTMLElement | null;
+    expect(trigger).not.toBeNull();
+    expect(container.querySelector('[data-testid="floating-dock-expanded"]')).toBeNull();
+
+    // Tap/click opens dock
+    await React.act(async () => {
+      trigger?.click();
+    });
+    expect(container.querySelector('[data-testid="floating-dock-expanded"]')).not.toBeNull();
+
+    // Pressing Escape collapses dock cleanly
+    await React.act(async () => {
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+    });
+    expect(container.querySelector('[data-testid="floating-dock-expanded"]')).toBeNull();
+
+    // Re-open via click, then outside mousedown collapses dock
+    const triggerAgain = container.querySelector('[data-testid="floating-dock-trigger"]') as HTMLElement | null;
+    await React.act(async () => {
+      triggerAgain?.click();
+    });
+    expect(container.querySelector('[data-testid="floating-dock-expanded"]')).not.toBeNull();
+
+    await React.act(async () => {
+      document.body.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+    });
+    expect(container.querySelector('[data-testid="floating-dock-expanded"]')).toBeNull();
+  });
+
+  it('Phase C (Header xl: breakpoints & Escape popover dismissal): shows shift clock at xl: and closes Export menu on Escape', async () => {
+    await React.act(async () => {
+      root.render(
+        <I18nProvider>
+          <Header
+            currentTab="stock"
+            setCurrentTab={vi.fn()}
+            counts={{ pendingSortieDemands: 2 }}
+            setMobileMenuOpen={vi.fn()}
+            fileInputRef={{ current: null }}
+            handleImportFile={vi.fn()}
+            handleExportExcel={vi.fn()}
+            currentUser={mockAuthState.user}
+          />
+        </I18nProvider>
+      );
+    });
+
+    const clock = container.querySelector('[data-testid="header-shift-clock"]');
+    expect(clock?.className).toContain('xl:flex');
+    expect(clock?.className).not.toContain('2xl:flex');
+
+    const exportTrigger = container.querySelector('[data-testid="header-export-menu"] button') as HTMLButtonElement | null;
+    await React.act(async () => {
+      exportTrigger?.click();
+    });
+    expect(container.textContent).toContain('Classeur 1 : GMAO_Topology_Master');
+
+    await React.act(async () => {
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+    });
+    expect(container.textContent).not.toContain('Classeur 1 : GMAO_Topology_Master');
+  });
+
+  it('Phase C (Full FR/AR/EN localization + LTR lock): localizes ShellModeSwitcher, LanguageSwitcher, Header, and AutoSaveIndicator in Arabic while locking dir=ltr', async () => {
+    storageService.setItem(STORAGE_KEYS.LANGUAGE, 'ar');
+
+    await React.act(async () => {
+      root.render(
+        <I18nProvider>
+          <div>
+            <ShellModeSwitcher compact />
+            <LanguageSwitcher />
+            <AutoSaveIndicator />
+          </div>
+        </I18nProvider>
+      );
+    });
+
+    // Global LTR lock invariant must remain strictly enforced even in Arabic
+    expect(document.documentElement.dir).toBe('ltr');
+    expect(document.documentElement.lang).toBe('ar');
+
+    // Open ShellModeSwitcher compact menu -> Arabic labels appear
+    const shellBtn = container.querySelector('[data-testid="shell-mode-switcher-compact"] button') as HTMLButtonElement | null;
+    await React.act(async () => {
+      shellBtn?.click();
+    });
+    expect(container.textContent).toContain('سياسة العرض');
+    expect(container.textContent).toContain('وضع العرض وتجربة الجهاز');
+    expect(container.textContent).toContain('موصى به');
+
+    // Open LanguageSwitcher menu -> Arabic header appears
+    const langBtns = Array.from(container.querySelectorAll('button')).filter((b) =>
+      b.getAttribute('aria-label')?.includes('تغيير اللغة')
+    );
+    expect(langBtns.length).toBeGreaterThan(0);
+    await React.act(async () => {
+      langBtns[0].click();
+    });
+    expect(container.textContent).toContain('لغة النظام');
+
+    // AutoSaveIndicator shows localized Arabic saving & saved states
+    await React.act(async () => {
+      window.dispatchEvent(new CustomEvent('gmao:state_saving'));
+    });
+    expect(container.textContent).toContain('جاري الحفظ المحلي...');
+
+    await React.act(async () => {
+      window.dispatchEvent(new CustomEvent('gmao:state_saved', { detail: { timestamp: Date.now() } }));
+    });
+    expect(container.textContent).toContain('تم الحفظ');
   });
 });

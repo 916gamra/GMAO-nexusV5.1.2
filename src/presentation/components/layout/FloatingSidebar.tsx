@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useMemo } from 'react';
+import { useState, useEffect, useRef, useMemo, type PointerEvent } from 'react';
 import { Settings, LogOut, Sun, Moon, LayoutDashboard } from 'lucide-react';
 import { PARENT_MODULES, getParentModuleForTab } from './navConfig';
 import { useTranslation } from '../../../i18n/I18nContext';
@@ -241,11 +241,11 @@ export default function FloatingSidebar({
   });
   const [isExpanded, setIsExpanded] = useState(false);
   const [isTranslucent, setIsTranslucent] = useState(false);
+  const dockContainerRef = useRef<HTMLElement | null>(null);
   const hoverTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const translucencyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // NH-4: Floating dock expands on hover/interaction and auto-collapses smoothly when idle,
-  // while MainLayout independently uses sidebarBehavior ('push' vs 'overlay') for content margin.
+  // NH-4: Floating dock expands on hover/click/tap and auto-collapses smoothly when idle, on Escape, or on outside click/tap.
   const effectiveExpanded = isExpanded;
 
   useEffect(() => {
@@ -303,19 +303,50 @@ export default function FloatingSidebar({
     });
   };
 
-  const handleMouseEnter = () => {
+  const handlePointerEnter = (e?: PointerEvent) => {
+    if (e && e.pointerType === 'touch') return;
     if (hoverTimeoutRef.current) clearTimeout(hoverTimeoutRef.current);
     if (translucencyTimerRef.current) clearTimeout(translucencyTimerRef.current);
     setIsTranslucent(false);
     setIsExpanded(true);
   };
 
-  const handleMouseLeave = () => {
+  const handlePointerLeave = (e?: PointerEvent) => {
+    if (e && e.pointerType === 'touch') return;
     if (hoverTimeoutRef.current) clearTimeout(hoverTimeoutRef.current);
     hoverTimeoutRef.current = setTimeout(() => {
       setIsExpanded(false);
     }, 380);
   };
+
+  // Touch/Tablet & Keyboard ergonomics: dismiss expanded dock on outside click/tap or Escape key
+  useEffect(() => {
+    if (!isExpanded) return;
+
+    const handleOutsideInteraction = (event: MouseEvent | TouchEvent) => {
+      const target = event.target as Node | null;
+      if (dockContainerRef.current && target && !dockContainerRef.current.contains(target)) {
+        if (hoverTimeoutRef.current) clearTimeout(hoverTimeoutRef.current);
+        setIsExpanded(false);
+      }
+    };
+
+    const handleEscapeKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        if (hoverTimeoutRef.current) clearTimeout(hoverTimeoutRef.current);
+        setIsExpanded(false);
+      }
+    };
+
+    document.addEventListener('mousedown', handleOutsideInteraction);
+    document.addEventListener('touchstart', handleOutsideInteraction, { passive: true });
+    window.addEventListener('keydown', handleEscapeKey);
+    return () => {
+      document.removeEventListener('mousedown', handleOutsideInteraction);
+      document.removeEventListener('touchstart', handleOutsideInteraction);
+      window.removeEventListener('keydown', handleEscapeKey);
+    };
+  }, [isExpanded]);
 
   useEffect(() => {
     return () => {
@@ -374,15 +405,16 @@ export default function FloatingSidebar({
 
   return (
     <aside
+      ref={dockContainerRef}
       role="navigation"
-      aria-label="Navigation principale"
+      aria-label={t('nav.main_navigation', 'Navigation principale')}
       className="hidden lg:block select-none"
     >
       {/* Hover bridge when expanded: provides a seamless path between center dock and bottom capsule */}
       {effectiveExpanded && (
         <div
-          onMouseEnter={handleMouseEnter}
-          onMouseLeave={handleMouseLeave}
+          onPointerEnter={handlePointerEnter}
+          onPointerLeave={handlePointerLeave}
           className="fixed left-0 top-[15%] bottom-2 w-24 z-30 pointer-events-auto"
           aria-hidden="true"
         />
@@ -390,8 +422,8 @@ export default function FloatingSidebar({
 
       {/* 1. Primary Page Modules Container - Vertically Centered in safe zone above bottom utility dock (NH-11: prevents 768p collision) */}
       <div
-        onMouseEnter={handleMouseEnter}
-        onMouseLeave={handleMouseLeave}
+        onPointerEnter={handlePointerEnter}
+        onPointerLeave={handlePointerLeave}
         className={`fixed ${
           sidebarBehavior === 'overlay' ? 'left-2' : 'left-3.5'
         } top-4 bottom-[172px] z-40 flex flex-col items-center justify-center pointer-events-none`}
@@ -401,13 +433,20 @@ export default function FloatingSidebar({
           <div
             role="button"
             tabIndex={0}
-            onClick={() => setIsExpanded(true)}
+            data-testid="floating-dock-trigger"
+            onClick={() => {
+              if (hoverTimeoutRef.current) clearTimeout(hoverTimeoutRef.current);
+              setIsTranslucent(false);
+              setIsExpanded(true);
+            }}
             onKeyDown={(e) => {
               if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
                 setIsExpanded(true);
               }
             }}
-            aria-label={`Menu de navigation (${activeLabel})`}
+            aria-expanded={false}
+            aria-label={`${t('nav.main_navigation', 'Navigation principale')} (${activeLabel})`}
             title={`${activeLabel}`}
             className={`pointer-events-auto group relative ${
               sidebarBehavior === 'overlay'
@@ -489,7 +528,8 @@ export default function FloatingSidebar({
           /* Symmetrically Expanded Capsule around Center (NH-11: max-h-[calc(100vh-192px)] prevents overlap on 768p screens) */
           <div
             role="tablist"
-            aria-label="Modules principaux"
+            data-testid="floating-dock-expanded"
+            aria-label={t('nav.main_modules', 'Modules principaux')}
             aria-orientation="vertical"
             className={`pointer-events-auto w-[60px] max-h-[calc(100vh-192px)] overflow-y-auto no-scrollbar rounded-[28px] border px-2 py-2.5 flex flex-col items-center gap-1.5 transition-all duration-500 ease-out origin-center animate-in fade-in zoom-in-95 ${
               isDark
@@ -591,9 +631,9 @@ export default function FloatingSidebar({
       {/* 2. Bottom Controls Container Card (Settings, Theme & Logout) - Delayed smooth entrance after sidebar expands */}
       <div
         role="toolbar"
-        aria-label="Actions du système"
-        onMouseEnter={handleMouseEnter}
-        onMouseLeave={handleMouseLeave}
+        aria-label={t('nav.system_actions', 'Actions du système')}
+        onPointerEnter={handlePointerEnter}
+        onPointerLeave={handlePointerLeave}
         className={`fixed ${
           sidebarBehavior === 'overlay' ? 'left-2' : 'left-3.5'
         } bottom-5 z-40 w-[60px] rounded-[24px] border px-1.5 py-2 flex flex-col items-center gap-1.5 transition-all ${

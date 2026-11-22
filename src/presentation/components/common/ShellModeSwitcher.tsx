@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect } from 'react';
 import { Monitor, Smartphone, Sparkles, RotateCcw, ChevronDown, Check } from 'lucide-react';
 import { useAppShell, ShellMode } from '../../../core/shell/shellPolicy';
+import { useTranslation } from '../../../i18n/I18nContext';
 
 interface ShellModeSwitcherProps {
   compact?: boolean;
@@ -13,6 +14,7 @@ export default function ShellModeSwitcher({
   onModeChanged,
   className = '',
 }: ShellModeSwitcherProps) {
+  const { t } = useTranslation();
   const { mode, resolved, source, setMode, clearOverride } = useAppShell();
   const [isOpen, setIsOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -49,8 +51,14 @@ export default function ShellModeSwitcher({
     setIsOpen(false);
   };
 
+  const modeAutoLabel = t('shell.mode_auto', 'Auto');
+  const modeDesktopLabel = t('shell.mode_desktop', 'Desktop');
+  const modeMobileLabel = t('shell.mode_mobile', 'Mobile');
+  const resolvedLabel = resolved === 'mobile' ? modeMobileLabel : modeDesktopLabel;
+
   if (compact) {
-    const activeLabel = mode === 'auto' ? 'Auto' : mode === 'desktop' ? 'Desktop' : 'Mobile';
+    const activeLabel =
+      mode === 'auto' ? modeAutoLabel : mode === 'desktop' ? modeDesktopLabel : modeMobileLabel;
     return (
       <div
         ref={containerRef}
@@ -62,8 +70,16 @@ export default function ShellModeSwitcher({
           onClick={() => setIsOpen((prev) => !prev)}
           aria-expanded={isOpen}
           aria-haspopup="menu"
-          aria-label={`Mode d'affichage (actuellement ${activeLabel}, résolu: ${resolved})`}
-          title={`Affichage : ${activeLabel} (résolu: ${resolved})`}
+          aria-label={t(
+            'shell.trigger_aria',
+            `Mode d'affichage (actuellement ${activeLabel}, résolu : ${resolvedLabel})`,
+            { mode: activeLabel, resolved: resolvedLabel }
+          )}
+          title={t(
+            'shell.trigger_title',
+            `Affichage : ${activeLabel} (résolu : ${resolvedLabel})`,
+            { mode: activeLabel, resolved: resolvedLabel }
+          )}
           className="h-8 flex items-center gap-1 sm:gap-1.5 px-2 sm:px-2.5 rounded-full bg-slate-100/90 hover:bg-slate-200/80 border border-slate-200/90 text-xs font-bold text-slate-700 transition shadow-2xs hover:shadow-xs cursor-pointer shrink-0 focus-visible:ring-2 focus-visible:ring-emerald-500 focus-visible:outline-hidden group"
         >
           {mode === 'auto' && (
@@ -82,8 +98,8 @@ export default function ShellModeSwitcher({
 
           <span
             data-testid="shell-resolved-badge"
-            className="hidden 2xl:inline px-1.5 py-0.2 rounded-md bg-white border border-slate-200 text-emerald-800 font-mono text-[10px] font-bold shadow-2xs"
-            title={`Shell résolu: ${resolved} (source: ${source})`}
+            className="hidden xl:inline px-1.5 py-0.2 rounded-md bg-white border border-slate-200 text-emerald-800 font-mono text-[10px] font-bold shadow-2xs"
+            title={`${t('shell.resolved_prefix', 'résolu')}: ${resolved} (${source})`}
           >
             ={resolved}
           </span>
@@ -97,16 +113,16 @@ export default function ShellModeSwitcher({
         {isOpen && (
           <div
             role="menu"
-            aria-label="Sélection du mode d'affichage"
+            aria-label={t('shell.select_aria', "Sélection du mode d'affichage")}
             className="absolute right-0 top-full mt-2 w-72 bg-white rounded-2xl shadow-2xl border border-slate-200/90 py-2 select-none z-50 animate-in fade-in slide-in-from-top-2 duration-150"
           >
             <div className="px-3.5 py-1.5 border-b border-slate-100 mb-1 flex items-center justify-between">
               <div>
                 <div className="text-[10px] font-extrabold uppercase tracking-wider text-slate-400 font-mono">
-                  SHELL POLICY
+                  {t('shell.policy_badge', 'SHELL POLICY')}
                 </div>
                 <div className="text-xs font-bold text-slate-800">
-                  Mode d'affichage & ergonomie
+                  {t('shell.title', "Mode d'affichage & ergonomie")}
                 </div>
               </div>
               <span className="px-2 py-0.5 rounded-md bg-slate-900 text-white font-mono text-[10px] font-bold">
@@ -132,13 +148,13 @@ export default function ShellModeSwitcher({
                   </div>
                   <div>
                     <div className="text-xs font-bold flex items-center gap-1.5">
-                      <span>Auto</span>
+                      <span>{modeAutoLabel}</span>
                       <span className="text-[9px] font-mono px-1 rounded bg-emerald-200/60 text-emerald-800">
-                        Recommandé
+                        {t('shell.recommended', 'Recommandé')}
                       </span>
                     </div>
                     <div className="text-[10px] text-slate-500 font-medium">
-                      Détection intelligente selon l'écran
+                      {t('shell.auto_desc', "Détection intelligente selon l'écran")}
                     </div>
                   </div>
                 </div>
@@ -162,15 +178,15 @@ export default function ShellModeSwitcher({
                   </div>
                   <div>
                     <div className="text-xs font-bold flex items-center gap-1.5">
-                      <span>Desktop</span>
+                      <span>{modeDesktopLabel}</span>
                       {mode === 'desktop' && (
                         <span className="text-[9px] font-mono px-1 rounded bg-blue-200/60 text-blue-800">
-                          Forcé
+                          {t('shell.forced', 'Forcé')}
                         </span>
                       )}
                     </div>
                     <div className="text-[10px] text-slate-500 font-medium">
-                      Suite complète de gestion GMAO
+                      {t('shell.desktop_desc', 'Suite complète de gestion GMAO')}
                     </div>
                   </div>
                 </div>
@@ -194,15 +210,15 @@ export default function ShellModeSwitcher({
                   </div>
                   <div>
                     <div className="text-xs font-bold flex items-center gap-1.5">
-                      <span>Mobile</span>
+                      <span>{modeMobileLabel}</span>
                       {mode === 'mobile' && (
                         <span className="text-[9px] font-mono px-1 rounded bg-amber-200/60 text-amber-800">
-                          Forcé
+                          {t('shell.forced', 'Forcé')}
                         </span>
                       )}
                     </div>
                     <div className="text-[10px] text-slate-500 font-medium">
-                      Cockpit terrain optimisé tactile
+                      {t('shell.mobile_desc', 'Cockpit terrain optimisé tactile')}
                     </div>
                   </div>
                 </div>
@@ -220,7 +236,7 @@ export default function ShellModeSwitcher({
                   className="w-full px-2.5 py-1.5 rounded-xl text-left flex items-center gap-2 text-xs font-semibold text-slate-600 hover:text-slate-900 hover:bg-slate-100 transition cursor-pointer"
                 >
                   <RotateCcw size={13} className="text-slate-400 shrink-0" />
-                  <span>Rétablir la détection automatique</span>
+                  <span>{t('shell.reset_auto', 'Rétablir la détection automatique')}</span>
                 </button>
               </div>
             )}
@@ -239,10 +255,13 @@ export default function ShellModeSwitcher({
         <div>
           <h4 className="text-xs font-black uppercase tracking-wider text-slate-800 flex items-center gap-1.5">
             <Smartphone className="w-4 h-4 text-emerald-600" />
-            <span>Politique d'Affichage (ShellPolicy)</span>
+            <span>{t('shell.panel_title', "Politique d'Affichage (ShellPolicy)")}</span>
           </h4>
           <p className="text-[11px] text-slate-500 mt-0.5">
-            Basculez instantanément entre la détection automatique, le Bureau complet ou le Shell Mobile terrain.
+            {t(
+              'shell.panel_subtitle',
+              'Basculez instantanément entre la détection automatique, le Bureau complet ou le Shell Mobile terrain.'
+            )}
           </p>
         </div>
         <div className="flex items-center gap-1.5">
@@ -250,7 +269,7 @@ export default function ShellModeSwitcher({
             data-testid="shell-resolved-indicator"
             className="px-2.5 py-1 rounded-lg bg-slate-900 text-white font-mono text-[11px] font-bold"
           >
-            resolved: {resolved}
+            {t('shell.resolved_prefix', 'résolu')}: {resolved}
           </span>
           {mode !== 'auto' && (
             <button
@@ -258,7 +277,8 @@ export default function ShellModeSwitcher({
               onClick={() => clearOverride()}
               data-testid="shell-clear-override-btn"
               className="p-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-600 transition cursor-pointer"
-              title="Réinitialiser sur Auto"
+              title={t('shell.reset_tooltip', 'Réinitialiser sur Auto')}
+              aria-label={t('shell.reset_tooltip', 'Réinitialiser sur Auto')}
             >
               <RotateCcw className="w-3.5 h-3.5" />
             </button>
@@ -281,13 +301,15 @@ export default function ShellModeSwitcher({
             <Sparkles className={`w-4 h-4 ${mode === 'auto' ? 'text-emerald-600' : 'text-slate-400'}`} />
             {mode === 'auto' && (
               <span className="text-[9px] font-mono font-black uppercase px-1.5 py-0.5 rounded bg-emerald-200/80 text-emerald-900">
-                Actif
+                {t('shell.active', 'Actif')}
               </span>
             )}
           </div>
           <div>
-            <div className="text-xs font-black">Auto</div>
-            <div className="text-[10px] text-slate-500 leading-tight">Tactile & Écran</div>
+            <div className="text-xs font-black">{modeAutoLabel}</div>
+            <div className="text-[10px] text-slate-500 leading-tight">
+              {t('shell.auto_short_desc', 'Tactile & Écran')}
+            </div>
           </div>
         </button>
 
@@ -305,13 +327,15 @@ export default function ShellModeSwitcher({
             <Monitor className={`w-4 h-4 ${mode === 'desktop' ? 'text-blue-600' : 'text-slate-400'}`} />
             {mode === 'desktop' && (
               <span className="text-[9px] font-mono font-black uppercase px-1.5 py-0.5 rounded bg-blue-200/80 text-blue-900">
-                Forcé
+                {t('shell.forced', 'Forcé')}
               </span>
             )}
           </div>
           <div>
-            <div className="text-xs font-black">Desktop</div>
-            <div className="text-[10px] text-slate-500 leading-tight">Suite Admin PC</div>
+            <div className="text-xs font-black">{modeDesktopLabel}</div>
+            <div className="text-[10px] text-slate-500 leading-tight">
+              {t('shell.desktop_short_desc', 'Suite Admin PC')}
+            </div>
           </div>
         </button>
 
@@ -329,13 +353,15 @@ export default function ShellModeSwitcher({
             <Smartphone className={`w-4 h-4 ${mode === 'mobile' ? 'text-amber-600' : 'text-slate-400'}`} />
             {mode === 'mobile' && (
               <span className="text-[9px] font-mono font-black uppercase px-1.5 py-0.5 rounded bg-amber-200/80 text-amber-900">
-                Forcé
+                {t('shell.forced', 'Forcé')}
               </span>
             )}
           </div>
           <div>
-            <div className="text-xs font-black">Mobile</div>
-            <div className="text-[10px] text-slate-500 leading-tight">Shell Terrain</div>
+            <div className="text-xs font-black">{modeMobileLabel}</div>
+            <div className="text-[10px] text-slate-500 leading-tight">
+              {t('shell.mobile_short_desc', 'Shell Terrain')}
+            </div>
           </div>
         </button>
       </div>
