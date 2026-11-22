@@ -1604,7 +1604,7 @@ export default function NexusView({
             className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 shadow-2xs transition active:scale-95 cursor-pointer"
           >
             <FileSpreadsheet className="w-4 h-4 text-emerald-600" />
-            <span>{t('nexus.actions.exportExcel')}</span>
+            <span>{t('nexus.actions.exportExcel') || 'Exporter BOM (.xlsx — Type B)'}</span>
           </button>
 
           {canManageNexus && activeMachine && (
