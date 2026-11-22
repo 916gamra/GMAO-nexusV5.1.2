@@ -1,0 +1,63 @@
+{
+  "header": {
+    "title": "Guide d’Utilisation & Architecture GMAO",
+    "documentsCount": "{{count}} documents",
+    "subtitleReader": "Navigation rapide entre modules dans le ruban horizontal ou retour à la vue complète.",
+    "subtitleLanding": "Sélectionnez un module, utilisez votre parcours rapide ou recherchez directement dans toute la documentation.",
+    "filterAll": "Tout ({{count}})",
+    "filterUser": "Guides Utilisateur",
+    "filterDev": "Architecture & Dev",
+    "backToGrid": "Afficher la grille complète des modules"
+  },
+  "search": {
+    "globalPlaceholder": "Recherche globale dans les {{count}} guides (PO, Nexus, TVA, Type A, RUL, BT...)",
+    "sidebarPlaceholder": "Filtrer dans le sommaire...",
+    "clear": "Effacer la recherche",
+    "loading": "Chargement des guides...",
+    "resultsTitle": "Résultats de recherche globale ({{count}})",
+    "noResults": "Aucun document ne correspond à « {{query}} ».",
+    "openDoc": "Ouvrir"
+  },
+  "quickTrack": {
+    "title": "Parcours Rapide — {{role}}",
+    "subtitle": "Accès direct aux guides essentiels pour votre profil opérationnel.",
+    "roles": {
+      "ADMIN": "Administrateur Système",
+      "RESPONSABLE_MAINTENANCE": "Responsable Maintenance",
+      "RESPONSABLE_MAGASIN": "Responsable Magasin",
+      "TECHNICIEN": "Technicien Terrain",
+      "OPERATEUR": "Opérateur Production",
+      "VIEWER": "Observateur / Direction"
+    }
+  },
+  "ribbon": {
+    "label": "Ruban Modules ({{count}})",
+    "allModules": "Tous les modules",
+    "scrollLeft": "Faire défiler vers la gauche",
+    "scrollRight": "Faire défiler vers la droite",
+    "closeReader": "Fermer le lecteur et revenir à la grille"
+  },
+  "cards": {
+    "groupPrefix": "Groupe {{number}}",
+    "soon": "Bientôt",
+    "readGuide": "Lire le guide de l'écran {{label}}",
+    "openScreen": "Ouvrir directement l'écran {{label}}",
+    "restrictedScreen": "Accès restreint à l'écran {{label}}"
+  },
+  "reader": {
+    "toc": "Sommaire ({{count}})",
+    "viewAll": "Voir tout",
+    "badgeArch": "Architecture & Dev",
+    "badgeUser": "Guide Écran",
+    "bannerArch": "Spécification Architecture & Logique Métier",
+    "bannerUser": "Guide Opérationnel Utilisateur",
+    "summaryLabel": "Résumé :",
+    "openScreenTitle": "Ouvrir l’écran : {{label}}",
+    "relatedTitle": "Écrans & Guides Associés dans ce Groupe :",
+    "readRelated": "Lire le guide : {{title}}",
+    "goDirect": "Aller directement à l'écran {{label}}",
+    "restricted": "Accès restreint : {{label}}",
+    "emptyState": "Aucun document disponible pour le filtre actif.",
+    "loadingDoc": "Chargement du document..."
+  }
+}

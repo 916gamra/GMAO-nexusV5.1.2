@@ -6,7 +6,7 @@ docType: architecture
 audience: developer
 tabId: nexus
 title: Spécification Technique — Nexus BOM & Jumeaux Numériques (As-Built SSOT)
-summary: Architecture de la nomenclature réelle As-Built et des jumeaux numériques. Fonction d'unification buildUnifiedMachineNexusElements, analyse d'écarts théorique/réel avec le Blueprint, algorithme de duplication aux jumeaux et passerelles 1-clic vers les BT curatifs et préventifs.
+summary: Architecture réelle de la nomenclature As-Built : Blueprint.ts (buildUnifiedMachineNexusElements, computeBlueprintGaps), assetNexusSlice.ts, suivi RUL par delta compteur, boucle fermée corrective/préventive/sorties et clonage propre vers machines jumelles.
 relatedTabs:
   - nexus
   - dashboard
@@ -16,77 +16,54 @@ relatedTabs:
 
 # 💻 Spécification Développeur : Nexus BOM & Jumeaux Numériques (`#nexus`)
 
-> **Public :** Architectes Systèmes, Développeurs Core & Modèles IA.  
-> **Composant source :** `src/presentation/pages/system/NexusView.tsx`  
-> **Moteurs métier :** `src/core/domain/machineNexusDomain.ts`, `src/utils/activeMachines.ts`.  
-> **Clés SSOT :** `STORAGE_KEYS.MACHINE_ELEMENTS_LEDGER`, `STORAGE_KEYS.WAREHOUSE_ITEMS`, `STORAGE_KEYS.BLUEPRINTS_V2`.
+> **Public :** Architectes Systèmes, Développeurs Core & Ingénieurs Fiabilité.  
+> **Composants sources :** `src/presentation/pages/system/NexusView.tsx`, `src/presentation/pages/system/components/NexusModals.tsx`  
+> **Moteurs métier réels :** `src/core/domain/Blueprint.ts`, `src/store/slices/assetNexusSlice.ts`, `src/presentation/hooks/buildNexusAutomationCallbacks.ts`, `src/utils/activeMachines.ts` (`filterProductionMachines`).  
+> **Clés SSOT :** `STORAGE_KEYS.MACHINE_BOM` (`gmao_machine_bom_ledger_v1`), `STORAGE_KEYS.WAREHOUSE_ITEMS` (`gmao_warehouse_items_v3`), `STORAGE_KEYS.BLUEPRINTS` (`gmao_blueprints_v2`).
 
 ---
 
-## 1. Philosophie & Rôle Stratégique au Sein du Pilotage
+## 1. Séparation 3-Tiers & Isolation Production
 
-Dans **CIOB GMAO Nexus v5.0.2**, `NexusView` est la **tour de contrôle de l'anatomie physique As-Built** des machines de production.
-
-Il matérialise le pont temps réel entre la théorie d'ingénierie (`Blueprint`), le stock magasin (`warehouseItems`), et l'exploitation atelier (`machineElementsLedger`) :
-
-```text
-┌────────────────────────────────────────────────────────┐
-│              BLUEPRINT (Théorie Cognitive)             │
-│        Composants, Pièces et PDR théoriques prévus      │
-└───────────────────────────┬────────────────────────────┘
-                            │
-                            ▼
-┌────────────────────────────────────────────────────────┐
-│                   NEXUS VIEW (As-Built)                │
-│    Nomenclature réelle unifiée de la machine en service│
-└─────────────┬────────────────────────────┬─────────────┘
-              │                            │
-              ▼                            ▼
-┌───────────────────────────┐ ┌──────────────────────────┐
-│ WAREHOUSE_ITEMS (Entrepôt)│ │ MACHINE_ELEMENTS_LEDGER  │
-│ Organes montés (INSTALLE) │ │ Organes, pièces et PDR   │
-│ N° de Série, santé, usure │ │ montés physiquement      │
-└───────────────────────────┘ └──────────────────────────┘
-```
+- **Tier 1 (`Family` / `Template`) :** Classification industrielle et spécifications constructeur.
+- **Tier 2 (`Machine Registered`) :** Actif physique en atelier possédant sa `Zone`, son `technicien`, son compteur vivant (`compteur_actuel`) et ses éléments montés (`MACHINE_BOM` + `WAREHOUSE_ITEMS` au statut `MONTE`).
+- **Tier 3 (`Blueprint`) :** Jumeau cognitif virtuel lié au `Template` (ne possède jamais de `Zone` ni de `Technicien`).
+- **Isolation `SYSTEM_GENERAL` :** `filterProductionMachines` exclut les équipements `SYSTEM_GENERAL` de `NexusView`, renforcé par une garde double dans `assetNexusSlice.ts` et `dataIntegrityService.ts`.
 
 ---
 
-## 2. Algorithme d'Unification As-Built (`buildUnifiedMachineNexusElements`)
+## 2. Unification As-Built (`buildUnifiedMachineNexusElements`)
 
-Pour éviter d'avoir deux listes séparées et incohérentes de ce qui est monté sur une machine, le sélecteur `buildUnifiedMachineNexusElements` fusionne dynamiquement deux sources de données :
-
-1. **Le registre d'atelier (`machineElementsLedger`) :** Pièces et composants montés directement sur l'équipement.
-2. **Les éléments physiques d'entrepôt (`warehouseItems`) :** Organes complets dont le statut est `INSTALLE` et rattachés à cette machine (`id_machine === selectedMachineId`).
-3. **Résultat :** Une nomenclature exhaustive dédupliquée avec statut opérationnel, criticité, durée de vie résiduelle et historique d'installation.
-
----
-
-## 3. Analyse d'Écarts : Théorique vs Réel (Gap Analysis)
-
-Nexus compare en temps réel la configuration physique de la machine avec le `Blueprint` modèle :
-
-$$\Delta_{\text{BOM}} = \text{Éléments Présents sur Machine} \setminus \text{Éléments Théoriques du Blueprint}$$
-
-- 🟢 **Composants Conformes :** Éléments physiques montés correspondant exactement aux préconisations d'ingénierie.
-- 🟡 **Composants Manquants :** Éléments requis par le Blueprint mais non encore déclarés montés sur la machine.
-- 🟠 **Substitutions Détectées :** Pièces montées avec une référence alternative (ex. moteur ABB installé à la place d'un Siemens d'origine).
-- **Modale d'Écarts (`isGapModalOpen`) :** Permet à l'ingénieur méthodes d'aligner en 1 clic le réel avec la théorie ou d'enrichir le Blueprint avec le retour d'expérience terrain.
+Définie dans `src/core/domain/Blueprint.ts`, cette fonction fusionne sans mélanger les tables de stockage :
+1. **Registre explicite (`machineElementsLedger` ➔ `STORAGE_KEYS.MACHINE_BOM`) :** Éléments `COMPONENT`, `PART` et `PDR` déclarés directement sur la machine.
+2. **Organes rotatifs d'entrepôt (`warehouseItems` ➔ `STORAGE_KEYS.WAREHOUSE_ITEMS`) :** Articles dont le statut canonique est `MONTE` (compatibilité de lecture pour l'ancien statut `INSTALLE`) et rattachés à la machine.
+3. **Protection anti-shadowing :** La modification d'un élément `_source === 'ENTREPOT'` met à jour l'enregistrement `warehouseItems` correspondant (et verrouille `element_type` / `ref_element` dans `NexusModals`) au lieu de créer une copie fantôme dans `machineElementsLedger`.
 
 ---
 
-## 4. Algorithme de Duplication vers les Machines Jumelles (`onDuplicateBOMToTwins`)
+## 3. Boucle Fermée d'Usure (RUL Compteur & Réinitialisation)
 
-Dans une usine disposant de plusieurs lignes de production identiques (ex. Ligne Extrusion 1, Ligne Extrusion 2, Ligne Extrusion 3) :
-1. L'ingénieur méthodes modélise complètement la nomenclature As-Built sur la première machine maîtresse.
-2. Il clique sur **« Dupliquer vers les Machines Jumelles »**.
-3. La fonction identifie toutes les machines actives partageant le même `id_family` ou le même `id_templates`.
-4. Elle instancie les lignes de registre `machineElementsLedger` correspondantes pour chaque machine jumelle tout en isolant les numéros de série unitaires.
+1. **Priorité Compteur Machine (`compteur_actuel - compteur_installation`) :**
+   - Lors de l'installation ou du remplacement d'un élément, `compteur_installation` capture le compteur vivant de la machine.
+   - La synchronisation d'usure calcule le delta réel du compteur machine avant de recourir au calcul calendaire de secours (`date_installation`).
+2. **Réinitialisation Automatique sur Remplacement Validé :**
+   - Les remplacements issus de **Sortie Rapide** (ou validés via **Maker-Checker**), de **Clôture Corrective** ou d'exécution **Préventive** réinitialisent `heures_actuelles: 0`, mettent à jour `date_installation` et recapturent `compteur_installation`.
+3. **Écritures Atomiques par Lot :**
+   - Les opérations multi-lignes (`handleInitializeFromBlueprint`, `handleSyncFromMovements`, `handleSyncWearHours`, import Excel BOM) utilisent `batchAddMachineElements` et `batchUpdateMachineElements` pour exécuter un seul commit Zustand + `DataGateway.saveMachineBom` + un événement d'audit agrégé.
 
 ---
 
-## 5. Passerelles d'Action Directe (Action Hooks)
+## 4. Duplication Propre vers Machines Jumelles (`duplicateBOMToTwins`)
 
-Nexus n'est pas un visualiseur passif ; il déclenche directement les processus de maintenance :
-- **Remplacement 1-Clic via Sortie Magasin (`onNavigateToQuickSortie`) :** Prélèvement direct en magasin avec pré-remplissage automatique de la machine et du composant.
-- **Déclenchement d'un BT Curatif (`onCreateCorrectiveFromNexus`) :** Création immédiate d'un ordre de travail ciblant précisément le composant défaillant.
-- **Déclenchement d'un Plan Préventif (`onCreatePreventiveFromNexus`) :** Rattachement direct d'une tâche d'entretien systématique sur l'élément.
+- Cible uniquement les machines de production actives partageant le même `id_templates` (ou `id_family`).
+- Réinitialise les données d'instance sur chaque jumelle : `heures_actuelles: 0`, `statut: 'OPERATIONNEL'`, `date_installation` au jour J, `compteur_installation` capturé sur la machine cible, et technicien de la machine cible.
+- Ne duplique jamais les numéros de série physiques d'un organe `ENTREPOT` et n'écrase jamais un élément `ENTREPOT` déjà monté sur la jumelle.
+
+---
+
+## 5. Passerelles Opérationnelles (`buildNexusAutomationCallbacks.ts`)
+
+- **Sortie Rapide PDR :** pré-remplit machine + référence PDR.
+- **Demande / BT Correctif :** crée une intervention ciblée sur la machine et le composant.
+- **Tâche Préventive :** rattache une gamme d'entretien au composant sélectionné.
+- **Contrôle RBAC :** toutes les mutations Nexus (ajout, édition, suppression, import, clonage, sync) sont protégées par `machine.edit` / `machine.update`.

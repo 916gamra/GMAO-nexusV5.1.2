@@ -5,52 +5,52 @@ groupTitle: Paramètres Système, Sauvegardes & Registre d’Audit
 docType: page
 audience: user
 tabId: settings_injection
-title: Injection & Importation de Données Excel
-subtitle: Importation rapide de vos listes de pièces, machines et historiques depuis vos anciens classeurs Excel
-summary: Guide pas-à-pas pour intégrer vos fichiers Excel existants dans la GMAO. Explique le téléchargement des modèles vierges, la prévisualisation des erreurs avant validation et l'import sécurisé sans doublon.
+title: Injection Structurée (Type A) & Mode Démo
+subtitle: Importation contrôlée par modèles officiels Type A (JSON / Excel) et gestion explicite des jeux de démonstration
+summary: Guide pas-à-pas pour importer vos catalogues et équipements via les modèles officiels Type A (REF_PARC, REF_PERSONNEL, ASSETS_MACHINES, REF_PDR, PM_CATALOG, ENTREPOT_BOM, CM_CATALOG) et gérer le basculement Mode Démo / Mode Usine Réelle.
 relatedTabs:
   - stock
   - machines
   - settings
 ---
 
-# 📊 Guide Utilisateur : Injection & Import Excel (`#settings_injection`)
+# 📊 Guide Utilisateur : Injection Structurée (Type A) & Mode Démo (`#settings_injection`)
 
 > **Module :** Paramètres Système & Audit  
-> **Onglet :** *Injection Données Excel* dans Paramètres  
-> **Public cible :** Responsables Méthodes, Magasiniers, Chefs de Projet Déploiement.
+> **Onglet :** *Injection & Mode Démo* dans Paramètres  
+> **Public cible :** Administrateurs Système (`ADMIN` — permission `settings.manage`) et Chefs de Projet Déploiement.
 
 ---
 
-## 1. Pourquoi Utiliser l'Import Excel ?
+## 1. Deux Modes Distincts et Maîtrisés
 
-Lors de l'installation de la GMAO, vous possédez probablement déjà des listes d'articles, d'outils et de machines sous forme de classeurs Excel.
-
-L'outil d'**Injection de Données** permet de charger en quelques secondes des milliers d'équipements et de pièces sans aucune saisie manuelle fastidieuse, tout en garantissant la propreté de la base grâce à un sas de contrôle préalable.
+L'onglet **Injection & Mode Démo** sépare clairement :
+1. **Mode A — Jeu de Données Démo / Mode Usine Réelle :**
+   - Permet de charger des données de démonstration globales ou par section (`stock`, `parc`, `entrepot`, `zones`, `mouvements`, `preventive`, `corrective`) uniquement sur **action explicite**.
+   - Permet de tout remettre à zéro (**Mode Usine Réelle**, `0` enregistrement) qui reste strictement vide après rechargement (`F5`).
+2. **Mode B — Ingestion Structurée Officielle (Type A) :**
+   - Seule voie autorisée pour importer vos référentiels et équipements en masse, via les modèles officiels `.template.json` ou les classeurs Excel **Type A** portant l'onglet d'enveloppe `README_TYPE_A`.
 
 ---
 
-## 2. Procédure Pas-à-Pas pour Importer un Fichier
+## 2. Les 7 Domaines Officiels d'Importation (Type A)
 
-### Étape 1 : Télécharger le Modèle Vierge Officiel
-1. Cliquez sur le bouton **« Télécharger Modèle Vierge Excel »**.
-2. Vous obtenez un classeur structuré comportant les onglets prêts à l'emploi :
-   - `STOCK_PDR` : Vos articles avec référence, désignation, stock initial et prix.
-   - `PARC_MACHINES` : Vos machines avec code, nom, atelier et puissance.
-   - `ZONES` : Vos ateliers et secteurs de production.
+Respectez l'ordre recommandé des couches référentielles pour éviter les clés étrangères manquantes :
+1. **`REF_PARC`** : Zones, familles de machines, modèles constructeurs et blueprints.
+2. **`REF_PERSONNEL`** : Techniciens, opérateurs et équipes.
+3. **`ASSETS_MACHINES`** : Parc machines enregistrées actives (rattachées aux zones/familles/modèles).
+4. **`REF_PDR`** : Groupes PDR, types, désignations et catalogue initial d'articles magasin.
+5. **`PM_CATALOG`** : Référentiel et gammes de maintenance préventive (sur machines actives enregistrées).
+6. **`ENTREPOT_BOM`** : Taxonomie entrepôt (organes/pièces), articles physiques d'entrepôt et nomenclature BOM Nexus.
+7. **`CM_CATALOG`** : Référentiel des catégories de pannes, travaux et actions correctives.
 
-### Étape 2 : Remplir ou Copier Vos Données
-- Copiez vos données existantes dans les colonnes correspondantes.
-- Veillez à ce que chaque article et chaque machine possède un code unique (pas de doublons).
+> **Important (Type B non réimportable) :** Les exports Excel opérationnels issus des écrans de consultation (**Type B**) ainsi que les **mouvements de stock** (`Sortie / Entrée / Ajustement`) ne sont jamais réimportés en masse via ce pipeline. Les mouvements restent des transactions métier contrôlées depuis l'écran **Sortie & Entrée Rapide**.
 
-### Étape 3 : Glisser-Déposer & Prévisualisation (Dry-Run)
-1. Glissez votre fichier Excel dans la zone de dépôt.
-2. Le système analyse le fichier **sans encore rien enregistrer**.
-3. Un rapport d'analyse s'affiche immédiatement :
-   - 🟢 **Lignes Conformes (en vert) :** Données prêtes à être injectées.
-   - 🟡 **Avertissements (en orange) :** Colonne optionnelle vide ou valeur par défaut appliquée.
-   - 🔴 **Erreurs Bloquantes (en rouge) :** Code manquant ou format de date incorrect. La ligne exacte est signalée pour que vous puissiez corriger votre fichier.
+---
 
-### Étape 4 : Confirmer l'Importation Finale
-- Une fois les erreurs corrigées, cliquez sur **« Valider et Injecter dans la GMAO »**.
-- Vos pièces et machines apparaissent instantanément dans tous les modules de l'usine !
+## 3. Procédure Sécurisée d'Importation (Dry-Run puis Validation)
+
+1. **Téléchargez le modèle officiel Type A** (`.json` ou `.xlsx` contenant l'onglet `README_TYPE_A`) correspondant au domaine souhaité.
+2. **Remplissez vos données** sans modifier les noms de colonnes techniques ni supprimer l'onglet `README_TYPE_A`.
+3. **Lancez l'analyse préalable (Dry-Run) :** le système valide chaque ligne, contrôle les doublons et vérifie l'existence des clés étrangères **sans rien écrire dans la base**.
+4. **Corrigez les erreurs bloquantes** signalées dans le rapport, puis confirmez la validation finale pour enregistrer les données et déclencher la synchronisation LAN.

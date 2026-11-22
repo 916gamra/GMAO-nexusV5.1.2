@@ -1,0 +1,63 @@
+{
+  "header": {
+    "title": "دليل المستخدم وهندسة نظام GMAO",
+    "documentsCount": "{{count}} وثيقة",
+    "subtitleReader": "تنقل سريع بين الوحدات عبر الشريط الأفقي أو العودة إلى الشبكة الكاملة.",
+    "subtitleLanding": "اختر وحدة، أو ابدأ من المسار السريع لدورك الوظيفي، أو ابحث مباشرة في كامل الدليل.",
+    "filterAll": "الكل ({{count}})",
+    "filterUser": "أدلة المستخدم",
+    "filterDev": "الهندسة والمطورون",
+    "backToGrid": "عرض الشبكة الكاملة للوحدات"
+  },
+  "search": {
+    "globalPlaceholder": "بحث شامل في {{count}} دليلاً (PO، Nexus، TVA، Type A، RUL، BT...)",
+    "sidebarPlaceholder": "تصفية الفهرس...",
+    "clear": "مسح البحث",
+    "loading": "جارٍ تحميل الأدلة...",
+    "resultsTitle": "نتائج البحث الشامل ({{count}})",
+    "noResults": "لا توجد وثيقة تطابق « {{query}} ».",
+    "openDoc": "فتح"
+  },
+  "quickTrack": {
+    "title": "المسار السريع — {{role}}",
+    "subtitle": "وصول مباشر إلى الأدلة الأساسية المخصصة لدورك الوظيفي.",
+    "roles": {
+      "ADMIN": "مدير النظام",
+      "RESPONSABLE_MAINTENANCE": "مسؤول الصيانة",
+      "RESPONSABLE_MAGASIN": "أمين المخزن",
+      "TECHNICIEN": "فني ميداني",
+      "OPERATEUR": "مشغل إنتاج",
+      "VIEWER": "مراقب / إدارة"
+    }
+  },
+  "ribbon": {
+    "label": "شريط الوحدات ({{count}})",
+    "allModules": "جميع الوحدات",
+    "scrollLeft": "التمرير إلى اليسار",
+    "scrollRight": "التمرير إلى اليمين",
+    "closeReader": "إغلاق القارئ والعودة إلى الشبكة"
+  },
+  "cards": {
+    "groupPrefix": "المجموعة {{number}}",
+    "soon": "قريباً",
+    "readGuide": "قراءة دليل شاشة {{label}}",
+    "openScreen": "فتح شاشة {{label}} مباشرة",
+    "restrictedScreen": "وصول مقيد إلى شاشة {{label}}"
+  },
+  "reader": {
+    "toc": "الفهرس ({{count}})",
+    "viewAll": "عرض الكل",
+    "badgeArch": "الهندسة والمطورون",
+    "badgeUser": "دليل الشاشة",
+    "bannerArch": "مواصفات الهندسة ومنطق الأعمال",
+    "bannerUser": "الدليل التشغيلي للمستخدم",
+    "summaryLabel": "الملخص :",
+    "openScreenTitle": "فتح الشاشة : {{label}}",
+    "relatedTitle": "الشاشات والأدلة المرتبطة بهذه المجموعة :",
+    "readRelated": "قراءة الدليل : {{title}}",
+    "goDirect": "الانتقال مباشرة إلى شاشة {{label}}",
+    "restricted": "وصول مقيد : {{label}}",
+    "emptyState": "لا توجد وثيقة متاحة للمرشح النشط.",
+    "loadingDoc": "جارٍ تحميل الوثيقة..."
+  }
+}

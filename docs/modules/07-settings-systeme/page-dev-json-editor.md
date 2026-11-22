@@ -5,63 +5,49 @@ groupTitle: Paramètres Système, Sauvegardes & Registre d’Audit
 docType: architecture
 audience: developer
 tabId: settings_json_editor
-title: Spécification Technique — Éditeur de Base JSON & Patching d'Urgence
-summary: Architecture de l'éditeur direct de la base JSON du store. Validation syntaxique stricte, contrôle de structure de schéma, injection contrôlée et traçabilité des modifications bas niveau.
+title: Spécification Technique — Inspecteur JSON SSOT (Lecture Seule & Export Type B)
+summary: Architecture de l'inspecteur JSON en lecture seule (INGEST-GOV-P9). Exposition sérialisée contrôlée des collections useGmaoStore, masquage des secrets comptes, export Type B et blocage strict RAW_JSON_OVERWRITE_BLOCKED.
 relatedTabs:
   - settings_json_editor
-  - settings
+  - settings_injection
   - settings_backup_audit
 ---
 
-# 💻 Spécification Développeur : Éditeur de Base JSON (`#settings_json_editor`)
+# 💻 Spécification Développeur : Inspecteur JSON SSOT (`#settings_json_editor`)
 
-> **Public :** Développeurs Core, Ingénieurs Support Niveau 3 & Modèles IA.  
+> **Public :** Développeurs Core, Ingénieurs Support & Auditeurs Sécurité.  
 > **Composant source :** `src/presentation/pages/settings/components/SettingsJsonEditorTab.tsx`  
-> **Cible de mutation :** `src/store/useGmaoStore.ts` (State tree complet).  
-> **Protection d'accès :** Restriction stricte aux comptes disposant du rôle `ADMIN`.
+> **Contrôleur parent :** `src/presentation/pages/settings/SettingsView.tsx` (`originalJsonText`, `handleDownloadJSON`, `handleSaveJSON`, `handleUploadJSON`).  
+> **Protection d'accès :** `AuthorizationService.hasPermission(currentUser, 'settings.manage')` (`ADMIN` uniquement).
 
 ---
 
-## 1. Rôle & Utilité dans le Cycle de Vie Système
+## 1. Gouvernance `INGEST-GOV-P9` (Blocage Écriture Brute)
 
-L'onglet **Éditeur de Base JSON** fournit un accès direct en lecture/écriture à l'arbre d'état complet de l'application sous sa forme sérialisée brute (`JSON`).
+Afin d'empêcher tout contournement des invariants d'intégrité référentielle (`DataIntegrityService`), de la formule stock (`StockCalculationService` / `IncrementalStockIndex`) et du journal append-only (`STORAGE_KEYS.AUDIT_EVENTS`), l'écriture JSON directe est **strictement désactivée** :
 
-### Cas d'Usage Légitimes :
-1. **Inspection d'État lors du Débogage :** Vérification de l'état exact d'un objet en mémoire sans passer par les composants d'interface.
-2. **Patching d'Urgence en Atelier (Hotfix) :** Correction chirurgicale d'un champ corrompu ou mal typé suite à un import externe défectueux, sans nécessiter de redéploiement applicatif.
-3. **Extraction Rapide d'Échantillon :** Copie instantanée d'une portion de l'état pour analyse hors-ligne ou tests unitaires.
-
----
-
-## 2. Gardes-Fous & Pipeline de Validation de Sauvegarde
-
-Pour éviter qu'une faute de frappe (accolade manquante, virgule superflue) ne rende l'application inopérante, la sauvegarde traverse un protocole de vérification en 3 niveaux :
-
-```text
-[ Texte JSON Modifié par l'Administrateur ]
-                   │
-                   ▼
-[ 1. Validation Syntaxique (JSON.parse) ]
-  • Détection immédiate des erreurs de syntaxe.
-  • Mise en surbrillance de la ligne et de la colonne en défaut.
-                   │
-                   ▼
-[ 2. Contrôle de Structure de Premier Niveau ]
-  • Vérification de la présence des collections racines indispensables :
-    'machines', 'stockItems', 'mouvements', 'zones', 'technicians'.
-  • Si un tableau racine a été supprimé par erreur ➔ Rejet bloquant.
-                   │
-                   ▼
-[ 3. Écriture Atomique & Journalisation d'Audit ]
-  • Remplacement de l'état Zustand via DataGateway.
-  • Enregistrement d'un événement critique 'RAW_JSON_PATCH' dans AUDIT_EVENTS
-    avec capture du diff avant/après.
-```
+- Le `<textarea>` de `SettingsJsonEditorTab.tsx` est verrouillé avec `readOnly={true}`.
+- Dans `SettingsView.tsx`, les gestionnaires hérités `handleSaveJSON` et `handleUploadJSON` retournent systématiquement l'erreur bloquante :
+  ```text
+  RAW_JSON_OVERWRITE_BLOCKED : Écriture / Import JSON brut désactivé.
+  Utilisez Paramètres ➔ Ingestion Structurée (Mode B — Type A) ou le Centre de Sauvegarde pour les snapshots.
+  ```
 
 ---
 
-## 3. Matrice de Sécurité & Droits d'Accès
+## 2. Collections Exposées & Filtrage des Secrets
 
-- **Lecture :** Autorisée uniquement pour le rôle `ADMIN`.
-- **Écriture / Sauvegarde :** Réservée exclusivement à l'`ADMIN` avec saisie obligatoire d'un commentaire d'audit justifiant la manipulation.
-- Les rôles opérationnels (`TECHNICIEN`, `OPERATEUR`, `SUPERVISEUR`, `MAGASINIER`) ne disposent d'aucun accès à cet onglet (`PermissionDenied`).
+Le sélecteur permet d'inspecter les collections suivantes issues de `useGmaoStore` :
+- **Stock & Mouvements :** `rawStock`, `mouvements`, `types`
+- **Entrepôt & Nexus BOM :** `warehouseItems`, `machineElementsLedger`, `sortiesExterne`
+- **Parc Machines :** `machines`, `families`, `templates`, `zones`
+- **Maintenance & Personnel :** `preventiveTasks`, `correctiveInterventions`, `technicians`, `operations`
+- **Comptes (`users`) :** Projection filtrée exposant uniquement `{ id, username, name, role, personnelId, isActive }` — aucun hash de mot de passe, `installSalt`, ni payload chiffré du coffre-fort n'est exposé.
+
+---
+
+## 3. Contrat d'Export Type B
+
+- Le bouton **« Exporter .json (Type B) »** génère un fichier nommé `gmao_typeB_<jsonTarget>_YYYY-MM-DD.json`.
+- Ce fichier est un **export de consultation externe (Type B)** : il est volontairement dépourvu d'enveloppe Type A (`UnifiedImportPipeline`) et est rejeté en cas de tentative de réimportation globale.
+- Pour les imports/exports réimportables (round-trip), utiliser exclusivement les bundles **Type A** (`src/services/import/unifiedImportPipeline.ts` et `src/services/import/typeAExcelBridge.ts`).

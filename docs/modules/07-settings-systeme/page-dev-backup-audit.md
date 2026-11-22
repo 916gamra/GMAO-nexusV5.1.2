@@ -6,7 +6,7 @@ docType: architecture
 audience: developer
 tabId: settings_backup_audit
 title: Spécification Technique — Sauvegardes & Registre d'Audit Append-Only
-summary: Architecture du moteur de sauvegarde et de traçabilité immuable. Invariant append-only de STORAGE_KEYS.AUDIT_EVENTS, points de déclenchement obligatoires, sérialisation des états avant/après et protocole de restauration.
+summary: Architecture du moteur de sauvegarde (BackupService / AutoBackupService / FULL_STATE_SNAPSHOT) et du registre d'audit immuable STORAGE_KEYS.AUDIT_EVENTS via DataGateway.appendAuditEvent.
 relatedTabs:
   - settings_backup_audit
   - settings
@@ -15,62 +15,58 @@ relatedTabs:
 
 # 💻 Spécification Développeur : Sauvegardes & Audit Ledger (`#settings_backup_audit`)
 
-> **Public :** Développeurs Core, Architectes Sécurité, Auditeurs Conformité & Modèles IA.  
+> **Public :** Développeurs Core, Architectes Sécurité & Auditeurs Conformité.  
 > **Composant source :** `src/presentation/pages/settings/components/SettingsBackupAuditTab.tsx`  
-> **Services sous-jacents :** `src/utils/AuditService.ts`, `src/utils/BackupService.ts`.  
-> **Clés SSOT :** `STORAGE_KEYS.AUDIT_EVENTS`, `STORAGE_KEYS.BACKUPS`.
+> **Services sous-jacents :** `src/utils/AuditService.ts`, `src/utils/BackupService.ts`, `src/core/backup/AutoBackupService.ts`, `src/application/DataGateway.ts`.  
+> **Clés SSOT :** `STORAGE_KEYS.AUDIT_EVENTS` (`gmao_audit_events_v1`), `STORAGE_KEYS.FULL_STATE_SNAPSHOT` (`gmao_full_state_v1`, stocké en IndexedDB via `IDB_ONLY_KEYS`).
 
 ---
 
-## 1. Registre d'Audit Append-Only (`AUDIT_EVENTS`)
+## 1. Registre d'Audit Append-Only (`STORAGE_KEYS.AUDIT_EVENTS`)
 
-Le registre d'audit institutionnel de **CIOB GMAO Nexus v5.0.2** garantit la traçabilité absolue de toute mutation sensible de l'appareil de production :
+Le registre d'audit institutionnel garantit la traçabilité immuable des mutations critiques via `DataGateway.appendAuditEvent` (exposé par `useGmaoStore.getState().appendAuditEvent`) :
 
 ```typescript
 export interface AuditEvent {
-  id: string;               // Identifiant unique (ex. 'EVT-1715091234-ABCD')
+  id: string;
   ts: string;               // Horodatage ISO 8601 UTC
-  actorId: string;          // Identifiant de l'utilisateur ayant exécuté l'action
-  actorName: string;        // Nom complet affiché
-  actorRole: UserRole;      // Rôle système (ADMIN, SUPERVISEUR, etc.)
-  actionType: AuditAction;  // 'STOCK_ADJUST' | 'MACHINE_ARCHIVE' | 'VALIDATION_APPROVED' | ...
-  entityType: string;       // 'MACHINE' | 'ARTICLE' | 'INTERVENTION' | 'BUDGET' | 'USER'
-  entityId: string;         // Identifiant de l'entité ciblée
-  before: any;              // État sérialisé avant l'opération
-  after: any;               // État sérialisé après l'opération
-  meta?: Record<string, any>; // Contexte optionnel (adresse IP, motif de modification)
+  actorId: string;
+  actorName: string;
+  actorRole: string;
+  actionType: string;       // ex. 'STOCK_ADJUST', 'MACHINE_ARCHIVE', 'CURRENCY_CONFIG_UPDATED', ...
+  entityType: string;       // ex. 'MACHINE', 'ARTICLE', 'NEXUS_BOM', 'CURRENCY_CONFIG', 'BUDGET'
+  entityId: string;
+  before?: unknown;         // Snapshot avant mutation
+  after?: unknown;          // Snapshot après mutation
+  meta?: Record<string, unknown>;
 }
 ```
 
-### Invariants Techniques Non-Négociables :
-1. **Append-Only Stricte :** Aucune méthode ne permet d'éditer ou d'altérer un événement enregistré (`updateAuditEvent` n'existe pas).
-2. **Génération d'Identifiant Déterministe :** Format `EVT-<timestamp>-<randomHex>`.
-3. **Capture Avant/Après :** Permet une vérification différentielle immédiate et un éventuel retour arrière documenté.
+### Invariants Non-Négociables :
+1. **Append-Only Stricte :** Les événements enregistrés ne sont ni modifiables ni supprimables depuis l'interface métier.
+2. **Diff Avant/Après :** Chaque événement critique capture les valeurs `before` et `after` pour audit et réconciliation.
+3. **Persistance Durable IndexedDB :** `STORAGE_KEYS.AUDIT_EVENTS` fait partie de `IDB_PRIMARY_KEYS` afin d'éviter toute troncature liée au plafond `5 MB` de `localStorage`.
 
 ---
 
 ## 2. Points de Déclenchement Obligatoires
 
-Toute opération appartenant à la liste suivante doit impérativement appeler `AuditService.recordEvent()` :
-
-| Opération Métier | `actionType` | `entityType` | Contenu Capturé |
-| :--- | :--- | :--- | :--- |
-| **Ajustement de Stock Initial** | `STOCK_ADJUST` | `ARTICLE` | Ancien stock/prix vs nouveau stock/prix |
-| **Archivage / Restauration Machine** | `MACHINE_ARCHIVE` | `MACHINE` | État machine et statut d'activation |
-| **Visa Maker-Checker (BT / PM)** | `VALIDATION_APPROVED` | `INTERVENTION` | Pièces déclarées vs pièces réconciliées |
-| **Ajustement Budgétaire** | `BUDGET_UPDATE` | `BUDGET` | Ancienne dotation vs nouvelle dotation et motif |
-| **Création / Désactivation Utilisateur** | `USER_LIFECYCLE` | `USER` | Rôle et statut d'activité |
+| Opération Métier | Domaine / Action | Contenu Capturé |
+| :--- | :--- | :--- |
+| **Ajustement Stock / Prix** | `STOCK_ADJUST` / `PRICE_UPDATE` | Ancien stock ou prix vs nouvelle valeur |
+| **Archivage / Restauration Machine** | `MACHINE_ARCHIVE` | Statut actif / archivé et détachement des enfants |
+| **Visa Maker-Checker (BT / PM / Sorties)** | `VALIDATION_APPROVED` / `REJECTED` | Quantités déclarées vs validées |
+| **Mutations Nexus BOM** | `NEXUS_BOM_*` | Ajout, mise à jour, suppression, clonage jumelles, import lot |
+| **Configuration Devises & Fiscalité** | `CURRENCY_CONFIG_UPDATED` | Ancienne et nouvelle devise, TVA, taux FX |
+| **Budgets & Commandes (PO)** | `BUDGET_UPDATE` / `PO_*` | Dotation ou transition de statut commande |
 
 ---
 
-## 3. Moteur de Sauvegarde & Restauration (`BackupService.ts`)
+## 3. Moteur de Sauvegarde & Restauration (`BackupService` & `AutoBackupService`)
 
-### 3.1 Génération d'Instantané Complet (Full Snapshot)
-- Agrège l'ensemble des 36+ collections `STORAGE_KEYS` en un document unifié.
-- Calcule une empreinte de contrôle (checksum SHA-256) pour détecter toute altération du fichier téléchargé.
-
-### 3.2 Protocole de Restauration
-1. Décompression et validation du checksum.
-2. Vérification de la compatibilité de version du schéma (`schemaVersion`).
-3. Écriture atomique dans le store via `DataGateway.restoreFullState()`.
-4. Enregistrement d'un événement critique `RESTORE_FULL_STATE` dans le journal d'audit.
+1. **Snapshot Complet (`FULL_STATE_SNAPSHOT`) :**
+   - Agrège les collections métier `STORAGE_KEYS` sans jamais inclure les secrets du coffre-fort ni les clés de licence brutes.
+   - `STORAGE_KEYS.FULL_STATE_SNAPSHOT` est stocké dans IndexedDB (`IDB_ONLY_KEYS`) pour supporter des historiques industriels volumineux.
+2. **Restauration Atomique :**
+   - Valide le schéma et la structure du snapshot avant de restaurer le store Zustand et les collections `DataGateway`.
+   - Enregistre un événement d'audit lors de toute restauration complète.

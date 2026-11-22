@@ -1,4 +1,4 @@
-import React, { useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import AnimatedPage from '../../components/common/AnimatedPage';
 import PageHeaderIcon from '../../components/common/PageHeaderIcon';
@@ -25,12 +25,16 @@ import {
   Settings,
   LayoutGrid,
   X,
+  Compass,
+  Loader2,
 } from 'lucide-react';
 import { useAuth } from '../../../context/AuthContext';
+import { useTranslation } from '../../../i18n/I18nContext';
 import {
   canNavigateToGuideTab,
   executeGuideTabNavigation,
   findGuideDocForTab,
+  getQuickTrackForUser,
   resolveGuideInternalHref,
 } from './guideNavigation';
 
@@ -53,11 +57,13 @@ interface ParsedMarkdownDoc {
   filePath: string;
 }
 
+type GuideLang = 'fr' | 'ar' | 'en';
+
 interface RoadmapGroupMeta {
   groupId: string;
   number: string;
-  title: string;
-  description: string;
+  title: Record<GuideLang, string>;
+  description: Record<GuideLang, string>;
   icon: React.ComponentType<{ className?: string }>;
   tabs: { tabId: string; label: string }[];
 }
@@ -66,9 +72,16 @@ const MODULE_ROADMAP: RoadmapGroupMeta[] = [
   {
     groupId: '01-stock-pdr',
     number: '01',
-    title: 'Stock PDR, Mouvements & Commandes (PO)',
-    description:
-      'Catalogue articles PDR (hiérarchie 3 niveaux Groupes ➔ Types ➔ Désignations/SKU, colonnes P2/P3), moteur O(1) IncrementalStockIndex, réservations Maker-Checker, 5 flux magasin et commandes fournisseurs (PO).',
+    title: {
+      fr: 'Stock PDR, Mouvements & Commandes (PO)',
+      ar: 'مخزون قطع الغيار (PDR) والحركات وأوامر الشراء (PO)',
+      en: 'Spare Parts Stock (PDR), Movements & Purchase Orders',
+    },
+    description: {
+      fr: 'Catalogue articles PDR (hiérarchie 3 niveaux Groupes ➔ Types ➔ Désignations/SKU, colonnes P2/P3), moteur O(1) IncrementalStockIndex, réservations Maker-Checker, 5 flux magasin et commandes fournisseurs (PO).',
+      ar: 'كتالوج قطع الغيار (هرمية 3 مستويات)، محرك الحساب الفوري IncrementalStockIndex، اعتمادات Maker-Checker، تدفقات المخزن الخمسة وأوامر الشراء (PO).',
+      en: '3-level PDR catalog (Groups ➔ Types ➔ Designations/SKU), O(1) IncrementalStockIndex engine, Maker-Checker reservations, 5 store workflows, and supplier POs.',
+    },
     icon: Boxes,
     tabs: [
       { tabId: 'stock', label: 'Stock Articles & PO' },
@@ -81,9 +94,16 @@ const MODULE_ROADMAP: RoadmapGroupMeta[] = [
   {
     groupId: '02-parc-machines',
     number: '02',
-    title: 'Parc Machines, Blueprints & Architecture 3-Tiers',
-    description:
-      'Machines enregistrées, hiérarchie opérationnelle (MACHINE / LINE), Familles, Modèles constructeurs, Blueprints cognitifs et Passeport Santé.',
+    title: {
+      fr: 'Parc Machines, Blueprints & Architecture 3-Tiers',
+      ar: 'حظيرة الآلات والمخططات المعرفية (Blueprints) والهندسة ثلاثية الطبقات',
+      en: 'Machine Fleet, Blueprints & 3-Tier Architecture',
+    },
+    description: {
+      fr: 'Machines enregistrées, hiérarchie opérationnelle (MACHINE / LINE), Familles, Modèles constructeurs, Blueprints cognitifs et Passeport Santé.',
+      ar: 'الآلات المسجلة، تجميع الخطوط التشغيلية (MACHINE / LINE)، العائلات، نماذج المصنّعين، المخططات المعرفية وجواز صحة المعدة.',
+      en: 'Registered machines, operational line grouping (MACHINE / LINE), Families, OEM Templates, cognitive Blueprints, and Asset Health Passport.',
+    },
     icon: Factory,
     tabs: [
       { tabId: 'machines', label: 'Machines Enregistrées' },
@@ -96,9 +116,16 @@ const MODULE_ROADMAP: RoadmapGroupMeta[] = [
   {
     groupId: '03-preventive-meters',
     number: '03',
-    title: 'Maintenance Préventive & Compteurs (Meter PM)',
-    description:
-      'Matrice annuelle 12 mois, exécutions horodatées (PreventiveExecution), suivi par compteurs (heures/cycles) et référentiel d’ingénierie préventive.',
+    title: {
+      fr: 'Maintenance Préventive & Compteurs (Meter PM)',
+      ar: 'الصيانة الوقائية ومتابعة العدادات (Meter PM)',
+      en: 'Preventive Maintenance & Operating Meters',
+    },
+    description: {
+      fr: 'Matrice annuelle 12 mois, exécutions horodatées (PreventiveExecution), suivi par compteurs (heures/cycles) et référentiel d’ingénierie préventive.',
+      ar: 'مصفوفة سنوية من 12 شهراً، سجل تنفيذ مؤرّخ (PreventiveExecution)، صيانة بالعدادات (ساعات/دورات) ومرجعية الهندسة الوقائية.',
+      en: '12-month annual matrix, dated execution history (PreventiveExecution), hour/cycle meter triggers, and preventive engineering catalog.',
+    },
     icon: CalendarClock,
     tabs: [
       { tabId: 'preventive', label: 'Planning & Compteurs Préventifs' },
@@ -108,9 +135,16 @@ const MODULE_ROADMAP: RoadmapGroupMeta[] = [
   {
     groupId: '04-corrective-di-bt',
     number: '04',
-    title: 'Maintenance Corrective (DI / BT, Atelier Mécanique & Clôture)',
-    description:
-      'Cycle complet Demande d’Intervention (DI) ➔ Bon de Travail (BT) ➔ Intervention Live ➔ Atelier Fabrication Mécanique (BR / Rectification) ➔ Clôture, machine à états finis et Pareto.',
+    title: {
+      fr: 'Maintenance Corrective (DI / BT, Atelier Mécanique & Clôture)',
+      ar: 'الصيانة العلاجية (DI / BT، الورشة الميكانيكية والإغلاق)',
+      en: 'Corrective Maintenance (DI / WO, Workshop & Closure)',
+    },
+    description: {
+      fr: 'Cycle complet Demande d’Intervention (DI) ➔ Bon de Travail (BT) ➔ Intervention Live ➔ Atelier Fabrication Mécanique (BR / Rectification) ➔ Clôture, machine à états finis et Pareto.',
+      ar: 'الدورة الكاملة من طلب التدخل (DI) إلى أمر العمل (BT) والتنفيذ الحي والورشة الميكانيكية (BR / RECT) ثم الإغلاق وتحليل Pareto.',
+      en: 'Full workflow from Intervention Request (DI) ➔ Work Order (WO) ➔ Live Timer ➔ Mechanical Workshop (BR / RECT) ➔ Closure, state machine, and Pareto.',
+    },
     icon: Wrench,
     tabs: [
       { tabId: 'corrective_di', label: 'Demandes d’Intervention (DI)' },
@@ -118,15 +152,23 @@ const MODULE_ROADMAP: RoadmapGroupMeta[] = [
       { tabId: 'corrective_live', label: 'Intervention Live (Chrono)' },
       { tabId: 'corrective_atelier', label: 'Atelier Mécanique (BR / RECT)' },
       { tabId: 'corrective_cloture', label: 'Clôture & Retour d’Expérience' },
+      { tabId: 'corrective_history', label: 'Historique & Pièces Correctives' },
       { tabId: 'corrective_referentiel', label: 'Catalogue Symptômes / Causes' },
     ],
   },
   {
     groupId: '05-entrepot-organes',
     number: '05',
-    title: 'Entrepôt Organes & Pièces Détachées',
-    description:
-      'Double hiérarchie 4 niveaux : Organes complets rotatifs (Groupes ➔ Familles ➔ Modèles ➔ Entrepôt) et Pièces d’atelier (Groupes Parts ➔ Types Parts ➔ Désignations Parts ➔ Entrepôt).',
+    title: {
+      fr: 'Entrepôt Organes & Pièces Détachées',
+      ar: 'مستودع الأعضاء الدوّارة وقطع الورشة (Entrepôt)',
+      en: 'Rotating Components & Workshop Parts Warehouse',
+    },
+    description: {
+      fr: 'Double hiérarchie 4 niveaux : Organes complets rotatifs (Groupes ➔ Familles ➔ Modèles ➔ Entrepôt) et Pièces d’atelier (Groupes Parts ➔ Types Parts ➔ Désignations Parts ➔ Entrepôt).',
+      ar: 'هرمية مزدوجة من 4 مستويات للأعضاء الدوّارة (محركات، مخفضات) وقطع التصنيع مع تتبع حالة التركيب (MONTE) والبوبيناج الخارجي.',
+      en: 'Dual 4-level hierarchy for complete rotating organs (motors, gearboxes) and machined workshop parts with MONTE lifecycle tracking.',
+    },
     icon: Cpu,
     tabs: [
       { tabId: 'entrepot', label: 'Entrepôt Organes & Pièces' },
@@ -141,14 +183,23 @@ const MODULE_ROADMAP: RoadmapGroupMeta[] = [
   {
     groupId: '06-pilotage-gouvernance',
     number: '06',
-    title: 'Pilotage, Finance & Validation Maker-Checker',
-    description:
-      'Tableau de bord exécutif, budgets & TCO, centre de validation Maker-Checker, utilisateurs RBAC, zones géographiques et équipements du Système Général.',
+    title: {
+      fr: 'Pilotage, Finance & Validation Maker-Checker',
+      ar: 'القيادة والمالية والتقارير ومركز الاعتماد (Maker-Checker)',
+      en: 'Governance, Finance, Reports & Maker-Checker Validation',
+    },
+    description: {
+      fr: 'Tableau de bord exécutif, budgets & TCO, rapports vacation et direction, centre de validation Maker-Checker, utilisateurs RBAC, zones et équipements du Système Général.',
+      ar: 'لوحة القيادة التنفيذية، الميزانيات وTCO، تقارير الورديات والإدارة، مركز المصادقة، المستخدمون RBAC، المناطق والتجهيزات العامة.',
+      en: 'Executive dashboard, budgets & TCO, shift & executive reports, Maker-Checker validation center, RBAC users, zones, and General System assets.',
+    },
     icon: BarChart3,
     tabs: [
       { tabId: 'dashboard', label: 'Tableau de Bord' },
       { tabId: 'validation_center', label: 'Centre de Validation' },
       { tabId: 'finance', label: 'Coûts & Budgets' },
+      { tabId: 'shift_weekly_report', label: 'Rapport Vacation / Hebdo' },
+      { tabId: 'executive_report', label: 'Rapport Mensuel Exécutif' },
       { tabId: 'utilisateurs', label: 'Utilisateurs & Rôles' },
       { tabId: 'zones', label: 'Zones & Ateliers' },
       { tabId: 'equipment', label: 'Équipements & Système Général' },
@@ -158,24 +209,46 @@ const MODULE_ROADMAP: RoadmapGroupMeta[] = [
   {
     groupId: '07-settings-systeme',
     number: '07',
-    title: 'Paramètres Système, Sauvegardes & Registre d’Audit',
-    description:
-      'Supervision, logique des mouvements, injection Excel, synchronisation réseau local LAN, éditeur JSON, registre d’audit append-only, performance et devises.',
+    title: {
+      fr: 'Paramètres Système, Sauvegardes & Registre d’Audit',
+      ar: 'إعدادات النظام والنسخ الاحتياطي وسجل التدقيق',
+      en: 'System Settings, Backups & Append-Only Audit Ledger',
+    },
+    description: {
+      fr: 'Supervision, logique des mouvements, injection structurée Type A, synchronisation réseau local LAN, inspecteur JSON, registre d’audit append-only, apparence, performance et devises.',
+      ar: 'إشراف التخزين، منطق الحركات، الاستيراد المهيكل Type A، مزامنة الشبكة المحلية LAN، فاحص JSON، النسخ الاحتياطي وسجل التدقيق، المظهر والعملات.',
+      en: 'Storage supervision, movement rules, Type A structured ingestion, LAN sync, read-only JSON inspector, audit ledger, appearance, performance, and currencies.',
+    },
     icon: Settings,
     tabs: [
       { tabId: 'settings', label: 'Supervision & Stockage' },
       { tabId: 'settings_mvt_logic', label: 'Logique & Flux Mouvements' },
-      { tabId: 'settings_injection', label: 'Injection Données Excel' },
+      { tabId: 'settings_injection', label: 'Injection Structurée (Type A)' },
       { tabId: 'settings_directory', label: 'Dossier Partagé & Sync LAN' },
       { tabId: 'settings_matching', label: 'Appairage & Audit' },
-      { tabId: 'settings_json_editor', label: 'Base JSON' },
+      { tabId: 'settings_json_editor', label: 'Inspecteur JSON SSOT' },
       { tabId: 'settings_backup_audit', label: 'Sauvegardes & Audit Ledger' },
       { tabId: 'settings_admin', label: 'Compte Admin & Coffre-Fort' },
       { tabId: 'settings_performance', label: 'Performance & Cache' },
-      { tabId: 'settings_currency', label: 'Devises & Finance ISO' },
+      { tabId: 'settings_currency', label: 'Devises & Fiscalité ISO' },
+      { tabId: 'appearance', label: 'Apparence & Ergonomie' },
     ],
   },
 ];
+
+const TAB_TO_GROUP_MAP: Record<string, string> = (() => {
+  const map: Record<string, string> = {};
+  for (const group of MODULE_ROADMAP) {
+    for (const tab of group.tabs) {
+      if (!map[tab.tabId]) {
+        map[tab.tabId] = group.groupId;
+      }
+    }
+  }
+  map.corrective_pieces = '04-corrective-di-bt';
+  map.corrective_analyse = '04-corrective-di-bt';
+  return map;
+})();
 
 const TAB_LABELS: Record<string, string> = {
   stock: 'Stock Articles & PO',
@@ -197,6 +270,8 @@ const TAB_LABELS: Record<string, string> = {
   corrective_atelier: 'Atelier Mécanique (BR / RECT)',
   corrective_cloture: 'Clôture BT',
   corrective_analyse: 'Analyse Corrective & Pareto',
+  corrective_history: 'Historique Correctif',
+  corrective_pieces: 'Pièces Consommées en Correctif',
   corrective_referentiel: 'Catalogue Données Correctives',
   entrepot: 'Entrepôt Organes & Pièces',
   comp_groups: 'Groupes d’Organes',
@@ -207,27 +282,62 @@ const TAB_LABELS: Record<string, string> = {
   part_designations: 'Désignations de Pièces',
   validation_center: 'Centre de Validation (Maker-Checker)',
   finance: 'Coûts & Budgets',
+  shift_weekly_report: 'Rapport Vacation / Hebdo',
+  executive_report: 'Rapport Mensuel Exécutif',
   dashboard: 'Tableau de Bord',
   zones: 'Zones & Ateliers',
   utilisateurs: 'Utilisateurs & Rôles',
   equipment: 'Équipements & Système Général',
   settings: 'Supervision & Stockage',
   settings_mvt_logic: 'Logique des Mouvements',
-  settings_injection: 'Injection Données Excel',
+  settings_injection: 'Injection Structurée (Type A)',
   settings_directory: 'Dossier Partagé & Sync LAN',
   settings_matching: 'Appairage & Réconciliation',
-  settings_json_editor: 'Base JSON',
+  settings_json_editor: 'Inspecteur JSON SSOT',
   settings_backup_audit: 'Sauvegardes & Audit Ledger',
   settings_admin: 'Compte Admin & Coffre-Fort',
   settings_performance: 'Performance & Cache',
-  settings_currency: 'Devises & Finance ISO',
+  settings_currency: 'Devises & Fiscalité ISO',
+  appearance: 'Apparence & Ergonomie',
 };
 
-const rawMarkdownFiles = import.meta.glob('/docs/modules/**/*.md', {
+// Lazy markdown loader (splits all 62 docs out of the initial GuideView JS bundle)
+const lazyMarkdownLoaders = import.meta.glob('/docs/modules/**/*.md', {
   query: '?raw',
   import: 'default',
-  eager: true,
-}) as Record<string, string>;
+}) as Record<string, () => Promise<string>>;
+
+interface DocPathIndexEntry {
+  filePath: string;
+  groupId: string;
+  docType: 'architecture' | 'page';
+  audience: 'developer' | 'user';
+}
+
+const DOC_PATH_INDEX: DocPathIndexEntry[] = Object.keys(lazyMarkdownLoaders)
+  .sort()
+  .map((filePath) => {
+    const match = filePath.match(/\/docs\/modules\/([^/]+)\/([^/]+)$/);
+    const groupId = match?.[1] || '01-stock-pdr';
+    const fileName = match?.[2] || '';
+    const isArch = fileName === 'GROUP_ARCHITECTURE.md' || fileName.startsWith('page-dev-');
+    return {
+      filePath,
+      groupId,
+      docType: isArch ? 'architecture' : 'page',
+      audience: isArch ? 'developer' : 'user',
+    };
+  });
+
+const parsedDocCache = new Map<string, ParsedMarkdownDoc>();
+
+function sortParsedDocs(docs: ParsedMarkdownDoc[]): ParsedMarkdownDoc[] {
+  return [...docs].sort((a, b) => {
+    if (a.groupId !== b.groupId) return a.groupId.localeCompare(b.groupId);
+    if (a.docType !== b.docType) return a.docType === 'page' ? -1 : 1;
+    return a.filePath.localeCompare(b.filePath);
+  });
+}
 
 function parseFrontmatter(raw: string, filePath: string): ParsedMarkdownDoc {
   const normalized = raw.replace(/\r\n/g, '\n');
@@ -680,26 +790,97 @@ export function MarkdownBodyRenderer({
 
 export default function GuideView({ onNavigateToTab }: GuideViewProps) {
   const { currentUser } = useAuth();
-  const allDocs = useMemo<ParsedMarkdownDoc[]>(() => {
-    const parsed = Object.entries(rawMarkdownFiles).map(([path, content]) =>
-      parseFrontmatter(content, path)
-    );
-    return parsed.sort((a, b) => {
-      if (a.groupId !== b.groupId) return a.groupId.localeCompare(b.groupId);
-      // Put operational page guides first in user mode, architecture first in dev mode
-      if (a.docType !== b.docType) return a.docType === 'page' ? -1 : 1;
-      return a.filePath.localeCompare(b.filePath);
-    });
-  }, []);
+  const { t, language } = useTranslation();
+  const langKey: GuideLang = language === 'ar' || language === 'en' ? language : 'fr';
 
+  const [allDocs, setAllDocs] = useState<ParsedMarkdownDoc[]>(() =>
+    sortParsedDocs(Array.from(parsedDocCache.values()))
+  );
+  const [isLoadingDocs, setIsLoadingDocs] = useState(false);
   const [selectedGroupId, setSelectedGroupId] = useState<string | null>(null);
   const [audienceFilter, setAudienceFilter] = useState<'all' | 'user' | 'developer'>('all');
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [selectedDocId, setSelectedDocId] = useState<string>('');
   const stripContainerRef = useRef<HTMLDivElement | null>(null);
   const cardRefs = useRef<Record<string, HTMLDivElement | null>>({});
+  const isMountedRef = useRef(true);
 
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
+
+  const totalDocsCount = DOC_PATH_INDEX.length;
   const isReaderOpen = selectedGroupId !== null;
+  const quickTrack = useMemo(() => getQuickTrackForUser(currentUser), [currentUser]);
+
+  const docsCountByGroup = useMemo(() => {
+    const counts: Record<string, { total: number; pages: number; arch: number }> = {};
+    for (const entry of DOC_PATH_INDEX) {
+      if (!counts[entry.groupId]) counts[entry.groupId] = { total: 0, pages: 0, arch: 0 };
+      counts[entry.groupId].total += 1;
+      if (entry.docType === 'page') counts[entry.groupId].pages += 1;
+      else counts[entry.groupId].arch += 1;
+    }
+    return counts;
+  }, []);
+
+  const ensureGroupLoaded = useCallback(async (groupId: string): Promise<ParsedMarkdownDoc[]> => {
+    const targetPaths =
+      groupId === 'all'
+        ? DOC_PATH_INDEX.map((e) => e.filePath)
+        : DOC_PATH_INDEX.filter((e) => e.groupId === groupId).map((e) => e.filePath);
+
+    const missing = targetPaths.filter((p) => !parsedDocCache.has(p));
+    if (missing.length > 0) {
+      if (isMountedRef.current) setIsLoadingDocs(true);
+      try {
+        const loaded = await Promise.all(
+          missing.map(async (filePath) => {
+            const loader = lazyMarkdownLoaders[filePath];
+            if (!loader) return null;
+            const raw = await loader();
+            return parseFrontmatter(raw, filePath);
+          })
+        );
+        for (const doc of loaded) {
+          if (doc) parsedDocCache.set(doc.filePath, doc);
+        }
+      } finally {
+        if (isMountedRef.current) {
+          setAllDocs(sortParsedDocs(Array.from(parsedDocCache.values())));
+          setIsLoadingDocs(false);
+        }
+      }
+    }
+
+    return sortParsedDocs(Array.from(parsedDocCache.values()));
+  }, []);
+
+  // Hydrate all docs lazily when user searches from the landing view or selects 'all'
+  useEffect(() => {
+    if ((!isReaderOpen && searchQuery.trim().length > 0) || selectedGroupId === 'all') {
+      void ensureGroupLoaded('all');
+    }
+  }, [isReaderOpen, searchQuery, selectedGroupId, ensureGroupLoaded]);
+
+  const landingSearchResults = useMemo(() => {
+    if (isReaderOpen) return [];
+    const q = searchQuery.trim().toLowerCase();
+    if (!q) return [];
+    return allDocs.filter((doc) => {
+      if (audienceFilter === 'user' && doc.audience !== 'user') return false;
+      if (audienceFilter === 'developer' && doc.audience !== 'developer') return false;
+      return (
+        doc.title.toLowerCase().includes(q) ||
+        doc.summary.toLowerCase().includes(q) ||
+        doc.body.toLowerCase().includes(q) ||
+        (doc.tabId && doc.tabId.toLowerCase().includes(q))
+      );
+    });
+  }, [allDocs, isReaderOpen, audienceFilter, searchQuery]);
 
   const filteredDocs = useMemo(() => {
     if (!selectedGroupId) return [];
@@ -728,17 +909,6 @@ export default function GuideView({ onNavigateToTab }: GuideViewProps) {
     );
   }, [filteredDocs, allDocs, selectedDocId, selectedGroupId]);
 
-  const docsCountByGroup = useMemo(() => {
-    const counts: Record<string, { total: number; pages: number; arch: number }> = {};
-    for (const d of allDocs) {
-      if (!counts[d.groupId]) counts[d.groupId] = { total: 0, pages: 0, arch: 0 };
-      counts[d.groupId].total += 1;
-      if (d.docType === 'page') counts[d.groupId].pages += 1;
-      else counts[d.groupId].arch += 1;
-    }
-    return counts;
-  }, [allDocs]);
-
   const scrollCardIntoStripCenter = (groupId: string) => {
     window.setTimeout(() => {
       cardRefs.current[groupId]?.scrollIntoView({
@@ -749,29 +919,47 @@ export default function GuideView({ onNavigateToTab }: GuideViewProps) {
     }, 360);
   };
 
-  const handleSelectGroup = (groupId: string) => {
+  const handleSelectGroup = async (groupId: string) => {
     setSelectedGroupId(groupId);
-    const firstMatchingDoc =
-      allDocs.find(
-        (d) =>
-          d.groupId === groupId &&
-          (audienceFilter === 'all' || d.audience === audienceFilter)
-      ) || allDocs.find((d) => d.groupId === groupId);
-    if (firstMatchingDoc) setSelectedDocId(firstMatchingDoc.id);
     scrollCardIntoStripCenter(groupId);
+    const docsNow = await ensureGroupLoaded(groupId);
+    if (!isMountedRef.current) return;
+    const firstMatchingDoc =
+      docsNow.find(
+        (d) =>
+          (groupId === 'all' || d.groupId === groupId) &&
+          (audienceFilter === 'all' || d.audience === audienceFilter)
+      ) || docsNow.find((d) => groupId === 'all' || d.groupId === groupId);
+    if (firstMatchingDoc) setSelectedDocId(firstMatchingDoc.id);
   };
 
   const handleOpenScreen = (rawTabId: string) => {
     executeGuideTabNavigation(currentUser, rawTabId, onNavigateToTab);
   };
 
-  const handleSelectDocByTab = (tabId: string, preferredGroupId?: string | null) => {
-    const targetDoc = findGuideDocForTab(
-      allDocs,
+  const handleSelectDocByTab = async (tabId: string, preferredGroupId?: string | null) => {
+    const targetGroup = preferredGroupId || TAB_TO_GROUP_MAP[tabId] || 'all';
+    const docsNow = await ensureGroupLoaded(targetGroup);
+    if (!isMountedRef.current) return;
+
+    let targetDoc = findGuideDocForTab(
+      docsNow,
       tabId,
       preferredGroupId ?? selectedGroupId,
       audienceFilter
     );
+
+    if (!targetDoc && targetGroup !== 'all') {
+      const allLoaded = await ensureGroupLoaded('all');
+      if (!isMountedRef.current) return;
+      targetDoc = findGuideDocForTab(
+        allLoaded,
+        tabId,
+        preferredGroupId ?? selectedGroupId,
+        audienceFilter
+      );
+    }
+
     if (targetDoc) {
       setSelectedGroupId(targetDoc.groupId);
       setSelectedDocId(targetDoc.id);
@@ -781,8 +969,13 @@ export default function GuideView({ onNavigateToTab }: GuideViewProps) {
     }
   };
 
-  const handleOpenMarkdownHref = (href: string) => {
-    const resolved = resolveGuideInternalHref(allDocs, href, activeDoc);
+  const handleOpenMarkdownHref = async (href: string) => {
+    let resolved = resolveGuideInternalHref(allDocs, href, activeDoc);
+    if (!resolved) {
+      const allLoaded = await ensureGroupLoaded('all');
+      if (!isMountedRef.current) return;
+      resolved = resolveGuideInternalHref(allLoaded, href, activeDoc);
+    }
     if (!resolved) return;
     if (resolved.doc) {
       setSelectedGroupId(resolved.doc.groupId);
@@ -813,6 +1006,11 @@ export default function GuideView({ onNavigateToTab }: GuideViewProps) {
   const floatingNeutralDepth =
     'shadow-[0_8px_20px_-4px_rgba(15,23,42,0.14),0_3px_8px_-2px_rgba(15,23,42,0.08),inset_0_1px_1px_rgba(255,255,255,0.95)]';
 
+  const roleLabel = t(
+    `guide.quickTrack.roles.${quickTrack.role}`,
+    quickTrack.role
+  );
+
   return (
     <AnimatedPage className="space-y-5 pb-10 font-sans">
       {/* 1. En-tête Exécutif Partagé (BDR Light GMAO Header Card + Orange/Amber Sidebar Theme) */}
@@ -826,16 +1024,24 @@ export default function GuideView({ onNavigateToTab }: GuideViewProps) {
           <div>
             <div className="flex items-center gap-2 flex-wrap">
               <h2 className="text-lg md:text-xl font-black text-slate-900 tracking-tight">
-                Guide d’Utilisation & Architecture GMAO
+                {t('guide.header.title', 'Guide d’Utilisation & Architecture GMAO')}
               </h2>
               <span className="px-2.5 py-0.5 text-[10px] font-mono font-bold bg-amber-50 text-amber-800 border border-amber-200 rounded-full">
-                {allDocs.length} documents
+                {t('guide.header.documentsCount', `${totalDocsCount} documents`, {
+                  count: totalDocsCount,
+                })}
               </span>
             </div>
             <p className="text-xs text-slate-500 mt-1 max-w-2xl leading-snug">
               {isReaderOpen
-                ? 'Navigation rapide entre modules dans le ruban horizontal ou retour à la vue complète.'
-                : 'Sélectionnez une carte de module ci-dessous pour ouvrir son guide opérationnel et ses spécifications.'}
+                ? t(
+                    'guide.header.subtitleReader',
+                    'Navigation rapide entre modules dans le ruban horizontal ou retour à la vue complète.'
+                  )
+                : t(
+                    'guide.header.subtitleLanding',
+                    'Sélectionnez un module, utilisez votre parcours rapide ou recherchez directement dans toute la documentation.'
+                  )}
             </p>
           </div>
         </div>
@@ -853,7 +1059,11 @@ export default function GuideView({ onNavigateToTab }: GuideViewProps) {
               }`}
             >
               <Layers className="w-3.5 h-3.5 shrink-0" />
-              <span>Tout ({allDocs.length})</span>
+              <span>
+                {t('guide.header.filterAll', `Tout (${totalDocsCount})`, {
+                  count: totalDocsCount,
+                })}
+              </span>
             </button>
             <button
               type="button"
@@ -873,7 +1083,7 @@ export default function GuideView({ onNavigateToTab }: GuideViewProps) {
               }`}
             >
               <UserCheck className="w-3.5 h-3.5 shrink-0" />
-              <span>Guides Utilisateur</span>
+              <span>{t('guide.header.filterUser', 'Guides Utilisateur')}</span>
             </button>
             <button
               type="button"
@@ -893,7 +1103,7 @@ export default function GuideView({ onNavigateToTab }: GuideViewProps) {
               }`}
             >
               <Code2 className="w-3.5 h-3.5 shrink-0" />
-              <span>Architecture & Dev</span>
+              <span>{t('guide.header.filterDev', 'Architecture & Dev')}</span>
             </button>
           </div>
 
@@ -910,8 +1120,8 @@ export default function GuideView({ onNavigateToTab }: GuideViewProps) {
                   color="amber"
                   icon={LayoutGrid}
                   onClick={handleCloseReader}
-                  title="Afficher la grille complète des modules"
-                  ariaLabel="Afficher la grille complète des modules"
+                  title={t('guide.header.backToGrid', 'Afficher la grille complète des modules')}
+                  ariaLabel={t('guide.header.backToGrid', 'Afficher la grille complète des modules')}
                   className={floatingCircleDepth}
                 />
               </motion.div>
@@ -919,6 +1129,184 @@ export default function GuideView({ onNavigateToTab }: GuideViewProps) {
           </AnimatePresence>
         </div>
       </div>
+
+      {/* 1.5. Recherche Globale + Parcours Rapide selon le Rôle (Page d'accueil du Guide) */}
+      {!isReaderOpen && (
+        <div className="space-y-4">
+          {/* Barre de recherche globale */}
+          <div className="bg-white rounded-2xl border border-slate-200/90 shadow-2xs p-3.5 space-y-3">
+            <div className="relative">
+              <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+              <input
+                type="text"
+                data-testid="guide-global-search-input"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder={t(
+                  'guide.search.globalPlaceholder',
+                  `Recherche globale dans les ${totalDocsCount} guides (PO, Nexus, TVA, Type A, RUL, BT...)`,
+                  { count: totalDocsCount }
+                )}
+                className="w-full pl-10 pr-10 py-2.5 rounded-xl bg-slate-50 border border-slate-200 text-xs sm:text-sm font-medium text-slate-900 focus:outline-none focus:border-amber-500 focus:bg-white transition"
+              />
+              {searchQuery && (
+                <button
+                  type="button"
+                  onClick={() => setSearchQuery('')}
+                  aria-label={t('guide.search.clear', 'Effacer la recherche')}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 p-1 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-200/60 cursor-pointer"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              )}
+            </div>
+
+            {searchQuery.trim().length > 0 && (
+              <div data-testid="guide-global-search-results" className="space-y-2 pt-1 border-t border-slate-100">
+                <div className="flex items-center justify-between px-1">
+                  <span className="text-[10.5px] font-black uppercase tracking-wider text-slate-500">
+                    {isLoadingDocs
+                      ? t('guide.search.loading', 'Chargement des guides...')
+                      : t(
+                          'guide.search.resultsTitle',
+                          `Résultats de recherche globale (${landingSearchResults.length})`,
+                          { count: landingSearchResults.length }
+                        )}
+                  </span>
+                </div>
+
+                {isLoadingDocs ? (
+                  <div className="flex items-center gap-2 px-3 py-3 text-xs text-slate-500">
+                    <Loader2 className="w-4 h-4 animate-spin text-amber-600" />
+                    <span>{t('guide.search.loading', 'Chargement des guides...')}</span>
+                  </div>
+                ) : landingSearchResults.length > 0 ? (
+                  <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-2">
+                    {landingSearchResults.slice(0, 12).map((doc) => {
+                      const isArch = doc.docType === 'architecture';
+                      return (
+                        <button
+                          key={doc.id}
+                          type="button"
+                          onClick={() => {
+                            setSelectedGroupId(doc.groupId);
+                            setSelectedDocId(doc.id);
+                            scrollCardIntoStripCenter(doc.groupId);
+                          }}
+                          className="text-left p-3 rounded-xl border border-slate-200/90 bg-slate-50/60 hover:bg-white hover:border-amber-400 transition flex items-start gap-2.5 cursor-pointer"
+                        >
+                          {isArch ? (
+                            <Code2 className="w-4 h-4 text-slate-600 shrink-0 mt-0.5" />
+                          ) : (
+                            <FileText className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                          )}
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                              <span
+                                className={`text-[9.5px] font-black uppercase px-1.5 py-0.5 rounded ${
+                                  isArch ? 'bg-slate-200 text-slate-800' : 'bg-amber-100 text-amber-900'
+                                }`}
+                              >
+                                {isArch
+                                  ? t('guide.reader.badgeArch', 'Architecture & Dev')
+                                  : t('guide.reader.badgeUser', 'Guide Écran')}
+                              </span>
+                              {doc.tabId && (
+                                <span className="text-[9.5px] font-mono text-slate-500">
+                                  #{doc.tabId}
+                                </span>
+                              )}
+                            </div>
+                            <p className="text-xs font-extrabold text-slate-900 mt-1 truncate">
+                              {doc.title}
+                            </p>
+                            {doc.summary && (
+                              <p className="text-[11px] text-slate-500 line-clamp-1 mt-0.5">
+                                {doc.summary}
+                              </p>
+                            )}
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <div className="p-4 text-center rounded-xl bg-slate-50 border border-slate-200 text-xs text-slate-500">
+                    {t('guide.search.noResults', `Aucun document ne correspond à « ${searchQuery} ».`, {
+                      query: searchQuery,
+                    })}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* Parcours Rapide selon le rôle utilisateur */}
+          <div
+            data-testid="guide-role-quick-track"
+            className="bg-gradient-to-r from-amber-50/80 via-white to-orange-50/40 rounded-2xl border border-amber-200/80 p-4 space-y-3"
+          >
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1.5">
+              <div className="flex items-center gap-2">
+                <Compass className="w-4 h-4 text-amber-600 shrink-0" />
+                <h3 className="text-xs sm:text-sm font-black text-slate-900">
+                  {t('guide.quickTrack.title', `Parcours Rapide — ${roleLabel}`, {
+                    role: roleLabel,
+                  })}
+                </h3>
+              </div>
+              <span className="text-[11px] text-slate-600">
+                {t(
+                  'guide.quickTrack.subtitle',
+                  'Accès direct aux guides essentiels pour votre profil opérationnel.'
+                )}
+              </span>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2">
+              {quickTrack.steps.map((step, idx) => {
+                const canOpen = Boolean(onNavigateToTab) && canNavigateToGuideTab(currentUser, step.tabId);
+                return (
+                  <div
+                    key={`${quickTrack.role}-${step.tabId}`}
+                    className="inline-flex items-center gap-1.5 pl-2.5 pr-1.5 py-1.5 rounded-xl bg-white border border-amber-200/90 shadow-2xs hover:border-amber-400 transition"
+                  >
+                    <button
+                      type="button"
+                      onClick={() => void handleSelectDocByTab(step.tabId, step.groupId)}
+                      className="inline-flex items-center gap-1.5 text-xs font-bold text-slate-800 hover:text-amber-700 cursor-pointer"
+                    >
+                      <span className="w-4 h-4 rounded-md bg-amber-100 text-amber-900 font-black text-[10px] flex items-center justify-center shrink-0">
+                        {idx + 1}
+                      </span>
+                      <span>{step.label[langKey]}</span>
+                    </button>
+                    {canOpen && (
+                      <button
+                        type="button"
+                        onClick={() => handleOpenScreen(step.tabId)}
+                        title={t(
+                          'guide.reader.goDirect',
+                          `Aller directement à l'écran ${step.label[langKey]}`,
+                          { label: step.label[langKey] }
+                        )}
+                        aria-label={t(
+                          'guide.reader.goDirect',
+                          `Aller directement à l'écran ${step.label[langKey]}`,
+                          { label: step.label[langKey] }
+                        )}
+                        className="p-1 rounded-lg bg-amber-50 text-amber-700 hover:bg-amber-600 hover:text-white transition cursor-pointer"
+                      >
+                        <ExternalLink className="w-3 h-3" />
+                      </button>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* 2. Barre de contrôle du ruban horizontal (Visible uniquement lorsqu'une carte est sélectionnée) */}
       <AnimatePresence>
@@ -933,11 +1321,13 @@ export default function GuideView({ onNavigateToTab }: GuideViewProps) {
             <div className="flex items-center gap-2">
               <span className="w-2 h-2 rounded-full bg-amber-500 animate-pulse" />
               <span className="text-[11px] font-black uppercase tracking-wider text-slate-600">
-                Ruban Modules ({MODULE_ROADMAP.length})
+                {t('guide.ribbon.label', `Ruban Modules (${MODULE_ROADMAP.length})`, {
+                  count: MODULE_ROADMAP.length,
+                })}
               </span>
               {selectedGroupId === 'all' && (
                 <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-900 border border-amber-200">
-                  Tous les modules
+                  {t('guide.ribbon.allModules', 'Tous les modules')}
                 </span>
               )}
             </div>
@@ -948,8 +1338,8 @@ export default function GuideView({ onNavigateToTab }: GuideViewProps) {
                 color="slate"
                 icon={ChevronLeft}
                 onClick={() => handleScrollStrip('left')}
-                title="Faire défiler vers la gauche"
-                ariaLabel="Faire défiler vers la gauche"
+                title={t('guide.ribbon.scrollLeft', 'Faire défiler vers la gauche')}
+                ariaLabel={t('guide.ribbon.scrollLeft', 'Faire défiler vers la gauche')}
                 className={`!w-9 !h-9 ${floatingNeutralDepth}`}
               />
               <Action3DButton
@@ -957,8 +1347,8 @@ export default function GuideView({ onNavigateToTab }: GuideViewProps) {
                 color="slate"
                 icon={ChevronRight}
                 onClick={() => handleScrollStrip('right')}
-                title="Faire défiler vers la droite"
-                ariaLabel="Faire défiler vers la droite"
+                title={t('guide.ribbon.scrollRight', 'Faire défiler vers la droite')}
+                ariaLabel={t('guide.ribbon.scrollRight', 'Faire défiler vers la droite')}
                 className={`!w-9 !h-9 ${floatingNeutralDepth}`}
               />
               <Action3DButton
@@ -966,8 +1356,8 @@ export default function GuideView({ onNavigateToTab }: GuideViewProps) {
                 color="amber"
                 icon={X}
                 onClick={handleCloseReader}
-                title="Fermer le lecteur et revenir à la grille"
-                ariaLabel="Fermer le lecteur et revenir à la grille"
+                title={t('guide.ribbon.closeReader', 'Fermer le lecteur et revenir à la grille')}
+                ariaLabel={t('guide.ribbon.closeReader', 'Fermer le lecteur et revenir à la grille')}
                 className={`!w-9 !h-9 ${floatingCircleDepth}`}
               />
             </div>
@@ -1002,7 +1392,7 @@ export default function GuideView({ onNavigateToTab }: GuideViewProps) {
               transition={{ layout: { duration: 0.72, ease: [0.22, 1, 0.36, 1] } }}
               onClick={() => {
                 if (isDocumented) {
-                  handleSelectGroup(group.groupId);
+                  void handleSelectGroup(group.groupId);
                 }
               }}
               className={`group rounded-2xl border transition-shadow duration-300 flex flex-col justify-between ${
@@ -1029,14 +1419,16 @@ export default function GuideView({ onNavigateToTab }: GuideViewProps) {
                     />
                     <div className="min-w-0">
                       <span className="text-[10px] font-black uppercase tracking-wider text-amber-700 block">
-                        Groupe {group.number}
+                        {t('guide.cards.groupPrefix', `Groupe ${group.number}`, {
+                          number: group.number,
+                        })}
                       </span>
                       <h3
                         className={`font-black text-slate-900 leading-snug ${
                           isReaderOpen ? 'text-xs line-clamp-2' : 'text-xs sm:text-sm'
                         }`}
                       >
-                        {group.title}
+                        {group.title[langKey]}
                       </h3>
                     </div>
                   </div>
@@ -1049,54 +1441,55 @@ export default function GuideView({ onNavigateToTab }: GuideViewProps) {
                   ) : (
                     <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-slate-200/80 text-slate-600 text-[10px] font-bold shrink-0">
                       <Clock className="w-3 h-3" />
-                      <span>Bientôt</span>
+                      <span>{t('guide.cards.soon', 'Bientôt')}</span>
                     </span>
                   )}
                 </div>
 
                 {!isReaderOpen && (
-                  <p className="text-[11.5px] text-slate-600 leading-relaxed">{group.description}</p>
+                  <p className="text-[11.5px] text-slate-600 leading-relaxed">
+                    {group.description[langKey]}
+                  </p>
                 )}
               </div>
 
               {/* Liens rapides vers les écrans du groupe (affichés en vue grille complète) */}
               {!isReaderOpen && (
                 <div className="pt-2.5 border-t border-slate-200/70 flex flex-wrap items-center gap-1.5">
-                  {group.tabs.map((t) => {
-                    const hasPageDoc = allDocs.some(
-                      (d) => d.tabId === t.tabId && d.groupId === group.groupId
-                    ) || allDocs.some((d) => d.tabId === t.tabId);
-                    const canOpenScreen = canNavigateToGuideTab(currentUser, t.tabId);
-                    const isClickable = hasPageDoc || (Boolean(onNavigateToTab) && canOpenScreen);
+                  {group.tabs.map((tab) => {
+                    const canOpenScreen = canNavigateToGuideTab(currentUser, tab.tabId);
+                    const isClickable = isDocumented || (Boolean(onNavigateToTab) && canOpenScreen);
                     return (
                       <button
-                        key={`${group.groupId}-${t.tabId}`}
+                        key={`${group.groupId}-${tab.tabId}`}
                         type="button"
                         disabled={!isClickable}
                         onClick={(e) => {
                           e.stopPropagation();
-                          if (hasPageDoc) {
-                            handleSelectDocByTab(t.tabId, group.groupId);
-                          } else if (canOpenScreen) {
-                            handleOpenScreen(t.tabId);
-                          }
+                          void handleSelectDocByTab(tab.tabId, group.groupId);
                         }}
                         className={`inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[10.5px] font-bold transition ${
                           !isClickable
                             ? 'bg-slate-50 border border-slate-200 text-slate-400 cursor-not-allowed opacity-70'
-                            : hasPageDoc
+                            : isDocumented
                             ? 'bg-white border border-amber-200/90 text-amber-900 hover:bg-amber-600 hover:text-white hover:border-amber-600 cursor-pointer'
                             : 'bg-white border border-slate-200 text-slate-600 hover:border-slate-400 hover:text-slate-900 cursor-pointer'
                         }`}
                         title={
-                          hasPageDoc
-                            ? `Lire le guide de l'écran ${t.label}`
+                          isDocumented
+                            ? t('guide.cards.readGuide', `Lire le guide de l'écran ${tab.label}`, {
+                                label: tab.label,
+                              })
                             : canOpenScreen
-                            ? `Ouvrir directement l'écran ${t.label}`
-                            : `Accès restreint à l'écran ${t.label}`
+                            ? t('guide.cards.openScreen', `Ouvrir directement l'écran ${tab.label}`, {
+                                label: tab.label,
+                              })
+                            : t('guide.cards.restrictedScreen', `Accès restreint à l'écran ${tab.label}`, {
+                                label: tab.label,
+                              })
                         }
                       >
-                        <span>{t.label}</span>
+                        <span>{tab.label}</span>
                         <ArrowUpRight className="w-3 h-3 opacity-70" />
                       </button>
                     );
@@ -1128,7 +1521,7 @@ export default function GuideView({ onNavigateToTab }: GuideViewProps) {
                   type="text"
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
-                  placeholder="Rechercher (PO, stock, retour, TYP...)"
+                  placeholder={t('guide.search.sidebarPlaceholder', 'Filtrer dans le sommaire...')}
                   className="w-full pl-9 pr-3 py-2 rounded-xl bg-slate-50 border border-slate-200 text-xs font-medium text-slate-900 focus:outline-none focus:border-amber-500 focus:bg-white transition"
                 />
               </div>
@@ -1137,15 +1530,17 @@ export default function GuideView({ onNavigateToTab }: GuideViewProps) {
               <div className="space-y-3">
                 <div className="flex items-center justify-between px-1">
                   <span className="text-[10.5px] font-black uppercase tracking-wider text-slate-500">
-                    Sommaire ({filteredDocs.length})
+                    {t('guide.reader.toc', `Sommaire (${filteredDocs.length})`, {
+                      count: filteredDocs.length,
+                    })}
                   </span>
                   {selectedGroupId !== 'all' && (
                     <button
                       type="button"
-                      onClick={() => setSelectedGroupId('all')}
+                      onClick={() => void handleSelectGroup('all')}
                       className="text-[10.5px] font-bold text-amber-700 hover:underline cursor-pointer"
                     >
-                      Voir tout
+                      {t('guide.reader.viewAll', 'Voir tout')}
                     </button>
                   )}
                 </div>
@@ -1192,7 +1587,9 @@ export default function GuideView({ onNavigateToTab }: GuideViewProps) {
                                   : 'bg-amber-100 text-amber-900'
                               }`}
                             >
-                              {isArch ? 'Architecture & Dev' : 'Guide Écran'}
+                              {isArch
+                                ? t('guide.reader.badgeArch', 'Architecture & Dev')
+                                : t('guide.reader.badgeUser', 'Guide Écran')}
                             </span>
                             {doc.tabId && (
                               <span
@@ -1219,9 +1616,18 @@ export default function GuideView({ onNavigateToTab }: GuideViewProps) {
                     );
                   })}
 
-                  {filteredDocs.length === 0 && (
+                  {isLoadingDocs && filteredDocs.length === 0 && (
+                    <div className="p-6 flex items-center justify-center gap-2 rounded-2xl bg-slate-50 border border-slate-200 text-xs text-slate-500">
+                      <Loader2 className="w-4 h-4 animate-spin text-amber-600" />
+                      <span>{t('guide.reader.loadingDoc', 'Chargement du document...')}</span>
+                    </div>
+                  )}
+
+                  {!isLoadingDocs && filteredDocs.length === 0 && (
                     <div className="p-6 text-center rounded-2xl bg-slate-50 border border-slate-200 text-xs text-slate-500">
-                      Aucun document ne correspond à votre filtre « {searchQuery} ».
+                      {t('guide.search.noResults', `Aucun document ne correspond à « ${searchQuery} ».`, {
+                        query: searchQuery,
+                      })}
                     </div>
                   )}
                 </div>
@@ -1251,8 +1657,8 @@ export default function GuideView({ onNavigateToTab }: GuideViewProps) {
                             }`}
                           >
                             {activeDoc.docType === 'architecture'
-                              ? 'Spécification Architecture & Logique Métier'
-                              : 'Guide Opérationnel Utilisateur'}
+                              ? t('guide.reader.bannerArch', 'Spécification Architecture & Logique Métier')
+                              : t('guide.reader.bannerUser', 'Guide Opérationnel Utilisateur')}
                           </span>
                           <span
                             className={`text-xs font-bold ${
@@ -1291,8 +1697,16 @@ export default function GuideView({ onNavigateToTab }: GuideViewProps) {
                           color="amber"
                           icon={ExternalLink}
                           onClick={() => handleOpenScreen(activeDoc.tabId!)}
-                          title={`Ouvrir l’écran : ${TAB_LABELS[activeDoc.tabId!] || activeDoc.tabId}`}
-                          ariaLabel={`Ouvrir l’écran : ${TAB_LABELS[activeDoc.tabId!] || activeDoc.tabId}`}
+                          title={t(
+                            'guide.reader.openScreenTitle',
+                            `Ouvrir l’écran : ${TAB_LABELS[activeDoc.tabId!] || activeDoc.tabId}`,
+                            { label: TAB_LABELS[activeDoc.tabId!] || activeDoc.tabId }
+                          )}
+                          ariaLabel={t(
+                            'guide.reader.openScreenTitle',
+                            `Ouvrir l’écran : ${TAB_LABELS[activeDoc.tabId!] || activeDoc.tabId}`,
+                            { label: TAB_LABELS[activeDoc.tabId!] || activeDoc.tabId }
+                          )}
                           className={floatingCircleDepth}
                         />
                       )}
@@ -1308,7 +1722,7 @@ export default function GuideView({ onNavigateToTab }: GuideViewProps) {
                         }`}
                       >
                         <strong className="font-black uppercase tracking-wider text-[10.5px] mr-1.5">
-                          Résumé :
+                          {t('guide.reader.summaryLabel', 'Résumé :')}
                         </strong>
                         {activeDoc.summary}
                       </div>
@@ -1319,7 +1733,7 @@ export default function GuideView({ onNavigateToTab }: GuideViewProps) {
                   <div className="p-5 sm:p-7 select-text">
                     <MarkdownBodyRenderer
                       markdown={activeDoc.body}
-                      onOpenHref={handleOpenMarkdownHref}
+                      onOpenHref={(href) => void handleOpenMarkdownHref(href)}
                     />
                   </div>
 
@@ -1327,7 +1741,7 @@ export default function GuideView({ onNavigateToTab }: GuideViewProps) {
                   {activeDoc.relatedTabs.length > 0 && (
                     <div className="px-5 sm:px-7 py-4 bg-slate-50 border-t border-slate-200 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
                       <span className="text-xs font-extrabold text-slate-700">
-                        Écrans & Guides Associés dans ce Groupe :
+                        {t('guide.reader.relatedTitle', 'Écrans & Guides Associés dans ce Groupe :')}
                       </span>
                       <div className="flex flex-wrap items-center gap-2.5">
                         {activeDoc.relatedTabs.map((relTab) => {
@@ -1337,9 +1751,11 @@ export default function GuideView({ onNavigateToTab }: GuideViewProps) {
                             activeDoc.groupId,
                             audienceFilter
                           );
+                          const hasKnownGroup = Boolean(TAB_TO_GROUP_MAP[relTab]);
                           const canOpenRelTab = canNavigateToGuideTab(currentUser, relTab);
                           const label = TAB_LABELS[relTab] || relTab;
-                          const canClickLabel = Boolean(linkedDoc) || (Boolean(onNavigateToTab) && canOpenRelTab);
+                          const canClickLabel =
+                            Boolean(linkedDoc) || hasKnownGroup || (Boolean(onNavigateToTab) && canOpenRelTab);
                           return (
                             <div
                               key={relTab}
@@ -1352,6 +1768,8 @@ export default function GuideView({ onNavigateToTab }: GuideViewProps) {
                                   if (linkedDoc) {
                                     setSelectedGroupId(linkedDoc.groupId);
                                     setSelectedDocId(linkedDoc.id);
+                                  } else if (hasKnownGroup) {
+                                    void handleSelectDocByTab(relTab);
                                   } else if (canOpenRelTab) {
                                     handleOpenScreen(relTab);
                                   }
@@ -1363,10 +1781,16 @@ export default function GuideView({ onNavigateToTab }: GuideViewProps) {
                                 }`}
                                 title={
                                   linkedDoc
-                                    ? `Lire le guide : ${linkedDoc.title}`
+                                    ? t('guide.reader.readRelated', `Lire le guide : ${linkedDoc.title}`, {
+                                        title: linkedDoc.title,
+                                      })
                                     : canOpenRelTab
-                                    ? `Ouvrir l'écran : ${label}`
-                                    : `Accès restreint : ${label}`
+                                    ? t('guide.reader.openScreenTitle', `Ouvrir l'écran : ${label}`, {
+                                        label,
+                                      })
+                                    : t('guide.reader.restricted', `Accès restreint : ${label}`, {
+                                        label,
+                                      })
                                 }
                               >
                                 <BookOpen className="w-3.5 h-3.5 text-amber-600 shrink-0" />
@@ -1378,8 +1802,12 @@ export default function GuideView({ onNavigateToTab }: GuideViewProps) {
                                   color="amber"
                                   icon={ExternalLink}
                                   onClick={() => handleOpenScreen(relTab)}
-                                  title={`Aller directement à l'écran ${label}`}
-                                  ariaLabel={`Aller directement à l'écran ${label}`}
+                                  title={t('guide.reader.goDirect', `Aller directement à l'écran ${label}`, {
+                                    label,
+                                  })}
+                                  ariaLabel={t('guide.reader.goDirect', `Aller directement à l'écran ${label}`, {
+                                    label,
+                                  })}
                                   className={`!w-8 !h-8 ${floatingCircleDepth}`}
                                 />
                               )}
@@ -1390,9 +1818,14 @@ export default function GuideView({ onNavigateToTab }: GuideViewProps) {
                     </div>
                   )}
                 </div>
+              ) : isLoadingDocs ? (
+                <div className="bg-white rounded-3xl border border-slate-200 p-8 flex items-center justify-center gap-2 text-xs text-slate-500">
+                  <Loader2 className="w-4 h-4 animate-spin text-amber-600" />
+                  <span>{t('guide.reader.loadingDoc', 'Chargement du document...')}</span>
+                </div>
               ) : (
                 <div className="bg-white rounded-3xl border border-slate-200 p-8 text-center text-xs text-slate-500">
-                  Aucun document disponible pour le filtre actif.
+                  {t('guide.reader.emptyState', 'Aucun document disponible pour le filtre actif.')}
                 </div>
               )}
             </div>

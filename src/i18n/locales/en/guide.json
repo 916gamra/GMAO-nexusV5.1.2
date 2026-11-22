@@ -1,0 +1,63 @@
+{
+  "header": {
+    "title": "CMMS User Guide & System Architecture",
+    "documentsCount": "{{count}} docs",
+    "subtitleReader": "Switch modules from the horizontal ribbon or return to the full grid.",
+    "subtitleLanding": "Select a module card, follow your role quick track, or search across the entire documentation.",
+    "filterAll": "All ({{count}})",
+    "filterUser": "User Guides",
+    "filterDev": "Architecture & Dev",
+    "backToGrid": "Show full module grid"
+  },
+  "search": {
+    "globalPlaceholder": "Search all {{count}} guides (PO, Nexus, VAT, Type A, RUL, WO...)",
+    "sidebarPlaceholder": "Filter table of contents...",
+    "clear": "Clear search",
+    "loading": "Loading guides...",
+    "resultsTitle": "Global search results ({{count}})",
+    "noResults": "No documentation matches \"{{query}}\".",
+    "openDoc": "Open"
+  },
+  "quickTrack": {
+    "title": "Quick Track — {{role}}",
+    "subtitle": "Direct access to essential guides for your operational role.",
+    "roles": {
+      "ADMIN": "System Administrator",
+      "RESPONSABLE_MAINTENANCE": "Maintenance Manager",
+      "RESPONSABLE_MAGASIN": "Warehouse Manager",
+      "TECHNICIEN": "Field Technician",
+      "OPERATEUR": "Production Operator",
+      "VIEWER": "Viewer / Management"
+    }
+  },
+  "ribbon": {
+    "label": "Module Ribbon ({{count}})",
+    "allModules": "All modules",
+    "scrollLeft": "Scroll left",
+    "scrollRight": "Scroll right",
+    "closeReader": "Close reader and return to grid"
+  },
+  "cards": {
+    "groupPrefix": "Group {{number}}",
+    "soon": "Soon",
+    "readGuide": "Read guide for {{label}}",
+    "openScreen": "Open {{label}} screen directly",
+    "restrictedScreen": "Restricted access to {{label}}"
+  },
+  "reader": {
+    "toc": "Contents ({{count}})",
+    "viewAll": "View all",
+    "badgeArch": "Architecture & Dev",
+    "badgeUser": "Screen Guide",
+    "bannerArch": "Architecture & Business Logic Specification",
+    "bannerUser": "Operational User Guide",
+    "summaryLabel": "Summary:",
+    "openScreenTitle": "Open screen: {{label}}",
+    "relatedTitle": "Related Screens & Guides in this Group:",
+    "readRelated": "Read guide: {{title}}",
+    "goDirect": "Go directly to {{label}} screen",
+    "restricted": "Restricted access: {{label}}",
+    "emptyState": "No document available for the active filter.",
+    "loadingDoc": "Loading document..."
+  }
+}

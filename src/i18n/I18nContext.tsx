@@ -33,10 +33,14 @@ import frNexus from './locales/fr/nexus.json';
 import arNexus from './locales/ar/nexus.json';
 import enNexus from './locales/en/nexus.json';
 
+import frGuide from './locales/fr/guide.json';
+import arGuide from './locales/ar/guide.json';
+import enGuide from './locales/en/guide.json';
+
 const dictionaries = {
-  fr: { ...fr, zones: frZones, utilisateurs: frUtilisateurs, entrepot: frEntrepot, corrective: frCorrective, preventive: frPreventive, machines: frMachines, nexus: frNexus },
-  ar: { ...ar, zones: arZones, utilisateurs: arUtilisateurs, entrepot: arEntrepot, corrective: arCorrective, preventive: arPreventive, machines: arMachines, nexus: arNexus },
-  en: { ...en, zones: enZones, utilisateurs: enUtilisateurs, entrepot: enEntrepot, corrective: enCorrective, preventive: enPreventive, machines: enMachines, nexus: enNexus },
+  fr: { ...fr, zones: frZones, utilisateurs: frUtilisateurs, entrepot: frEntrepot, corrective: frCorrective, preventive: frPreventive, machines: frMachines, nexus: frNexus, guide: frGuide },
+  ar: { ...ar, zones: arZones, utilisateurs: arUtilisateurs, entrepot: arEntrepot, corrective: arCorrective, preventive: arPreventive, machines: arMachines, nexus: arNexus, guide: arGuide },
+  en: { ...en, zones: enZones, utilisateurs: enUtilisateurs, entrepot: enEntrepot, corrective: enCorrective, preventive: enPreventive, machines: enMachines, nexus: enNexus, guide: enGuide },
 };
 
 export interface I18nContextType {

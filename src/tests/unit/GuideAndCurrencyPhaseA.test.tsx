@@ -7,9 +7,11 @@ import {
   canNavigateToGuideTab,
   executeGuideTabNavigation,
   findGuideDocForTab,
+  getQuickTrackForUser,
   resolveGuideInternalHref,
   resolveGuideTabNavigation,
 } from '../../presentation/pages/system/guideNavigation';
+import { I18nProvider } from '../../i18n/I18nContext';
 import { STORAGE_KEYS } from '../../infrastructure/persistence/storageKeys';
 import { storageService } from '../../utils/storageService';
 import { useGmaoStore } from '../../store/useGmaoStore';
@@ -22,20 +24,30 @@ vi.mock('../../context/AuthContext', () => ({
   useAuth: () => mockAuthState,
 }));
 
-vi.mock('../../i18n/I18nContext', () => ({
-  useTranslation: () => ({
-    language: 'fr',
-    t: (k: string) => k,
-  }),
-}));
+async function waitForCondition(predicate: () => boolean, timeoutMs = 2500): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (predicate()) return;
+    await React.act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 25));
+    });
+  }
+}
 
-describe('Phase A — SettingsCurrencyTab Live Valuation & GuideView Routing/RBAC/Markdown', () => {
+function setNativeInputValue(input: HTMLInputElement, value: string): void {
+  const nativeSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value')?.set;
+  nativeSetter?.call(input, value);
+  input.dispatchEvent(new Event('input', { bubbles: true }));
+}
+
+describe('Phase A/B/C — SettingsCurrencyTab Live Valuation & GuideView Routing/RBAC/Markdown/Lazy/i18n', () => {
   let container: HTMLDivElement;
   let root: Root;
 
   beforeEach(() => {
     localStorage.clear();
     sessionStorage.clear();
+    storageService.setItem(STORAGE_KEYS.LANGUAGE, 'fr');
     useGmaoStore.setState({ rawStock: [], mouvements: [] });
     container = document.createElement('div');
     document.body.appendChild(container);
@@ -53,7 +65,11 @@ describe('Phase A — SettingsCurrencyTab Live Valuation & GuideView Routing/RBA
 
   it('removes fake invoice simulation and hardcoded 284500 amount in SettingsCurrencyTab, showing 0 when empty and live SSOT stock valuation when populated', async () => {
     await React.act(async () => {
-      root.render(<SettingsCurrencyTab />);
+      root.render(
+        <I18nProvider>
+          <SettingsCurrencyTab />
+        </I18nProvider>
+      );
     });
 
     const emptyText = container.textContent || '';
@@ -214,29 +230,36 @@ describe('Phase A — SettingsCurrencyTab Live Valuation & GuideView Routing/RBA
     expect(onOpenHref).toHaveBeenCalledWith('./page-arborescence-nexus.md');
   });
 
-  it('removes select-none from GuideView, routes ADMIN settings_currency button to settings + SETTINGS_TARGET_TAB, and hides it for TECHNICIEN', async () => {
+  it('removes select-none from GuideView, lazily loads currency doc on click, routes ADMIN settings_currency button to settings + SETTINGS_TARGET_TAB, and hides it for TECHNICIEN', async () => {
     const onNavigateToTab = vi.fn();
 
     await React.act(async () => {
-      root.render(<GuideView onNavigateToTab={onNavigateToTab} />);
+      root.render(
+        <I18nProvider>
+          <GuideView onNavigateToTab={onNavigateToTab} />
+        </I18nProvider>
+      );
     });
 
     // Ensure root does not block text selection
     expect(container.innerHTML).not.toContain('select-none');
 
-    // Open the Currency doc via quick chip in Group 07
+    // Open the Currency doc via quick chip in Group 07 (triggers lazy markdown load)
     const currencyChip = Array.from(container.querySelectorAll('button')).find((b) =>
-      b.textContent?.includes('Devises & Finance ISO')
+      b.textContent?.includes('Devises & Fiscalité ISO')
     );
     expect(currencyChip).not.toBeUndefined();
 
     await React.act(async () => {
       currencyChip?.click();
     });
+    await waitForCondition(() =>
+      Boolean(container.querySelector('button[aria-label*="Devises & Fiscalité ISO"]'))
+    );
 
     // As ADMIN, the header "Ouvrir l'écran" button must be visible and route cleanly
     const openCurrencyBtn = container.querySelector(
-      'button[aria-label*="Devises & Finance ISO"]'
+      'button[aria-label*="Devises & Fiscalité ISO"]'
     ) as HTMLButtonElement | null;
     expect(openCurrencyBtn).not.toBeNull();
 
@@ -252,12 +275,147 @@ describe('Phase A — SettingsCurrencyTab Live Valuation & GuideView Routing/RBA
     mockAuthState.currentUser = { id: 'tech-1', username: 'tech01', name: 'Tech', role: 'TECHNICIEN' };
 
     await React.act(async () => {
-      root.render(<GuideView onNavigateToTab={onNavigateToTab} />);
+      root.render(
+        <I18nProvider>
+          <GuideView onNavigateToTab={onNavigateToTab} />
+        </I18nProvider>
+      );
     });
 
     const openCurrencyBtnTech = container.querySelector(
-      'button[aria-label*="Devises & Finance ISO"]'
+      'button[aria-label*="Devises & Fiscalité ISO"]'
     );
     expect(openCurrencyBtnTech).toBeNull();
   });
+
+  it('loads newly added Phase B screen guides (shift_weekly_report, executive_report, appearance, corrective_history) in GuideView', async () => {
+    await React.act(async () => {
+      root.render(
+        <I18nProvider>
+          <GuideView onNavigateToTab={vi.fn()} />
+        </I18nProvider>
+      );
+    });
+
+    const text = container.textContent || '';
+    expect(text).toContain('Rapport Vacation / Hebdo');
+    expect(text).toContain('Rapport Mensuel Exécutif');
+    expect(text).toContain('Apparence & Ergonomie');
+    expect(text).toContain('Historique & Pièces Correctives');
+  });
+
+  it('Phase C: renders role-specific Quick Track for ADMIN vs TECHNICIEN and enforces RBAC on quick-open actions', async () => {
+    expect(getQuickTrackForUser({ id: '1', role: 'ADMIN' }).role).toBe('ADMIN');
+    expect(getQuickTrackForUser({ id: '2', role: 'RESPONSABLE' }).role).toBe('RESPONSABLE_MAINTENANCE');
+    expect(getQuickTrackForUser({ id: '3', role: 'MAGASINIER' }).role).toBe('RESPONSABLE_MAGASIN');
+    expect(getQuickTrackForUser({ id: '4', role: 'TECHNICIEN' }).role).toBe('TECHNICIEN');
+    expect(getQuickTrackForUser({ id: '5', role: 'OPERATEUR' }).role).toBe('OPERATEUR');
+    expect(getQuickTrackForUser(null).role).toBe('VIEWER');
+
+    await React.act(async () => {
+      root.render(
+        <I18nProvider>
+          <GuideView onNavigateToTab={vi.fn()} />
+        </I18nProvider>
+      );
+    });
+
+    const adminTrack = container.querySelector('[data-testid="guide-role-quick-track"]');
+    expect(adminTrack).not.toBeNull();
+    expect(adminTrack?.textContent).toContain('Parcours Rapide — Administrateur');
+    expect(adminTrack?.textContent).toContain('Injection Type A & Mode Démo');
+    expect(adminTrack?.textContent).toContain('Devises & Fiscalité ISO');
+
+    // Switch to TECHNICIEN and re-render
+    mockAuthState.currentUser = { id: 'tech-2', username: 'tech02', name: 'Technicien', role: 'TECHNICIEN' };
+    await React.act(async () => {
+      root.render(
+        <I18nProvider>
+          <GuideView onNavigateToTab={vi.fn()} />
+        </I18nProvider>
+      );
+    });
+
+    const techTrack = container.querySelector('[data-testid="guide-role-quick-track"]');
+    expect(techTrack?.textContent).toContain('Parcours Rapide — Technicien');
+    expect(techTrack?.textContent).toContain('Exécuter un Bon de Travail (BT)');
+    expect(techTrack?.textContent).not.toContain('Injection Type A & Mode Démo');
+  });
+
+  it('Phase C: supports global landing search with lazy Markdown hydration and opens the selected result in reader mode', async () => {
+    await React.act(async () => {
+      root.render(
+        <I18nProvider>
+          <GuideView onNavigateToTab={vi.fn()} />
+        </I18nProvider>
+      );
+    });
+
+    const searchInput = container.querySelector(
+      '[data-testid="guide-global-search-input"]'
+    ) as HTMLInputElement | null;
+    expect(searchInput).not.toBeNull();
+
+    await React.act(async () => {
+      setNativeInputValue(searchInput!, 'CURRENCY_CONFIG');
+    });
+    await waitForCondition(() => {
+      const box = container.querySelector('[data-testid="guide-global-search-results"]');
+      return Boolean(box && box.textContent?.includes('#settings_currency'));
+    });
+
+    const resultsBox = container.querySelector('[data-testid="guide-global-search-results"]');
+    expect(resultsBox).not.toBeNull();
+    expect(resultsBox?.textContent).toContain('#settings_currency');
+
+    const firstResultBtn = resultsBox?.querySelector('button') as HTMLButtonElement | null;
+    expect(firstResultBtn).not.toBeNull();
+
+    await React.act(async () => {
+      firstResultBtn?.click();
+    });
+    await waitForCondition(() => Boolean(container.textContent?.includes('CURRENCY_CONFIG')));
+
+    // Reader opened, landing search hidden, and currency doc body rendered
+    expect(container.querySelector('[data-testid="guide-global-search-input"]')).toBeNull();
+    expect(container.textContent).toContain('CURRENCY_CONFIG');
+  });
+
+  it('Phase C: localizes GuideView cleanly in Arabic (AR) and English (EN) while keeping global LTR layout', async () => {
+    // Arabic (AR)
+    storageService.setItem(STORAGE_KEYS.LANGUAGE, 'ar');
+    await React.act(async () => {
+      root.render(
+        <I18nProvider>
+          <GuideView onNavigateToTab={vi.fn()} />
+        </I18nProvider>
+      );
+    });
+
+    expect(document.documentElement.dir).toBe('ltr');
+    expect(container.textContent).toContain('دليل المستخدم وهندسة نظام GMAO');
+    expect(container.textContent).toContain('المسار السريع — مدير النظام');
+    expect(container.textContent).toContain('مخزون قطع الغيار (PDR) والحركات وأوامر الشراء (PO)');
+
+    // Unmount and remount in English (EN)
+    await React.act(async () => {
+      root.unmount();
+    });
+    root = createRoot(container);
+    storageService.setItem(STORAGE_KEYS.LANGUAGE, 'en');
+
+    await React.act(async () => {
+      root.render(
+        <I18nProvider>
+          <GuideView onNavigateToTab={vi.fn()} />
+        </I18nProvider>
+      );
+    });
+
+    expect(document.documentElement.dir).toBe('ltr');
+    expect(container.textContent).toContain('CMMS User Guide & System Architecture');
+    expect(container.textContent).toContain('Quick Track — System Administrator');
+    expect(container.textContent).toContain('Spare Parts Stock (PDR), Movements & Purchase Orders');
+  });
 });
+

@@ -101,7 +101,7 @@ Chaque organe enregistré dans `warehouseItems` se trouve dans un état opérati
 | Statut | Signification Industrielle | Emplacement / Rattachement |
 | :--- | :--- | :--- |
 | `DISPONIBLE` / `EN_STOCK` | Organe prêt à l'emploi, révisé ou neuf. | Stocké sur une étagère de l'entrepôt (`emplacement`: ex. `Rayon A-02`). `id_machine` est nul. |
-| `INSTALLE` / `EN_SERVICE` | Organe monté physiquement sur une machine active de l'usine. | Rattaché à une machine (`id_machine` renseigné). Fait partie du `Nexus BOM` de l'équipement. |
+| `MONTE` *(legacy: `INSTALLE`)* | Organe monté physiquement sur une machine active de l'usine. | Rattaché à une machine (`id_machine` renseigné). Apparaît automatiquement dans le `Nexus BOM` de l'équipement. |
 | `EN_REPARATION` / `BOBINAGE` | Organe démonté envoyé à l'atelier central ou chez un sous-traitant pour révision/rebobinage. | Lié à une sortie externe (`SortieExterneBobinageView`). Sortie temporaire tracée. |
 | `REFORME` / `ARCHIVE` | Organe détruit, obsolète ou irréparable. | Retiré du parc actif. Conservé dans l'historique pour traçabilité comptable et technique. |
 
@@ -112,10 +112,10 @@ Chaque organe enregistré dans `warehouseItems` se trouve dans un état opérati
 1. **Montage d'un Organe sur une Machine :**
    - Le technicien sélectionne un composant au statut `DISPONIBLE`.
    - Il sélectionne la machine cible parmi le parc actif (`filterActiveMachines`).
-   - Le statut passe à `INSTALLE`, son champ `id_machine` est mis à jour, et une ligne d'historique est ajoutée dans le registre de la machine.
+   - Le statut passe à `MONTE`, son champ `id_machine` est mis à jour, et une ligne d'historique est ajoutée dans le registre de la machine.
 2. **Démontage / Remplacement :**
    - Lorsqu'un moteur brûle sur une ligne, il est démonté : son statut passe à `EN_REPARATION` avec saisie du diagnostic de défaillance.
-   - Un moteur de remplacement identique (`même CompTemplate`) est prélevé de l'entrepôt et passe à `INSTALLE`.
+   - Un moteur de remplacement identique (`même CompTemplate`) est prélevé de l'entrepôt et passe à `MONTE`.
    - **Bénéfice :** L'historique d'exploitation et d'usure du moteur suit l'organe, tandis que l'historique de la machine trace le remplacement.
 
 ---
@@ -136,4 +136,4 @@ Le système interdit toute rupture de lien orphelin :
 1. **Suppression d'un Groupe d'Organes (`CompGroup`) ou de Pièces (`PartGroup`) :** Bloquée si au moins une Famille (`CompFamily`) ou un Type de Pièce (`PartType`) y est rattaché (bascule en désactivation sécurisée `is_active: false` pour `PartGroup`).
 2. **Suppression d'une Famille (`CompFamily`) ou d'un Type de Pièce (`PartType`) :** Bloquée si des Modèles (`CompTemplate`), des Désignations (`PartDesignation`) ou des éléments d'entrepôt y font référence.
 3. **Suppression d'un Modèle (`CompTemplate`) ou d'une Désignation (`PartDesignation`) :** Bloquée si des éléments physiques sont présents en entrepôt ou montés sur des machines.
-4. **Suppression d'un Élément d'Entrepôt (`WarehouseItem`) :** Bloquée s'il est au statut `INSTALLE` sur une machine active. Il doit d'abord être formellement démonté.
+4. **Suppression d'un Élément d'Entrepôt (`WarehouseItem`) :** Bloquée s'il est au statut `MONTE` sur une machine active. Il doit d'abord être formellement démonté.
