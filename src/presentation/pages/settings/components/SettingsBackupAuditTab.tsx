@@ -38,6 +38,7 @@ import { useGmaoStore } from '../../../../store/useGmaoStore';
 import Action3DButton from '../../../components/common/Action3DButton';
 import { SettingsSectionCard, SETTINGS_BUTTON_STYLES } from './settingsUi';
 import SqliteHostDatabaseCard from './SqliteHostDatabaseCard';
+import DataFolderPhaseL1Card from './DataFolderPhaseL1Card';
 
 export interface AccessLogEntry {
   id?: string;
@@ -512,6 +513,7 @@ export default function SettingsBackupAuditTab({
         <div className="space-y-4">
           <SyncButtons showToast={showToast} />
           <SqliteHostDatabaseCard showToast={showToast} />
+          <DataFolderPhaseL1Card showToast={showToast} />
 
           <SettingsSectionCard
             title="Points de Restauration Locaux"
