@@ -3,7 +3,7 @@ import { TYPE_A_SCHEMA_VERSION } from '../../services/import/typeAExcelBridge';
 import type { TypeAExcelBundleKind } from '../../services/import/typeAExcelBridge';
 
 /**
- * Canonical manifest contract for GMAO Data Folder SSOT (Phase L1).
+ * Canonical manifest contract for GMAO Data Folder SSOT (Phase L1 + L2).
  *
  * Schema Version Policy:
  * - `schemaVersion` aligns directly with `TYPE_A_SCHEMA_VERSION` (`'5.0.2'`) from
@@ -19,7 +19,7 @@ import type { TypeAExcelBundleKind } from '../../services/import/typeAExcelBridg
 export const FOLDER_MANIFEST_FORMAT = 'GMAO_FOLDER_SSOT' as const;
 export const FOLDER_SCHEMA_VERSION = TYPE_A_SCHEMA_VERSION;
 
-export type FolderFileRole = 'catalog' | 'operational';
+export type FolderFileRole = 'catalog' | 'operational' | 'config';
 
 export interface FolderManifestFileEntry {
   required: boolean;
@@ -36,6 +36,7 @@ export interface FolderSsotManifest {
   appVersion: string;
   createdAt: string;
   lastStructureCheckAt: string;
+  lastUpdatedAt?: string;
   files: Record<string, FolderManifestFileEntry>;
 }
 
@@ -45,7 +46,7 @@ export interface ManifestValidationResult {
   manifest?: FolderSsotManifest;
 }
 
-const VALID_ROLES: ReadonlySet<string> = new Set<string>(['catalog', 'operational']);
+const VALID_ROLES: ReadonlySet<string> = new Set<string>(['catalog', 'operational', 'config']);
 
 function isIsoDateString(value: unknown): value is string {
   if (typeof value !== 'string' || !value.trim()) return false;
@@ -120,7 +121,7 @@ export function validateManifest(raw: unknown): ManifestValidationResult {
       }
       if (typeof entry.role !== 'string' || !VALID_ROLES.has(entry.role)) {
         errors.push(
-          `Manifest entry "${filePath}" has invalid role "${String(entry.role ?? '')}" (expected "catalog" or "operational").`
+          `Manifest entry "${filePath}" has invalid role "${String(entry.role ?? '')}" (expected "catalog", "operational", or "config").`
         );
       }
     }
@@ -150,6 +151,7 @@ export function createManifestRecord(
     appVersion: APP_VERSION,
     createdAt: nowIso,
     lastStructureCheckAt: nowIso,
+    lastUpdatedAt: nowIso,
     files,
   };
 }

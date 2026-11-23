@@ -1,5 +1,11 @@
 import { STORAGE_KEYS } from '../../infrastructure/persistence/storageKeys';
 import { storageService } from '../../utils/storageService';
+import { serializeLiveStateToFolderFiles } from './folderDataSerializer';
+import {
+  BrowserDirectoryFsAdapter,
+  type ReadWriteBrowserDirectoryHandleLike,
+  saveDirectoryHandleToIdb,
+} from './folderFsAdapter';
 import {
   buildEmptyStructure,
   inspectPath,
@@ -9,39 +15,23 @@ import {
   type FolderMaterializedEntry,
   type FolderRepairPlan,
 } from './folderStoreEngine';
-import { FOLDER_MANIFEST_FILENAME, GMAO_DATA_ROOT_DIR } from './folderStorePaths';
+import {
+  FOLDER_MANIFEST_FILENAME,
+  GMAO_DATA_ROOT_DIR,
+  isSafeRelativePath,
+  normalizeFolderRelativePath,
+} from './folderStorePaths';
 
 /**
- * Browser / Desktop Bridge Stub for Phase L1 (Structure Inspection & Empty Tree Export).
- *
- * EXPLICIT PLATFORM BOUNDARY:
- * - Browser File System Access API (`window.showDirectoryPicker`) handles are session-scoped
- *   and CANNOT guarantee permanent native OS paths across restarts or LAN shares.
- * - Therefore, Phase L1 persists ONLY the user-chosen folder display label in
- *   `STORAGE_KEYS.DATA_FOLDER_LABEL` (`gmao_data_folder_label`) — never claiming native
- *   Windows path permanence in the browser.
- * - Full persistent path binding (e.g. `D:\GMAO_Data` or `\\SERVER\GMAO_Data`) and live
- *   atomic reads/writes are reserved for Phase L2 under the future native Windows shell
- *   (Electron / Tauri).
- * - Empty structure initialization in browser mode produces a standard downloadable `.zip`
- *   archive (`GMAO_Data_Structure_L1.zip`) so every OS/browser can unpack a clean tree safely
- *   without fragile browser write permissions.
+ * Browser / Desktop Bridge for Phase L1 + Phase L2.2 (Local Folder Read/Write & ZIP Folder Exchange).
  */
 
-export interface BrowserDirectoryHandleLike {
-  name: string;
-  kind: 'directory';
-  entries?: () => AsyncIterable<[string, BrowserFsHandleLike]>;
-  values?: () => AsyncIterable<BrowserFsHandleLike>;
-  getFileHandle?: (name: string) => Promise<BrowserFileHandleLike>;
-}
-
-export interface BrowserFileHandleLike {
+export type BrowserDirectoryHandleLike = ReadWriteBrowserDirectoryHandleLike;
+export type BrowserFileHandleLike = {
   name: string;
   kind: 'file';
   getFile: () => Promise<{ text: () => Promise<string> }>;
-}
-
+};
 export type BrowserFsHandleLike = BrowserDirectoryHandleLike | BrowserFileHandleLike;
 
 export interface PickerInspectionReport {
@@ -49,10 +39,13 @@ export interface PickerInspectionReport {
   entries: FolderEntryDescriptor[];
   inspection: FolderInspectionResult;
   repairPlan: FolderRepairPlan;
+  adapter?: BrowserDirectoryFsAdapter;
 }
 
 type WindowWithDirectoryPicker = Window & {
-  showDirectoryPicker?: (options?: { mode?: 'read' | 'readwrite' }) => Promise<BrowserDirectoryHandleLike>;
+  showDirectoryPicker?: (options?: {
+    mode?: 'read' | 'readwrite';
+  }) => Promise<ReadWriteBrowserDirectoryHandleLike>;
 };
 
 export function isDirectoryPickerSupported(): boolean {
@@ -80,67 +73,42 @@ export function clearSavedDataFolderLabel(): void {
   storageService.removeItem(STORAGE_KEYS.DATA_FOLDER_LABEL);
 }
 
-async function listDirectoryHandlesShallow(
-  dirHandle: BrowserDirectoryHandleLike,
-  prefix = '',
-  depth = 0,
-  maxDepth = 2
-): Promise<FolderEntryDescriptor[]> {
-  const results: FolderEntryDescriptor[] = [];
-  if (depth > maxDepth) return results;
-
-  const iterator = dirHandle.values
-    ? dirHandle.values()
-    : dirHandle.entries
-      ? (async function* () {
-          for await (const [, h] of dirHandle.entries!()) {
-            yield h;
-          }
-        })()
-      : null;
-
-  if (!iterator) return results;
-
-  for await (const handle of iterator) {
-    const relPath = prefix ? `${prefix}/${handle.name}` : handle.name;
-    const isDirectory = handle.kind === 'directory';
-    results.push({ path: relPath, isDirectory });
-
-    if (isDirectory && depth < maxDepth) {
-      const children = await listDirectoryHandlesShallow(handle, relPath, depth + 1, maxDepth);
-      results.push(...children);
-    }
-  }
-
-  return results;
-}
-
 /**
- * Opens the browser directory picker in READ-ONLY mode, scans up to 2 levels deep,
- * reads `manifest.json` if present, runs pure `inspectPath` + `planRepair`,
- * and remembers ONLY the folder's display label.
+ * Opens the browser directory picker (in `readwrite` mode by default for Phase L2, falling back to `read` if needed),
+ * wraps the selected folder in `BrowserDirectoryFsAdapter`, persists the handle in IndexedDB,
+ * and runs `inspectPath` + `planRepair`.
  */
-export async function pickAndInspectDirectory(): Promise<PickerInspectionReport | null> {
+export async function pickAndInspectDirectory(
+  mode: 'read' | 'readwrite' = 'readwrite'
+): Promise<PickerInspectionReport | null> {
   if (!isDirectoryPickerSupported()) {
     throw new Error('File System Access API (showDirectoryPicker) is not available in this browser.');
   }
 
   const picker = (window as WindowWithDirectoryPicker).showDirectoryPicker!;
-  const dirHandle = await picker({ mode: 'read' });
-  const entries = await listDirectoryHandlesShallow(dirHandle, '', 0, 2);
+  let dirHandle: ReadWriteBrowserDirectoryHandleLike;
+  try {
+    dirHandle = await picker({ mode });
+  } catch (err) {
+    if (mode === 'readwrite') {
+      dirHandle = await picker({ mode: 'read' });
+    } else {
+      throw err;
+    }
+  }
+
+  const adapter = new BrowserDirectoryFsAdapter(dirHandle);
+  await saveDirectoryHandleToIdb(dirHandle);
+
+  const entries = await adapter.listEntries(2);
 
   let manifestRaw: unknown = undefined;
   const hasManifestEntry = entries.some(
     (e) => !e.isDirectory && e.path === FOLDER_MANIFEST_FILENAME
   );
-  if (hasManifestEntry && typeof dirHandle.getFileHandle === 'function') {
-    try {
-      const fh = await dirHandle.getFileHandle(FOLDER_MANIFEST_FILENAME);
-      const file = await fh.getFile();
-      manifestRaw = await file.text();
-    } catch {
-      manifestRaw = ''; // Triggers fail-closed INVALID_MANIFEST
-    }
+  if (hasManifestEntry) {
+    const text = await adapter.readTextFile(FOLDER_MANIFEST_FILENAME);
+    manifestRaw = text ?? '';
   }
 
   const inspection = inspectPath(entries, manifestRaw);
@@ -153,11 +121,12 @@ export async function pickAndInspectDirectory(): Promise<PickerInspectionReport 
     entries,
     inspection,
     repairPlan,
+    adapter,
   };
 }
 
 // ============================================================================
-// Pure Standard Store (Method 0) ZIP Archive Builder (zero external deps)
+// Pure Standard PKZIP Builder (STORE) & Central-Directory Reader (STORE + DEFLATE)
 // ============================================================================
 
 const CRC32_TABLE = (() => {
@@ -194,8 +163,8 @@ function encodeDosDateTime(date: Date): { dosTime: number; dosDate: number } {
 }
 
 /**
- * Builds an uncompressed (STORE method 0) PKZIP archive containing the canonical
- * `GMAO_Data/` folder tree and empty JSON files. Compatible with Windows Explorer,
+ * Builds an uncompressed (STORE method 0) PKZIP archive containing the provided
+ * `GMAO_Data/` folder tree and JSON files. Compatible with Windows Explorer,
  * PowerShell `Expand-Archive`, macOS Archive Utility, and 7-Zip.
  */
 export function buildEmptyStructureZipBytes(
@@ -299,13 +268,304 @@ export function buildEmptyStructureZipBytes(
 }
 
 /**
- * Triggers a browser download of `GMAO_Data_Structure_L1.zip` containing the canonical empty tree.
+ * Builds a PKZIP archive containing 100% of the live application state (`GMAO_Data/` with all 29 JSON files + `manifest.json`).
  */
-export function downloadEmptyDataFolderZip(fileName = 'GMAO_Data_Structure_L1.zip'): void {
+export function buildLiveStateFolderZipBytes(now: Date = new Date()): Uint8Array {
+  const entries = serializeLiveStateToFolderFiles({
+    nowIso: now.toISOString(),
+    includeRootPrefix: true,
+  });
+  return buildEmptyStructureZipBytes(entries, now);
+}
+
+interface RawZipRecord {
+  rawName: string;
+  isDir: boolean;
+  compressionMethod: number;
+  expectedCrc32: number;
+  compressedBytes: Uint8Array;
+}
+
+/**
+ * Reads ZIP records reliably from the Central Directory (supports Data Descriptor bit 3 used by
+ * Windows Explorer / 7-Zip / macOS Archive Utility), falling back to Local File Header scan if needed.
+ */
+function extractRawZipRecords(zipBytes: Uint8Array): RawZipRecord[] {
+  const decoder = new TextDecoder();
+  const view = new DataView(zipBytes.buffer, zipBytes.byteOffset, zipBytes.byteLength);
+  const records: RawZipRecord[] = [];
+
+  // 1. Locate End of Central Directory (PK\x05\x06) scanning backwards up to 65557 bytes
+  const minEocdOffset = Math.max(0, zipBytes.byteLength - 65557);
+  let eocdOffset = -1;
+  for (let pos = zipBytes.byteLength - 22; pos >= minEocdOffset; pos--) {
+    if (view.getUint32(pos, true) === 0x06054b50) {
+      eocdOffset = pos;
+      break;
+    }
+  }
+
+  if (eocdOffset >= 0) {
+    const centralDirSize = view.getUint32(eocdOffset + 12, true);
+    const centralDirOffset = view.getUint32(eocdOffset + 16, true);
+    const centralDirEnd = Math.min(zipBytes.byteLength, centralDirOffset + centralDirSize);
+    let cursor = centralDirOffset;
+
+    while (cursor + 46 <= centralDirEnd) {
+      if (view.getUint32(cursor, true) !== 0x02014b50) break;
+
+      const compressionMethod = view.getUint16(cursor + 10, true);
+      const expectedCrc32 = view.getUint32(cursor + 16, true);
+      const compressedSize = view.getUint32(cursor + 20, true);
+      const fileNameLength = view.getUint16(cursor + 28, true);
+      const extraFieldLength = view.getUint16(cursor + 30, true);
+      const commentLength = view.getUint16(cursor + 32, true);
+      const localHeaderOffset = view.getUint32(cursor + 42, true);
+
+      const nameStart = cursor + 46;
+      const nameEnd = nameStart + fileNameLength;
+      if (nameEnd > centralDirEnd) break;
+      const rawName = decoder.decode(zipBytes.subarray(nameStart, nameEnd));
+      const isDir = rawName.endsWith('/');
+
+      let compressedBytes = new Uint8Array(0);
+      if (!isDir && localHeaderOffset + 30 <= zipBytes.byteLength) {
+        if (view.getUint32(localHeaderOffset, true) === 0x04034b50) {
+          const localNameLen = view.getUint16(localHeaderOffset + 26, true);
+          const localExtraLen = view.getUint16(localHeaderOffset + 28, true);
+          const dataStart = localHeaderOffset + 30 + localNameLen + localExtraLen;
+          const dataEnd = dataStart + compressedSize;
+          if (dataEnd <= zipBytes.byteLength) {
+            compressedBytes = zipBytes.subarray(dataStart, dataEnd);
+          }
+        }
+      }
+
+      records.push({
+        rawName,
+        isDir,
+        compressionMethod,
+        expectedCrc32,
+        compressedBytes,
+      });
+
+      cursor = nameEnd + extraFieldLength + commentLength;
+    }
+
+    return records;
+  }
+
+  // 2. Fallback: sequential Local File Header scan (for stream-only archives without EOCD)
+  let cursor = 0;
+  while (cursor + 30 <= zipBytes.byteLength) {
+    if (view.getUint32(cursor, true) !== 0x04034b50) break;
+    const compressionMethod = view.getUint16(cursor + 8, true);
+    const expectedCrc32 = view.getUint32(cursor + 14, true);
+    const compressedSize = view.getUint32(cursor + 18, true);
+    const fileNameLength = view.getUint16(cursor + 26, true);
+    const extraFieldLength = view.getUint16(cursor + 28, true);
+
+    const nameStart = cursor + 30;
+    const nameEnd = nameStart + fileNameLength;
+    if (nameEnd > zipBytes.byteLength) break;
+    const rawName = decoder.decode(zipBytes.subarray(nameStart, nameEnd));
+    const dataStart = nameEnd + extraFieldLength;
+    const dataEnd = dataStart + compressedSize;
+    if (dataEnd > zipBytes.byteLength) break;
+
+    const isDir = rawName.endsWith('/');
+    records.push({
+      rawName,
+      isDir,
+      compressionMethod,
+      expectedCrc32,
+      compressedBytes: isDir ? new Uint8Array(0) : zipBytes.subarray(dataStart, dataEnd),
+    });
+
+    cursor = dataEnd;
+  }
+
+  return records;
+}
+
+async function inflateDeflateRawBytes(compressed: Uint8Array): Promise<Uint8Array> {
+  if (typeof DecompressionStream === 'undefined') {
+    throw new Error(
+      'Décompression DEFLATE indisponible dans cet environnement. Utilisez une archive ZIP non compressée (STORE).'
+    );
+  }
+  const ds = new DecompressionStream('deflate-raw');
+  const writer = ds.writable.getWriter();
+  const reader = ds.readable.getReader();
+
+  const writePromise = (async () => {
+    await writer.write(
+      compressed.slice() as unknown as BufferSource
+    );
+    await writer.close();
+  })();
+
+  const chunks: Uint8Array[] = [];
+  let totalLength = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    if (value) {
+      chunks.push(value);
+      totalLength += value.byteLength;
+    }
+  }
+  await writePromise;
+
+  const output = new Uint8Array(totalLength);
+  let offset = 0;
+  for (const chunk of chunks) {
+    output.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return output;
+}
+
+function registerParsedEntry(
+  rawName: string,
+  isDir: boolean,
+  contentBytes: Uint8Array | null,
+  expectedCrc32: number,
+  decoder: TextDecoder,
+  seenDirs: Set<string>,
+  entries: FolderMaterializedEntry[],
+  filesMap: Map<string, string>
+): void {
+  // Reject Zip-Slip traversal paths (`../`, absolute drive letters, null bytes)
+  if (!isSafeRelativePath(rawName)) {
+    throw new Error(`Archive ZIP rejetée : chemin dangereux détecté ("${rawName}").`);
+  }
+
+  const cleanPath = normalizeFolderRelativePath(rawName, { stripRootPrefix: true });
+  if (!cleanPath) return;
+
+  if (isDir) {
+    if (!seenDirs.has(cleanPath)) {
+      seenDirs.add(cleanPath);
+      entries.push({ path: cleanPath, isDirectory: true, content: null });
+    }
+    return;
+  }
+
+  if (contentBytes === null) return;
+
+  // Verify CRC-32 integrity when non-zero checksum is recorded
+  if (expectedCrc32 !== 0) {
+    const actualCrc = computeCrc32(contentBytes);
+    if (actualCrc !== expectedCrc32) {
+      throw new Error(
+        `Archive ZIP corrompue : somme de contrôle CRC-32 invalide sur "${cleanPath}".`
+      );
+    }
+  }
+
+  const content = decoder.decode(contentBytes);
+  const slashIdx = cleanPath.lastIndexOf('/');
+  if (slashIdx > 0) {
+    const parentDir = cleanPath.slice(0, slashIdx);
+    if (!seenDirs.has(parentDir)) {
+      seenDirs.add(parentDir);
+      entries.push({ path: parentDir, isDirectory: true, content: null });
+    }
+  }
+  entries.push({ path: cleanPath, isDirectory: false, content });
+  filesMap.set(cleanPath, content);
+}
+
+/**
+ * Synchronously parses a standard PKZIP archive (STORE method 0) using Central Directory metadata
+ * with Zip-Slip path guards and CRC-32 integrity verification.
+ */
+export function parseZipArchiveEntries(zipBytes: Uint8Array): {
+  entries: FolderMaterializedEntry[];
+  filesMap: Map<string, string>;
+} {
+  const decoder = new TextDecoder();
+  const entries: FolderMaterializedEntry[] = [];
+  const filesMap = new Map<string, string>();
+  const seenDirs = new Set<string>();
+
+  const records = extractRawZipRecords(zipBytes);
+  for (const rec of records) {
+    if (rec.isDir) {
+      registerParsedEntry(rec.rawName, true, null, 0, decoder, seenDirs, entries, filesMap);
+    } else if (rec.compressionMethod === 0) {
+      registerParsedEntry(
+        rec.rawName,
+        false,
+        rec.compressedBytes,
+        rec.expectedCrc32,
+        decoder,
+        seenDirs,
+        entries,
+        filesMap
+      );
+    }
+  }
+
+  return { entries, filesMap };
+}
+
+/**
+ * Asynchronously parses PKZIP archives supporting BOTH uncompressed (`STORE` method 0) and
+ * compressed (`DEFLATE` method 8, e.g. Windows Explorer / 7-Zip / macOS Archive Utility) entries,
+ * with Zip-Slip path guards and CRC-32 verification.
+ */
+export async function parseZipArchiveEntriesAsync(zipBytes: Uint8Array): Promise<{
+  entries: FolderMaterializedEntry[];
+  filesMap: Map<string, string>;
+}> {
+  const decoder = new TextDecoder();
+  const entries: FolderMaterializedEntry[] = [];
+  const filesMap = new Map<string, string>();
+  const seenDirs = new Set<string>();
+
+  const records = extractRawZipRecords(zipBytes);
+  for (const rec of records) {
+    if (rec.isDir) {
+      registerParsedEntry(rec.rawName, true, null, 0, decoder, seenDirs, entries, filesMap);
+    } else if (rec.compressionMethod === 0) {
+      registerParsedEntry(
+        rec.rawName,
+        false,
+        rec.compressedBytes,
+        rec.expectedCrc32,
+        decoder,
+        seenDirs,
+        entries,
+        filesMap
+      );
+    } else if (rec.compressionMethod === 8) {
+      const inflated = await inflateDeflateRawBytes(rec.compressedBytes);
+      registerParsedEntry(
+        rec.rawName,
+        false,
+        inflated,
+        rec.expectedCrc32,
+        decoder,
+        seenDirs,
+        entries,
+        filesMap
+      );
+    } else {
+      throw new Error(
+        `Méthode de compression ZIP non prise en charge (${rec.compressionMethod}) pour "${rec.rawName}".`
+      );
+    }
+  }
+
+  return { entries, filesMap };
+}
+
+function triggerZipBrowserDownload(zipBytes: Uint8Array, fileName: string): void {
   if (typeof document === 'undefined' || typeof URL === 'undefined') {
     throw new Error('Browser download API is unavailable in this environment.');
   }
-  const zipBytes = buildEmptyStructureZipBytes(buildEmptyStructure({ includeRootPrefix: true }));
   const blob = new Blob([zipBytes.buffer as ArrayBuffer], { type: 'application/zip' });
   const url = URL.createObjectURL(blob);
   const anchor = document.createElement('a');
@@ -315,4 +575,22 @@ export function downloadEmptyDataFolderZip(fileName = 'GMAO_Data_Structure_L1.zi
   anchor.click();
   document.body.removeChild(anchor);
   URL.revokeObjectURL(url);
+}
+
+/**
+ * Triggers a browser download of `GMAO_Data_Structure_L1.zip` containing the canonical empty tree.
+ */
+export function downloadEmptyDataFolderZip(fileName = 'GMAO_Data_Structure_L1.zip'): void {
+  const zipBytes = buildEmptyStructureZipBytes(buildEmptyStructure({ includeRootPrefix: true }));
+  triggerZipBrowserDownload(zipBytes, fileName);
+}
+
+/**
+ * Triggers a browser download of `GMAO_Data_Complet.zip` containing the full live application data & preferences.
+ */
+export function downloadLiveStateDataFolderZip(fileName?: string): void {
+  const dateTag = new Date().toISOString().slice(0, 10);
+  const finalName = fileName || `GMAO_Data_Complet_${dateTag}.zip`;
+  const zipBytes = buildLiveStateFolderZipBytes();
+  triggerZipBrowserDownload(zipBytes, finalName);
 }

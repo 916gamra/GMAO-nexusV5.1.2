@@ -43,6 +43,21 @@ let hydrateAllPromise: Promise<{
   source: 'indexeddb' | 'localstorage';
 }> | null = null;
 
+export type StorageKeyChangeListener = (keys: readonly string[]) => void;
+const keyChangeListeners = new Set<StorageKeyChangeListener>();
+let suppressKeyChangeNotifications = false;
+
+function notifyKeyChangeListeners(keys: readonly string[]): void {
+  if (suppressKeyChangeNotifications || keyChangeListeners.size === 0 || keys.length === 0) return;
+  for (const listener of keyChangeListeners) {
+    try {
+      listener(keys);
+    } catch {
+      // Never allow a storage listener to interrupt core persistence
+    }
+  }
+}
+
 function loadOffloadedKeysFromLocalStorage(): void {
   offloadedToIdbKeys.clear();
   try {
@@ -795,6 +810,9 @@ export const storageService = {
       if (key.startsWith('gmao_') && !skipIdbWrite) {
         trackIdbWrite([key], indexedDBService.removeItem(key));
       }
+      if (!skipIdbWrite) {
+        notifyKeyChangeListeners([key]);
+      }
       return true;
     }
 
@@ -904,6 +922,9 @@ export const storageService = {
       return false;
     }
 
+    if (!skipIdbWrite) {
+      notifyKeyChangeListeners([key]);
+    }
     return true;
   },
 
@@ -938,6 +959,7 @@ export const storageService = {
         keysToRemoveFromIdb.map((k) => trackIdbWrite([k], indexedDBService.removeItem(k)))
       );
     }
+    notifyKeyChangeListeners(Object.keys(itemsMap).filter(Boolean));
     return ok;
   },
 
@@ -985,6 +1007,7 @@ export const storageService = {
       }
     }
 
+    notifyKeyChangeListeners([key]);
     return true;
   },
 
@@ -1163,5 +1186,30 @@ export const storageService = {
       return constantTimeEqual(sha256Hex(cleanInput).toLowerCase(), storedValue.toLowerCase());
     }
     return false;
+  },
+
+  /**
+   * Registers a callback notified whenever keys are mutated via setItem, setItemsBatch, or removeItem.
+   * Used by FolderSyncService (Phase L2) to mark only the affected JSON file(s) dirty on disk.
+   */
+  subscribeKeyChange(listener: StorageKeyChangeListener): () => void {
+    keyChangeListeners.add(listener);
+    return () => {
+      keyChangeListeners.delete(listener);
+    };
+  },
+
+  /**
+   * Executes a callback (such as hydrating state from disk folder into storageService)
+   * without triggering outbound dirty-file echo notifications.
+   */
+  runWithKeyChangeNotificationsSuppressed<T>(fn: () => T): T {
+    const prev = suppressKeyChangeNotifications;
+    suppressKeyChangeNotifications = true;
+    try {
+      return fn();
+    } finally {
+      suppressKeyChangeNotifications = prev;
+    }
   },
 };

@@ -34,6 +34,7 @@ import { getMachineAssetClass } from './utils/activeMachines';
 import { storageService } from './utils/storageService';
 import { STORAGE_KEYS } from './infrastructure/persistence/storageKeys';
 import { SecurityService } from './core/security/SecurityService';
+import { folderSyncService } from './application/folderStore/folderSyncService';
 
 export default function AuthenticatedApp() {
   const { user: currentUser, logout } = useAuth();
@@ -214,6 +215,9 @@ export default function AuthenticatedApp() {
       // Delegates to AutoBackupService.createSnapshot across all canonical STORAGE_KEYS
       backupService.startAutoBackup(null, currentUserNameRef.current);
     });
+    // L2.3: Restore saved local folder handle (or mark NEEDS_PERMISSION) so LOCAL_FOLDER_SSOT
+    // stays active and queues changes across the entire workspace after reload.
+    void folderSyncService.bootstrapFromSavedHandle();
 
     return () => {
       backupService.stopAutoBackup();

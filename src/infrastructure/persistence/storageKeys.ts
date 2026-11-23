@@ -82,6 +82,8 @@ export const STORAGE_KEYS = {
   PREVENTIVE_TARGET_MACHINE: 'gmao_preventive_target_machine',
   SHARED_FOLDER_PATH: 'gmao_shared_folder_path',
   DATA_FOLDER_LABEL: 'gmao_data_folder_label',
+  STORAGE_MODE: 'gmao_storage_mode_v1',
+  DATA_FOLDER_LAST_SYNC_AT: 'gmao_data_folder_last_sync_at_v1',
   AUTO_WRITE_EXCEL: 'gmao_auto_write_excel',
   POLLING_INTERVAL: 'gmao_polling_interval',
   CACHE_CEILING_MB: 'gmao_cache_ceiling_mb',

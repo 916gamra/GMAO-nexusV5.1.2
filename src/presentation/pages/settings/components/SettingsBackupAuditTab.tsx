@@ -513,7 +513,10 @@ export default function SettingsBackupAuditTab({
         <div className="space-y-4">
           <SyncButtons showToast={showToast} />
           <SqliteHostDatabaseCard showToast={showToast} />
-          <DataFolderPhaseL1Card showToast={showToast} />
+          <DataFolderPhaseL1Card
+            showToast={showToast}
+            onOpenIntegrityTab={() => setAuditSubTab('integrity')}
+          />
 
           <SettingsSectionCard
             title="Points de Restauration Locaux"

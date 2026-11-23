@@ -1,30 +1,22 @@
 import { STORAGE_KEYS } from '../../infrastructure/persistence/storageKeys';
 import type { TypeAExcelBundleKind } from '../../services/import/typeAExcelBridge';
 import type { FolderFileRole, FolderManifestFileEntry } from './folderManifest';
+import { normalizeFolderRelativePath } from './folderStorePaths';
 
 /**
- * Canonical Tree Definition for `GMAO_Data/` (Phase L1 — Structure Contract Only).
+ * Canonical Tree Definition for `GMAO_Data/` (Phase L1 + Phase L2 Full Application Coverage).
  *
- * IMPORTANT ARCHITECTURAL BOUNDARY (Phase L1):
- * - Live operational reads/writes STILL run exclusively through `DataGateway` + `storageService`
- *   (RAM / IndexedDB / localStorage).
- * - Live structured imports STILL run exclusively through `UnifiedImportPipeline`.
- * - This module defines the future durable folder layout aligned 1:1 with the 7 official Type A
- *   bundles (`catalog/*.json`) and canonical `STORAGE_KEYS` operational slices (`operational/*.json`).
- *
- * JSON Shape Choice (Documented Contract):
- * - `catalog/*.json` files are **JSON Objects (`{ "bundleType": "...", ... }`)** matching the
- *   exact top-level contract of official Type A templates (`templates/import/*.template.json`),
- *   so each catalog file can be round-tripped cleanly with `UnifiedImportPipeline` in Phase L2.
- * - `operational/*.json` files are **JSON Arrays (`[]`)**, matching 1:1 the array collections
- *   persisted in `STORAGE_KEYS` (`DataGateway` / repositories).
- *
- * Deferred Domain Keys (explicitly NOT included in L1 tree yet — reserved for L2):
- * - `BLUEPRINTS` (`gmao_blueprints_v2`): Tier 3 cognitive twin derived inside the app.
- * - `PREVENTIVE_PLANS`, `CBM_MANUAL_RULES`, `FINANCIAL_BUDGETS`, `CURRENCY_CONFIG`,
- *   `CORRECTIVE_TRAVAUX`, `CORRECTIVE_INTERVENANTS`: secondary/config slices deferred to L2.
- * - `AUTH_ACCOUNTS`, `LICENSE_RECORD`, `REMEMBERED_LICENSE_KEY`: strictly excluded from the
- *   human-readable data folder for security isolation.
+ * Covers 100% of application data, tables, cognitive blueprints, financial budgets, currency config,
+ * and UI appearance / ergonomics preferences:
+ * - `catalog/*.json` (7 files): JSON Objects (`{ "bundleType": "...", ... }`) matching 1:1 the 7 official
+ *   Type A templates (`REF_PARC`, `REF_PERSONNEL`, `ASSETS_MACHINES`, `REF_PDR`, `PM_CATALOG`,
+ *   `ENTREPOT_BOM`, `CM_CATALOG`).
+ * - `operational/*.json` (19 files): JSON Arrays (`[]`) matching 1:1 every operational and historical
+ *   collection in `STORAGE_KEYS` (including `blueprints.json`, `preventive_plans.json`, `cbm_manual_rules.json`,
+ *   `corrective_travaux.json`, `corrective_intervenants.json`, `audit_events.json`, etc.).
+ * - `config/*.json` (3 files): JSON Objects (`{}`) persisting all UI appearance preferences, currency &
+ *   fiscal budgets, and system operating flags.
+ * - `exports/`: Empty directory reserved for human-readable Type B Excel mirrors.
  */
 
 export interface FolderDirectorySpec {
@@ -57,7 +49,12 @@ export const CANONICAL_FOLDER_DIRECTORIES: readonly FolderDirectorySpec[] = [
   {
     path: 'operational',
     required: true,
-    purpose: 'Daily operational ledgers mapped 1:1 to canonical STORAGE_KEYS collections.',
+    purpose: 'Daily operational ledgers, cognitive blueprints, and historical records mapped 1:1 to STORAGE_KEYS.',
+  },
+  {
+    path: 'config',
+    required: true,
+    purpose: 'User interface preferences, appearance customizations, currency/tax settings, financial budgets, and system flags.',
   },
   {
     path: 'exports',
@@ -94,7 +91,7 @@ export const CANONICAL_CATALOG_FILES: readonly FolderFileSpec[] = [
     required: true,
     jsonRootShape: 'object',
     typeABundleKind: 'REF_PERSONNEL',
-    storageKeys: [STORAGE_KEYS.TECHNICIANS, STORAGE_KEYS.OPERATIONS],
+    storageKeys: [STORAGE_KEYS.TECHNICIANS, STORAGE_KEYS.OPERATIONS, STORAGE_KEYS.PERSONNEL],
     description: 'Operational technicians and managers without any auth secrets (Type A: REF_PERSONNEL).',
     buildEmptyBody: () => ({
       bundleType: 'REF_PERSONNEL',
@@ -213,6 +210,24 @@ export const CANONICAL_OPERATIONAL_FILES: readonly FolderFileSpec[] = [
     buildEmptyBody: () => [],
   },
   {
+    path: 'operational/corrective_travaux.json',
+    role: 'operational',
+    required: true,
+    jsonRootShape: 'array',
+    storageKeys: [STORAGE_KEYS.CORRECTIVE_TRAVAUX],
+    description: 'Standard and custom corrective work descriptions (Travaux à faire).',
+    buildEmptyBody: () => [],
+  },
+  {
+    path: 'operational/corrective_intervenants.json',
+    role: 'operational',
+    required: true,
+    jsonRootShape: 'array',
+    storageKeys: [STORAGE_KEYS.CORRECTIVE_INTERVENANTS],
+    description: 'Corrective maintenance intervenants registry.',
+    buildEmptyBody: () => [],
+  },
+  {
     path: 'operational/preventive_tasks.json',
     role: 'operational',
     required: true,
@@ -222,12 +237,30 @@ export const CANONICAL_OPERATIONAL_FILES: readonly FolderFileSpec[] = [
     buildEmptyBody: () => [],
   },
   {
+    path: 'operational/preventive_plans.json',
+    role: 'operational',
+    required: true,
+    jsonRootShape: 'array',
+    storageKeys: [STORAGE_KEYS.PREVENTIVE_PLANS],
+    description: 'Preventive maintenance master plans.',
+    buildEmptyBody: () => [],
+  },
+  {
     path: 'operational/preventive_executions.json',
     role: 'operational',
     required: true,
     jsonRootShape: 'array',
     storageKeys: [STORAGE_KEYS.PREVENTIVE_EXECUTIONS],
     description: 'Immutable dated preventive execution history (periodMonth YYYY-MM).',
+    buildEmptyBody: () => [],
+  },
+  {
+    path: 'operational/cbm_manual_rules.json',
+    role: 'operational',
+    required: true,
+    jsonRootShape: 'array',
+    storageKeys: [STORAGE_KEYS.CBM_MANUAL_RULES],
+    description: 'Condition-based maintenance (CBM) threshold and trigger rules.',
     buildEmptyBody: () => [],
   },
   {
@@ -312,6 +345,15 @@ export const CANONICAL_OPERATIONAL_FILES: readonly FolderFileSpec[] = [
     buildEmptyBody: () => [],
   },
   {
+    path: 'operational/blueprints.json',
+    role: 'operational',
+    required: true,
+    jsonRootShape: 'array',
+    storageKeys: [STORAGE_KEYS.BLUEPRINTS],
+    description: 'Tier 3 cognitive engineering digital twins (Blueprints).',
+    buildEmptyBody: () => [],
+  },
+  {
     path: 'operational/audit_events.json',
     role: 'operational',
     required: true,
@@ -322,10 +364,117 @@ export const CANONICAL_OPERATIONAL_FILES: readonly FolderFileSpec[] = [
   },
 ] as const;
 
+export const CANONICAL_CONFIG_FILES: readonly FolderFileSpec[] = [
+  {
+    path: 'config/preferences.json',
+    role: 'config',
+    required: true,
+    jsonRootShape: 'object',
+    storageKeys: [
+      STORAGE_KEYS.DEVICE_MODE,
+      STORAGE_KEYS.SIDEBAR_STYLE,
+      STORAGE_KEYS.SIDEBAR_BEHAVIOR,
+      STORAGE_KEYS.SIDEBAR_THEME,
+      STORAGE_KEYS.THEME,
+      STORAGE_KEYS.DENSITY,
+      STORAGE_KEYS.ACCENT_COLOR,
+      STORAGE_KEYS.ANIMATIONS,
+      STORAGE_KEYS.HEADER_CLOCK,
+      STORAGE_KEYS.LANGUAGE,
+      STORAGE_KEYS.ACTIVE_TAB,
+      STORAGE_KEYS.WIZARD_FEATURE_FLAGS,
+      STORAGE_KEYS.ONBOARDING_DISMISSED,
+    ],
+    description: 'UI appearance, density, accent color, sidebar layout, language, and ergonomics preferences.',
+    buildEmptyBody: () => ({
+      deviceMode: 'auto',
+      sidebarStyle: 'floating',
+      sidebarBehavior: 'push',
+      sidebarTheme: 'light',
+      theme: 'light',
+      density: 'comfortable',
+      accentColor: 'emerald',
+      animations: 'true',
+      headerClock: 'true',
+      language: 'fr',
+      activeTab: 'dashboard',
+      wizardFeatureFlags: {},
+      onboardingDismissed: 'false',
+    }),
+  },
+  {
+    path: 'config/finance_currency.json',
+    role: 'config',
+    required: true,
+    jsonRootShape: 'object',
+    storageKeys: [STORAGE_KEYS.CURRENCY_CONFIG, STORAGE_KEYS.FINANCIAL_BUDGETS],
+    description: 'Active currency, exchange rates, VAT/TVA rate, and annual/monthly maintenance budgets.',
+    buildEmptyBody: () => ({
+      currencyConfig: null,
+      financialBudgets: null,
+    }),
+  },
+  {
+    path: 'config/system_flags.json',
+    role: 'config',
+    required: true,
+    jsonRootShape: 'object',
+    storageKeys: [
+      STORAGE_KEYS.START_MODE,
+      STORAGE_KEYS.DEMO_MODE,
+      STORAGE_KEYS.AUTO_WRITE_EXCEL,
+      STORAGE_KEYS.POLLING_INTERVAL,
+      STORAGE_KEYS.CACHE_CEILING_MB,
+      STORAGE_KEYS.STORAGE_CEILING_MB,
+      STORAGE_KEYS.SHARED_FOLDER_PATH,
+    ],
+    description: 'Factory start mode (empty/custom/demo), auto-mirror flags, and storage ceilings.',
+    buildEmptyBody: () => ({
+      startMode: 'empty',
+      demoMode: false,
+      autoWriteExcel: 'false',
+      pollingInterval: '15',
+      cacheCeilingMb: '256',
+      storageCeilingMb: '1024',
+      sharedFolderPath: '',
+    }),
+  },
+] as const;
+
 export const ALL_CANONICAL_FILES: readonly FolderFileSpec[] = [
   ...CANONICAL_CATALOG_FILES,
   ...CANONICAL_OPERATIONAL_FILES,
+  ...CANONICAL_CONFIG_FILES,
 ];
+
+const FILE_SPEC_BY_PATH = new Map<string, FolderFileSpec>();
+const FILE_SPECS_BY_STORAGE_KEY = new Map<string, FolderFileSpec[]>();
+
+for (const spec of ALL_CANONICAL_FILES) {
+  FILE_SPEC_BY_PATH.set(spec.path, spec);
+  for (const key of spec.storageKeys) {
+    const existing = FILE_SPECS_BY_STORAGE_KEY.get(key) ?? [];
+    if (!existing.some((s) => s.path === spec.path)) {
+      existing.push(spec);
+    }
+    FILE_SPECS_BY_STORAGE_KEY.set(key, existing);
+  }
+}
+
+/**
+ * O(1) lookup of a canonical folder file specification by its relative path.
+ */
+export function getFolderFileSpecByPath(relativePath: string): FolderFileSpec | undefined {
+  const clean = normalizeFolderRelativePath(relativePath, { stripRootPrefix: true });
+  return FILE_SPEC_BY_PATH.get(clean);
+}
+
+/**
+ * O(1) lookup returning all canonical folder files affected when a given `STORAGE_KEYS` key changes.
+ */
+export function getFolderFilesForStorageKey(storageKey: string): readonly FolderFileSpec[] {
+  return FILE_SPECS_BY_STORAGE_KEY.get(storageKey) ?? [];
+}
 
 /**
  * Builds the `manifest.files` dictionary directly from the canonical file specifications.
