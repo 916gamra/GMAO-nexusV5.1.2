@@ -125,7 +125,6 @@ export interface SettingsBackupAuditTabProps {
   perfStats?: PerfStatsSummary;
   syncQueueState?: ReturnType<typeof syncQueueService.getState>;
   refreshTelemetry?: () => void;
-  handleSimulateError?: () => void;
   handleExportErrorReports?: () => void;
   handleClearErrorReports?: () => void;
   handleClearAnalytics?: () => void;
@@ -179,7 +178,6 @@ export default function SettingsBackupAuditTab({
     items: [],
   },
   refreshTelemetry,
-  handleSimulateError,
   handleExportErrorReports,
   handleClearErrorReports,
   handleClearAnalytics,
@@ -1011,7 +1009,6 @@ export default function SettingsBackupAuditTab({
         <TelemetryAuditPanel
           errorReports={errorReports}
           analyticsEvents={analyticsEvents}
-          onSimulateError={handleSimulateError}
           onExportErrors={handleExportErrorReports}
           onClearErrors={handleClearErrorReports}
           onClearAnalytics={handleClearAnalytics}

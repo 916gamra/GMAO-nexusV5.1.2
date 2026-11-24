@@ -5,7 +5,6 @@ import {
   Download,
   Trash2,
   RefreshCw,
-  AlertTriangle,
   CheckCircle2,
   ChevronDown,
   ChevronUp,
@@ -22,7 +21,6 @@ import {
 export default function TelemetryAuditPanel({
   errorReports = [],
   analyticsEvents = [],
-  onSimulateError,
   onExportErrors,
   onClearErrors,
   onClearAnalytics,
@@ -53,15 +51,6 @@ export default function TelemetryAuditPanel({
         icon={<Bug className="w-4 h-4" />}
         headerRight={
           <div className="flex flex-wrap items-center gap-2">
-            <button
-              type="button"
-              onClick={onSimulateError}
-              className={SETTINGS_BUTTON_STYLES.warning}
-              title="Simuler une erreur d'exécution pour tester la capture"
-            >
-              <AlertTriangle className="w-3.5 h-3.5" />
-              <span>Tester Détection</span>
-            </button>
             <button
               type="button"
               onClick={onExportErrors}

@@ -115,11 +115,14 @@ export default function PerformanceDashboardPanel({
     }
   };
 
-  // Handle Memory Purge
+  // Handle Volatile App Cache Purge (browser JS cannot force OS GC; clears memoized formulas & transient cache entries)
   const handlePurgeMemory = () => {
     MemoryOptimizer.purgeMemory();
     setCacheMetrics(multiLevelCacheManager.getMetrics());
-    showToast?.('Purge mémoire effectuée avec succès.', 'success');
+    showToast?.(
+      'Caches volatils (formules mémoïsées et entrées temporaires) purgés avec succès.',
+      'success'
+    );
   };
 
   // Run Formula Engine Live Benchmark
@@ -184,10 +187,11 @@ export default function PerformanceDashboardPanel({
             <button
               type="button"
               onClick={handlePurgeMemory}
+              title="Vide le cache de mémoïsation des formules et les entrées temporaires L1 (le navigateur gère lui-même le ramasse-miettes RAM)"
               className={SETTINGS_BUTTON_STYLES.dangerSoft}
             >
               <Trash2 className="w-4 h-4" />
-              <span>Purge Mémoire</span>
+              <span>Purger Caches Volatils</span>
             </button>
           </div>
         }

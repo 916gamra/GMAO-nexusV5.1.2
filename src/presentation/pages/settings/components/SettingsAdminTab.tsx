@@ -35,8 +35,6 @@ export default function SettingsAdminTab({
   setCurrentMasterPin,
   tempPin,
   setTempPin,
-  tempRole,
-  setTempRole,
   handleResetAllAccounts,
   accountsList = [],
   updateUserPassword,
@@ -426,33 +424,18 @@ export default function SettingsAdminTab({
               </div>
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <div>
-                <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
-                  Atelier / Organisation
-                </label>
-                <div className="relative">
-                  <Building2 className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-3" />
-                  <input
-                    type="text"
-                    value={organizationLabel}
-                    onChange={(e) => setOrganizationLabel(e.target.value)}
-                    placeholder="Atelier Industriel CIOB"
-                    className={`${SETTINGS_INPUT_CLASS} pl-8`}
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
-                  Libellé du Rôle Administrateur
-                </label>
+            <div>
+              <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
+                Atelier / Organisation
+              </label>
+              <div className="relative">
+                <Building2 className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-3" />
                 <input
                   type="text"
-                  value={tempRole}
-                  onChange={(e) => setTempRole(e.target.value)}
-                  placeholder="Ex: Administrateur Système"
-                  className={SETTINGS_INPUT_CLASS}
+                  value={organizationLabel}
+                  onChange={(e) => setOrganizationLabel(e.target.value)}
+                  placeholder="Atelier Industriel CIOB"
+                  className={`${SETTINGS_INPUT_CLASS} pl-8`}
                 />
               </div>
             </div>
@@ -540,9 +523,6 @@ export default function SettingsAdminTab({
                       organizationLabel: organizationLabel.trim(),
                     });
                     storageService.removeItem('gmao_admin_pin');
-                    if (tempRole?.trim()) {
-                      storageService.setItem('gmao_admin_role', tempRole.trim());
-                    }
                     showToast?.(
                       `Code d'activation local renouvelé (${rotated.licenseKeyId}) — les mots de passe des comptes restent inchangés !`,
                       'success'

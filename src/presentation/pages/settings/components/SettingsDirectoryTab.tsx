@@ -508,25 +508,25 @@ export default function SettingsDirectoryTab({
               )}
             </div>
             <p className="text-[11px] text-slate-500 mt-1.5">
-              Cliquez sur <b>Lier Fichier Local (.xlsx)</b> pour accorder au navigateur l&apos;accès direct en lecture/écriture au classeur Excel sur ce poste.
+              Cliquez sur <b>Lier Fichier Local (.xlsx)</b> (Chrome/Edge PC hors iframe) pour enregistrer vos exports manuels directement dans ce classeur Excel.
             </p>
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-1">
             <div className="p-4 rounded-2xl border border-slate-200/80 bg-slate-50/70 space-y-2">
-              <label className="flex items-center justify-between cursor-pointer">
+              <label className="flex items-center justify-between cursor-pointer gap-2">
                 <span className="text-xs font-bold text-slate-800">
-                  Écriture Miroir Excel Automatique
+                  Synchronisation Automatique Miroir Serveur (LAN)
                 </span>
                 <input
                   type="checkbox"
                   checked={autoWriteExcel}
                   onChange={(e) => setAutoWriteExcel(e.target.checked)}
-                  className="rounded border-slate-300 text-sky-700 focus:ring-sky-600 w-4 h-4 cursor-pointer"
+                  className="rounded border-slate-300 text-sky-700 focus:ring-sky-600 w-4 h-4 cursor-pointer shrink-0"
                 />
               </label>
               <p className="text-[11px] text-slate-500 leading-relaxed">
-                Met à jour automatiquement le fichier Excel lié (<code className="font-mono">.xlsx</code>) et le miroir serveur après chaque mouvement ou intervention.
+                Pousse automatiquement les changements vers le serveur local LAN (base hôte &amp; miroir serveur) après chaque mouvement ou intervention. L&apos;écriture du fichier <code className="font-mono">.xlsx</code> lié côté navigateur reste déclenchée lors d&apos;un export.
               </p>
             </div>
 

@@ -474,13 +474,6 @@ export default function SettingsView({
     }
   };
 
-  const [tempRole, setTempRole] = useState(() => {
-    return (
-      (storageService.getItem(STORAGE_KEYS.ADMIN_ROLE) as string) ||
-      'Gestionnaire Principal du Stock & Mouvements'
-    );
-  });
-
   const [tempPin, setTempPin] = useState('');
 
   const [auditTarget, setAuditTarget] = useState('machines');
@@ -1230,23 +1223,6 @@ export default function SettingsView({
     setAnalyticsEvents(analytics.getEvents());
   };
 
-  const handleSimulateError = () => {
-    try {
-      throw new Error(
-        `Erreur Diagnostic Simulée CIOB GMAO [Code: DIAG-${Date.now().toString().slice(-4)}]`
-      );
-    } catch (err: unknown) {
-      errorTracker.captureException(err instanceof Error ? err : new Error(getErrorMessage(err)), {
-        source: 'Diagnostic Simulation',
-      });
-      refreshTelemetry();
-      showToast?.(
-        'Erreur de test interceptée et enregistrée avec succès dans le journal local !',
-        'info'
-      );
-    }
-  };
-
   const handleExportErrorReports = () => {
     const jsonStr = errorTracker.exportReportsAsJson();
     const blob = new Blob([jsonStr], { type: 'application/json' });
@@ -1796,7 +1772,6 @@ export default function SettingsView({
             perfStats={perfStats}
             syncQueueState={syncQueueState}
             refreshTelemetry={refreshTelemetry}
-            handleSimulateError={handleSimulateError}
             handleExportErrorReports={handleExportErrorReports}
             handleClearErrorReports={handleClearErrorReports}
             handleClearAnalytics={handleClearAnalytics}
@@ -1819,8 +1794,6 @@ export default function SettingsView({
             setCurrentMasterPin={setCurrentMasterPin}
             tempPin={tempPin}
             setTempPin={setTempPin}
-            tempRole={tempRole}
-            setTempRole={setTempRole}
             handleResetAllAccounts={handleResetAllAccounts}
             accountsList={accountsList}
             updateUserPassword={updateUserPassword}
