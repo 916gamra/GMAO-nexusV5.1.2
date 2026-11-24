@@ -72,17 +72,21 @@ export {
 } from './folderSyncService';
 
 export {
+  isRunningInsideIframe,
   isDirectoryPickerSupported,
+  getFolderPickerCapability,
   getSavedDataFolderLabel,
   saveDataFolderLabel,
   clearSavedDataFolderLabel,
   pickAndInspectDirectory,
+  inspectFolderFromFileList,
   buildEmptyStructureZipBytes,
   buildLiveStateFolderZipBytes,
   parseZipArchiveEntries,
   parseZipArchiveEntriesAsync,
   downloadEmptyDataFolderZip,
   downloadLiveStateDataFolderZip,
+  type FolderPickerCapability,
   type BrowserDirectoryHandleLike,
   type BrowserFileHandleLike,
   type BrowserFsHandleLike,

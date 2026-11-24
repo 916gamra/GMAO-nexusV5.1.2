@@ -1654,6 +1654,11 @@ export default function SettingsView({
             onDownloadBlankTemplate={onDownloadBlankTemplate}
             onExportExcel={onExportExcel}
             onOpenBackupManager={() => setShowBackupManagerModal(true)}
+            onOpenIntegrityTab={() => {
+              setActiveTab('backup-audit');
+              setAuditSubTab('integrity');
+              runIntegrityCheck();
+            }}
             showToast={showToast}
           />
         )}

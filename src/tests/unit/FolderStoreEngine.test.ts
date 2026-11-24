@@ -16,9 +16,11 @@ import {
   FOLDER_MANIFEST_FORMAT,
   FOLDER_SCHEMA_VERSION,
   folderSyncService,
+  getFolderPickerCapability,
   GMAO_DATA_ROOT_DIR,
   hydrateLiveStateFromFolderFiles,
   IDB_FOLDER_HANDLE_STORAGE_KEY,
+  inspectFolderFromFileList,
   inspectPath,
   isSafeRelativePath,
   MemoryFolderFsAdapter,
@@ -962,6 +964,63 @@ describe('FOLDER-SSOT-L1 & L2 — Canonical Data Folder Structure, Repair Engine
     expect(cardSrc).toContain('flushDirtyFilesNow');
     expect(cardSrc).toContain('ALL_CANONICAL_FILES');
     expect(cardSrc).toContain('onOpenIntegrityTab');
+    expect(cardSrc).toContain('inspectFolderFromFileList');
+    expect(cardSrc).toContain('getFolderPickerCapability');
+    expect(cardSrc).not.toContain('Simulateur de cas');
+  });
+
+  it('Phase L2.5: reads a real OS folder via webkitdirectory FileList (iframe/Firefox fallback) safely in readonly-disk-snapshot mode', async () => {
+    const emptyTree = buildEmptyStructure({ nowIso: FIXED_ISO });
+    const manifestJson = emptyTree.find((e) => e.path === FOLDER_MANIFEST_FILENAME)!.content!;
+
+    const makeMockDiskFile = (relPath: string, content: string): File => {
+      const file = new File([content], relPath.split('/').pop() || 'file.json', {
+        type: 'application/json',
+      });
+      Object.defineProperty(file, 'webkitRelativePath', {
+        value: relPath,
+        configurable: true,
+      });
+      // Ensure `.text()` works cleanly in jsdom environments
+      Object.defineProperty(file, 'text', {
+        value: async () => content,
+        configurable: true,
+      });
+      return file;
+    };
+
+    const files = [
+      makeMockDiskFile('Mon_Usine_GMAO/manifest.json', manifestJson),
+      makeMockDiskFile(
+        'Mon_Usine_GMAO/catalog/ref_parc.json',
+        JSON.stringify({
+          bundleType: 'REF_PARC',
+          zones: [{ code_zone: 'Z-PC', libelle: 'Atelier PC Réel' }],
+          families: [],
+          templates: [],
+          generalSystemTypes: [],
+        })
+      ),
+      makeMockDiskFile(
+        'Mon_Usine_GMAO/config/preferences.json',
+        JSON.stringify({ theme: 'dark', accentColor: 'emerald' })
+      ),
+      // Malicious traversal path must be silently ignored
+      makeMockDiskFile('Mon_Usine_GMAO/../../etc/passwd.json', '{"evil":true}'),
+    ];
+
+    const report = await inspectFolderFromFileList(files);
+    expect(report.folderLabel).toBe('Mon_Usine_GMAO');
+    expect(report.accessMode).toBe('readonly-disk-snapshot');
+    expect(report.inspection.status).toBe('PARTIAL');
+    expect(report.inspection.presentFiles).toContain('catalog/ref_parc.json');
+    expect(report.inspection.presentFiles).toContain('config/preferences.json');
+    expect(report.entries.some((e) => e.path.includes('passwd'))).toBe(false);
+
+    // Capability helper returns a valid typed state
+    expect(['READWRITE_PICKER', 'BLOCKED_IN_IFRAME', 'UNSUPPORTED_BROWSER']).toContain(
+      getFolderPickerCapability()
+    );
   });
 });
 

@@ -19,11 +19,13 @@ import { storageService } from '../../../../utils/storageService';
 import { STORAGE_KEYS } from '../../../../infrastructure/persistence/storageKeys';
 import { AutoBackupService } from '../../../../core/backup/AutoBackupService';
 import { SettingsSectionCard, SETTINGS_BUTTON_STYLES } from './settingsUi';
+import DataFolderPhaseL1Card from './DataFolderPhaseL1Card';
 
 const STORAGE_CEILING_KEY = STORAGE_KEYS.STORAGE_CEILING_MB;
 
 /**
- * Overview Tab — Storage Quota (L1 localStorage & L2 IndexedDB), Data Volume Counters, and Excel Twin Export.
+ * Overview Tab — Dual-Mode Storage (Browser vs Local PC Folder GMAO_Data/),
+ * Browser IndexedDB Diagnostics, Data Volume Counters, and Excel Twin Export.
  */
 export default function SettingsOverviewTab({
   storageUsage,
@@ -45,6 +47,7 @@ export default function SettingsOverviewTab({
   onDownloadBlankTemplate,
   onExportExcel,
   onOpenBackupManager,
+  onOpenIntegrityTab,
   showToast,
 }: any) {
   const effectiveStorageKb = Number(storageUsage?.kb ?? localStorageSizeKB ?? 0);
@@ -79,7 +82,7 @@ export default function SettingsOverviewTab({
   const [idbInfo, setIdbInfo] = useState({
     activeTier: 'IndexedDB',
     usageMB: 0,
-    quotaMB: 2048,
+    quotaMB: 0,
     usagePercent: 0,
     isPersisted: false,
   });
@@ -95,11 +98,24 @@ export default function SettingsOverviewTab({
       try {
         const info = await indexedDBService.getStorageInfo();
         let persisted = false;
-        if (navigator.storage && navigator.storage.persisted) {
-          persisted = await navigator.storage.persisted();
+        let realBrowserQuotaMB = 0;
+        if (typeof navigator !== 'undefined' && navigator.storage) {
+          if (navigator.storage.persisted) {
+            persisted = await navigator.storage.persisted();
+          }
+          if (navigator.storage.estimate) {
+            const estimate = await navigator.storage.estimate();
+            if (typeof estimate.quota === 'number' && estimate.quota > 0) {
+              realBrowserQuotaMB = Math.round(estimate.quota / (1024 * 1024));
+            }
+          }
         }
         if (mounted) {
-          setIdbInfo({ ...info, isPersisted: persisted });
+          setIdbInfo({
+            ...info,
+            quotaMB: realBrowserQuotaMB,
+            isPersisted: persisted,
+          });
           setPersistenceDiag(storageService.getPersistenceDiagnostics());
         }
       } catch {
@@ -135,10 +151,26 @@ export default function SettingsOverviewTab({
       setIdbInfo((prev) => ({ ...prev, isPersisted: granted }));
       if (!onParentCeilingChange && showToast) {
         showToast(
-          `Capacité cible configurée à ${newCeiling >= 1024 ? `${newCeiling / 1024} Go` : `${newCeiling} Mo`} (IndexedDB L2 Actif)`,
+          `Seuil d'alerte visuel fixé à ${newCeiling >= 1024 ? `${newCeiling / 1024} Go` : `${newCeiling} Mo`} (persistance navigateur ${granted ? 'verrouillée' : 'standard'})`,
           'success'
         );
       }
+    } finally {
+      setRequestingPersist(false);
+    }
+  };
+
+  const handleRequestPersistentOnly = async () => {
+    setRequestingPersist(true);
+    try {
+      const granted = await indexedDBService.requestPersistentStorage();
+      setIdbInfo((prev) => ({ ...prev, isPersisted: granted }));
+      showToast?.(
+        granted
+          ? 'Stockage persistant navigateur verrouillé (protection contre purge automatique).'
+          : "Le navigateur n'a pas encore accordé le verrouillage persistant (ajoutez le site en favori ou utilisez un dossier local PC).",
+        granted ? 'success' : 'warning'
+      );
     } finally {
       setRequestingPersist(false);
     }
@@ -160,18 +192,24 @@ export default function SettingsOverviewTab({
 
   return (
     <div className="space-y-6">
-      {/* 1. Storage Engine & Volume Metrics */}
+      {/* 0. Dual-Mode Storage Engine (Browser Storage vs Local PC Folder GMAO_Data/) */}
+      <DataFolderPhaseL1Card
+        showToast={showToast}
+        onOpenIntegrityTab={onOpenIntegrityTab}
+      />
+
+      {/* 1. Browser Storage Diagnostics & Volume Metrics */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <SettingsSectionCard
-          title="Moteur de Stockage IndexedDB Principal (Haute Capacité)"
-          description="Stockage durable haute capacité pour plusieurs années d'historique sans saturation du plafond localStorage (5 Mo)."
+          title="Moteur de Stockage Navigateur (IndexedDB & localStorage)"
+          description="Stockage interne du navigateur (cache rapide localStorage + base IndexedDB gérée dynamiquement par l'OS)."
           icon={<HardDrive />}
           headerRight={
             <span className="inline-flex items-center gap-1.5 text-[11px] font-bold px-3 py-1 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200/80">
               <Sparkles className="w-3 h-3" />
               {persistenceDiag.engine === 'indexeddb-primary'
-                ? `IndexedDB Principal (${ceilingMB >= 1024 ? `${ceilingMB / 1024} Go` : `${ceilingMB} Mo`})`
-                : `Fallback (${ceilingMB >= 1024 ? `${ceilingMB / 1024} Go` : `${ceilingMB} Mo`})`}
+                ? 'IndexedDB Principal'
+                : 'Mode Fallback'}
             </span>
           }
         >
@@ -188,8 +226,7 @@ export default function SettingsOverviewTab({
                     effectivePercent > 80 ? 'text-rose-600' : 'text-sky-800'
                   }`}
                 >
-                  {effectivePercent}% sur{' '}
-                  {ceilingMB >= 1024 ? `${ceilingMB / 1024} Go` : `${ceilingMB} Mo`}
+                  {effectivePercent}% du seuil ({ceilingMB >= 1024 ? `${ceilingMB / 1024} Go` : `${ceilingMB} Mo`})
                 </span>
               </div>
               <div className="w-full h-2.5 bg-slate-100 rounded-full overflow-hidden p-0.5 border border-slate-200/80">
@@ -206,21 +243,32 @@ export default function SettingsOverviewTab({
               </div>
             </div>
 
-            {/* Tier Selector */}
+            {/* Visual Monitoring Threshold + Real Browser Persistent Storage Lock */}
             <div className="bg-slate-50/70 rounded-2xl p-3.5 border border-slate-200/80 space-y-2.5">
               <div className="flex items-center justify-between gap-2 flex-wrap">
                 <span className="text-[11px] font-bold text-slate-700 uppercase tracking-wider">
-                  Plafond d&apos;Allocation Stockage (IndexedDB L2)
+                  Seuil d&apos;Alerte Visuel (Jauge) &amp; Persistance
                 </span>
                 {idbInfo.isPersisted ? (
                   <span className="inline-flex items-center gap-1 text-[10px] font-bold text-emerald-700 bg-emerald-50 px-2.5 py-0.5 rounded-full border border-emerald-200">
                     <Lock className="w-2.5 h-2.5" /> Stockage Persistant Verrouillé
                   </span>
                 ) : (
-                  <span className="text-[10px] font-mono text-slate-500">
-                    Quota Navigateur :{' '}
-                    {idbInfo.quotaMB > 0 ? `${Math.round(idbInfo.quotaMB)} Mo dispo` : 'Auto'}
-                  </span>
+                  <button
+                    type="button"
+                    disabled={requestingPersist}
+                    onClick={handleRequestPersistentOnly}
+                    className="inline-flex items-center gap-1 text-[10px] font-bold text-sky-800 bg-white hover:bg-sky-50 px-2.5 py-0.5 rounded-full border border-sky-200 cursor-pointer transition-colors"
+                  >
+                    <Lock className="w-2.5 h-2.5" />
+                    Verrouiller (Quota OS :{' '}
+                    {idbInfo.quotaMB > 0
+                      ? idbInfo.quotaMB >= 1024
+                        ? `${(idbInfo.quotaMB / 1024).toFixed(1)} Go`
+                        : `${idbInfo.quotaMB} Mo`
+                      : 'Auto'}
+                    )
+                  </button>
                 )}
               </div>
               <div className="grid grid-cols-4 gap-2">
@@ -228,7 +276,7 @@ export default function SettingsOverviewTab({
                   { label: '50 Mo', val: 50 },
                   { label: '250 Mo', val: 250 },
                   { label: '1 Go', val: 1024 },
-                  { label: '2 Go (Max)', val: 2048 },
+                  { label: '2 Go', val: 2048 },
                 ].map((tier) => (
                   <button
                     key={tier.val}
@@ -245,6 +293,15 @@ export default function SettingsOverviewTab({
                   </button>
                 ))}
               </div>
+              <p className="text-[10.5px] text-slate-500 leading-relaxed">
+                Le quota réel IndexedDB est alloué dynamiquement par le navigateur (
+                {idbInfo.quotaMB > 0
+                  ? idbInfo.quotaMB >= 1024
+                    ? `${(idbInfo.quotaMB / 1024).toFixed(1)} Go disponibles`
+                    : `${idbInfo.quotaMB} Mo disponibles`
+                  : 'selon espace disque'}
+                ). Ces boutons règlent uniquement le seuil d&apos;alerte de la jauge et demandent la protection anti-purge navigateur. Pour un vrai stockage sur disque dur, activez le <b>Dossier Local PC</b> ci-dessus.
+              </p>
             </div>
 
             <div className="grid grid-cols-2 gap-3 pt-1">

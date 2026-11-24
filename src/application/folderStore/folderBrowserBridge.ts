@@ -3,6 +3,7 @@ import { storageService } from '../../utils/storageService';
 import { serializeLiveStateToFolderFiles } from './folderDataSerializer';
 import {
   BrowserDirectoryFsAdapter,
+  MemoryFolderFsAdapter,
   type ReadWriteBrowserDirectoryHandleLike,
   saveDirectoryHandleToIdb,
 } from './folderFsAdapter';
@@ -34,12 +35,18 @@ export type BrowserFileHandleLike = {
 };
 export type BrowserFsHandleLike = BrowserDirectoryHandleLike | BrowserFileHandleLike;
 
+export type FolderPickerCapability =
+  | 'READWRITE_PICKER'
+  | 'BLOCKED_IN_IFRAME'
+  | 'UNSUPPORTED_BROWSER';
+
 export interface PickerInspectionReport {
   folderLabel: string;
   entries: FolderEntryDescriptor[];
   inspection: FolderInspectionResult;
   repairPlan: FolderRepairPlan;
-  adapter?: BrowserDirectoryFsAdapter;
+  adapter?: BrowserDirectoryFsAdapter | MemoryFolderFsAdapter;
+  accessMode?: 'readwrite-disk' | 'readonly-disk-snapshot';
 }
 
 type WindowWithDirectoryPicker = Window & {
@@ -48,11 +55,36 @@ type WindowWithDirectoryPicker = Window & {
   }) => Promise<ReadWriteBrowserDirectoryHandleLike>;
 };
 
+export function isRunningInsideIframe(): boolean {
+  if (typeof window === 'undefined') return false;
+  try {
+    return window.self !== window.top;
+  } catch {
+    // Cross-origin frame access throws SecurityError -> definitely inside cross-origin iframe
+    return true;
+  }
+}
+
 export function isDirectoryPickerSupported(): boolean {
   return (
     typeof window !== 'undefined' &&
     typeof (window as WindowWithDirectoryPicker).showDirectoryPicker === 'function'
   );
+}
+
+/**
+ * Honestly reports whether the current browser runtime allows direct read/write access
+ * to a PC folder via File System Access API (`showDirectoryPicker`), or whether it is
+ * blocked by an embedded iframe security boundary or an unsupported browser (Firefox/Safari/Mobile).
+ */
+export function getFolderPickerCapability(): FolderPickerCapability {
+  if (!isDirectoryPickerSupported()) {
+    return 'UNSUPPORTED_BROWSER';
+  }
+  if (isRunningInsideIframe()) {
+    return 'BLOCKED_IN_IFRAME';
+  }
+  return 'READWRITE_PICKER';
 }
 
 export function getSavedDataFolderLabel(): string {
@@ -74,7 +106,7 @@ export function clearSavedDataFolderLabel(): void {
 }
 
 /**
- * Opens the browser directory picker (in `readwrite` mode by default for Phase L2, falling back to `read` if needed),
+ * Opens the browser directory picker (in `readwrite` mode by default for Phase L2),
  * wraps the selected folder in `BrowserDirectoryFsAdapter`, persists the handle in IndexedDB,
  * and runs `inspectPath` + `planRepair`.
  */
@@ -82,7 +114,9 @@ export async function pickAndInspectDirectory(
   mode: 'read' | 'readwrite' = 'readwrite'
 ): Promise<PickerInspectionReport | null> {
   if (!isDirectoryPickerSupported()) {
-    throw new Error('File System Access API (showDirectoryPicker) is not available in this browser.');
+    throw new Error(
+      "L'accès direct en lecture/écriture (showDirectoryPicker) n'est pas disponible sur ce navigateur. Utilisez Chrome/Edge PC dans un onglet autonome, ou ouvrez le dossier en lecture ci-dessous."
+    );
   }
 
   const picker = (window as WindowWithDirectoryPicker).showDirectoryPicker!;
@@ -90,6 +124,15 @@ export async function pickAndInspectDirectory(
   try {
     dirHandle = await picker({ mode });
   } catch (err) {
+    const errName = err instanceof Error ? err.name : '';
+    if (errName === 'AbortError') {
+      throw err;
+    }
+    if (errName === 'SecurityError' || isRunningInsideIframe()) {
+      throw new Error(
+        "Bloqué par la sécurité du navigateur : l'ouverture directe de showDirectoryPicker est interdite dans un aperçu intégré (iframe). Ouvrez l'application dans un onglet navigateur indépendant (Chrome / Edge PC) pour activer l'écriture directe sur votre disque."
+      );
+    }
     if (mode === 'readwrite') {
       dirHandle = await picker({ mode: 'read' });
     } else {
@@ -122,6 +165,88 @@ export async function pickAndInspectDirectory(
     inspection,
     repairPlan,
     adapter,
+    accessMode: 'readwrite-disk',
+  };
+}
+
+/**
+ * Real OS disk folder reader via standard `<input type="file" webkitdirectory multiple />`.
+ * Works inside cross-origin iframes, Firefox, Safari, and desktop browsers where
+ * `showDirectoryPicker` is blocked or unavailable. Reads real files from the user's computer
+ * into an in-memory snapshot adapter for genuine inspection and live hydration.
+ */
+export async function inspectFolderFromFileList(
+  fileList: FileList | readonly File[]
+): Promise<PickerInspectionReport> {
+  const files = Array.from(fileList || []);
+  if (files.length === 0) {
+    const emptyInspection = inspectPath([]);
+    return {
+      folderLabel: GMAO_DATA_ROOT_DIR,
+      entries: [],
+      inspection: emptyInspection,
+      repairPlan: planRepair(emptyInspection),
+      adapter: new MemoryFolderFsAdapter(GMAO_DATA_ROOT_DIR),
+      accessMode: 'readonly-disk-snapshot',
+    };
+  }
+
+  // Extract selected root folder name from the first file's webkitRelativePath (e.g. "MyFolder/catalog/ref_parc.json")
+  const firstRel = String(
+    (files[0] as File & { webkitRelativePath?: string }).webkitRelativePath || files[0].name || ''
+  ).replace(/\\/g, '/');
+  const firstSegments = firstRel.split('/').filter(Boolean);
+  const rootFolderName = firstSegments.length > 1 ? firstSegments[0] : GMAO_DATA_ROOT_DIR;
+
+  const dirSet = new Set<string>();
+  const materialized: FolderMaterializedEntry[] = [];
+  const entries: FolderEntryDescriptor[] = [];
+  let manifestRaw: unknown = undefined;
+
+  for (const file of files) {
+    const rawRel = String(
+      (file as File & { webkitRelativePath?: string }).webkitRelativePath || file.name || ''
+    ).replace(/\\/g, '/');
+    const parts = rawRel.split('/').filter(Boolean);
+    // Strip the top-level picked folder segment (e.g. "MyFolder/catalog/ref_parc.json" -> "catalog/ref_parc.json")
+    const stripped = parts.length > 1 && parts[0] === rootFolderName ? parts.slice(1).join('/') : rawRel;
+    if (!stripped || !isSafeRelativePath(stripped)) continue;
+    const cleanRel = normalizeFolderRelativePath(stripped, { stripRootPrefix: true });
+    if (!cleanRel) continue;
+
+    // Register parent directories
+    const cleanParts = cleanRel.split('/');
+    let accum = '';
+    for (let i = 0; i < cleanParts.length - 1; i++) {
+      accum = accum ? `${accum}/${cleanParts[i]}` : cleanParts[i];
+      if (!dirSet.has(accum)) {
+        dirSet.add(accum);
+        entries.push({ path: accum, isDirectory: true });
+        materialized.push({ path: accum, isDirectory: true, content: null });
+      }
+    }
+
+    entries.push({ path: cleanRel, isDirectory: false });
+    const isJson = cleanRel.toLowerCase().endsWith('.json');
+    const textContent = isJson ? await file.text() : '';
+    if (cleanRel === FOLDER_MANIFEST_FILENAME) {
+      manifestRaw = textContent;
+    }
+    materialized.push({ path: cleanRel, isDirectory: false, content: textContent });
+  }
+
+  const inspection = inspectPath(entries, manifestRaw);
+  const repairPlan = planRepair(inspection);
+  const adapter = new MemoryFolderFsAdapter(rootFolderName, materialized);
+  saveDataFolderLabel(rootFolderName);
+
+  return {
+    folderLabel: rootFolderName,
+    entries,
+    inspection,
+    repairPlan,
+    adapter,
+    accessMode: 'readonly-disk-snapshot',
   };
 }
 
