@@ -100,6 +100,7 @@ export const STORAGE_KEYS = {
   CURRENCY_CONFIG: 'gmao_currency_config_v1',
   FINANCIAL_BUDGETS: 'gmao_financial_budgets_v1',
   AUDIT_EVENTS: 'gmao_audit_events_v1',
+  WORKSPACE_PROFILE: 'gmao_workspace_profile_v1',
   IDB_OFFLOADED_KEYS: 'gmao_idb_offloaded_keys_v1',
   IDB_PRIMARY_MIGRATED: 'gmao_idb_primary_migrated_v1',
 };

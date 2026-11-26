@@ -439,6 +439,17 @@ alerte      = stockActuel <= 0 ? 'RUPTURE' : (stockActuel <= seuil ? 'ALERTE' : 
 | **عزل معدات النظام العام (`SYSTEM_GENERAL`)** | فصل آلات الإنتاج (`PRODUCTION`) عن معدات المرافق (`SYSTEM_GENERAL`) ومنع إضافة عناصر BOM إنتاجية لمعدات النظام العام | `src/__tests__/systemGeneralMachines.test.ts` |
 | **التشفير الأصيل وأمن الجلسات والخزنة (`Native Crypto`)** | محرك `nativeCrypto.ts` (`SHA-256`, `HMAC-SHA256`, `PBKDF2-HMAC-SHA256`, `NC1:` CTR-HMAC) بدون اعتماديات خارجية، وتشفير `localStorage` / `sessionStorage` والخزنة `AES-256-GCM` | `src/tests/unit/SecurityAndProtection.test.tsx`<br>`src/tests/unit/securityBootstrapP0.test.ts` |
 | **المعمارية وأداء العرض** | التصفح الافتراضي 60fps لـ 1,000 سجل دون إجهاد المتصفح (`GmaoIndustrialDataGrid`) | `src/tests/unit/VirtualScrolling.test.tsx` |
+| **أوضاع التشغيل (`TEAM_FULL` / `SOLO_EXPERT` / `SOLO_LIGHT`)** | التبديل العكسي بدون فقدان بيانات، إسقاط التنقل المعياري، حراسة `SOLO_DIRECT` المحصورة بـ `ADMIN` مع وسم `AUDIT_EVENTS`، ربط BOM مباشر للطبقة الثانية دون اشتراط `Blueprint`، وقفل `SOLO_LIGHT` قيد التصميم | `src/tests/unit/WorkspaceProfileSoloExpert.test.tsx` |
+
+---
+
+## 17b. أوضاع التشغيل وملف مساحة العمل (`Workspace Operating Modes`)
+
+- **المرجع المعماري:** [`docs/WORKSPACE_MODES.md`](./docs/WORKSPACE_MODES.md) و `src/core/workspace/workspaceProfile.ts` (`STORAGE_KEYS.WORKSPACE_PROFILE` + مزامنة `GMAO_Data/config/system_flags.json`).
+- **الأوضاع الثلاثة:**
+  1. **`TEAM_FULL` (الوضع الكامل للفريق — افتراضي ونشط):** حوكمة `TEAM_MAKER_CHECKER` الكاملة مع إظهار كافة الوحدات (المالية، المخزون، المخططات المعرفية، وإدارة الفريق).
+  2. **`SOLO_EXPERT` (وضع الخبير الميداني المستقل — نشط وقابل للتبديل الفوري):** إسقاط تنقل يركّز على الصيانة الميدانية (الآلات والـ BOM المباشر دون اشتراط `Blueprint`، الوقائي، التصحيحي الكامل مع الورشة والاحتياجات، المستودع، وسجل الصرف السريع)، مع حوكمة `SOLO_DIRECT` محروسة بقاعدة `Fail-Closed` لدور `ADMIN` فقط وتوثيق `executionMode: 'SOLO_DIRECT'` في `AUDIT_EVENTS`، مع الحفاظ الكامل على `LOTO` و`SYSTEM_GENERAL` و4 مفاتيح إظهار اختيارية.
+  3. **`SOLO_LIGHT` (الوضع المبسّط — قيد التصميم ومغلق):** ظاهر في البنية والإعدادات والتوثيق كخارطة طريق وغير قابل للتفعيل حالياً (`enabled: false`, `COMING_SOON`).
 
 ---
 

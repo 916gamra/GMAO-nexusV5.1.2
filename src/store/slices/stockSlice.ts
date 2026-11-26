@@ -33,6 +33,7 @@ import {
   isMakerCheckerSelfApproval,
   isPartAlreadyDeductedByStoreBon,
 } from './storeBootstrapSlice';
+import { isSoloDirectAllowedForActor } from '../../core/workspace/workspaceProfile';
 
 const STOCK_MANAGER_ROLES = new Set([
   'ADMIN',
@@ -368,6 +369,8 @@ export function createStockSlice(set: StoreSet, get: StoreGet): StockSliceKeys {
       }
 
       // Enforce Segregation of Duties (SoD): submitter cannot approve their own sortie demand
+      const resolvedValidatorRole =
+        decisionData?.actorRole !== undefined ? decisionData.actorRole : actor.actorRole;
       if (
         isMakerCheckerSelfApproval({
           submitterId: existing.submitted_by_id,
@@ -376,6 +379,7 @@ export function createStockSlice(set: StoreSet, get: StoreGet): StockSliceKeys {
           validatorName,
           hasExplicitValidatorId: Boolean(explicitValidatorId),
           hasActiveSession,
+          actorRole: resolvedValidatorRole,
         })
       ) {
         Logger.warn('[StockSlice] SoD blocked self-approval on sortie demand', {
@@ -492,6 +496,9 @@ export function createStockSlice(set: StoreSet, get: StoreGet): StockSliceKeys {
                   merged_with_movement_id: mergeWithMovementId,
                 }
               : { skipStockDeduction: true }),
+            ...(isSoloDirectAllowedForActor(resolvedValidatorRole)
+              ? { executionMode: 'SOLO_DIRECT' }
+              : {}),
           },
         });
         return updatedDemand;
@@ -630,6 +637,9 @@ export function createStockSlice(set: StoreSet, get: StoreGet): StockSliceKeys {
           validation_status: 'APPROVED',
           code_bon_magasin: officialBonCode,
           emitted_movement_ids: emittedIds,
+          ...(isSoloDirectAllowedForActor(resolvedValidatorRole)
+            ? { executionMode: 'SOLO_DIRECT' }
+            : {}),
         },
       });
       return updatedDemand;

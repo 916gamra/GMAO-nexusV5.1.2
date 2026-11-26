@@ -427,8 +427,9 @@ export const CANONICAL_CONFIG_FILES: readonly FolderFileSpec[] = [
       STORAGE_KEYS.CACHE_CEILING_MB,
       STORAGE_KEYS.STORAGE_CEILING_MB,
       STORAGE_KEYS.SHARED_FOLDER_PATH,
+      STORAGE_KEYS.WORKSPACE_PROFILE,
     ],
-    description: 'Factory start mode (empty/custom/demo), auto-mirror flags, and storage ceilings.',
+    description: 'Factory start mode (empty/custom/demo), workspace mode profile, auto-mirror flags, and storage ceilings.',
     buildEmptyBody: () => ({
       startMode: 'empty',
       demoMode: false,
@@ -437,6 +438,7 @@ export const CANONICAL_CONFIG_FILES: readonly FolderFileSpec[] = [
       cacheCeilingMb: '256',
       storageCeilingMb: '1024',
       sharedFolderPath: '',
+      workspaceProfile: null,
     }),
   },
 ] as const;

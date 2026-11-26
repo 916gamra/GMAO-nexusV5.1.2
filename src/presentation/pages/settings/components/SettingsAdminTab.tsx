@@ -20,6 +20,7 @@ import { LicenseGateService } from '../../../../core/security/LicenseGateService
 import { useAuth } from '../../../../context/AuthContext';
 import Action3DButton from '../../../components/common/Action3DButton';
 import { SettingsSectionCard, SETTINGS_BUTTON_STYLES, SETTINGS_INPUT_CLASS } from './settingsUi';
+import WorkspaceModeSelectorCard from './WorkspaceModeSelectorCard';
 
 /**
  * Admin Security, Commercial License Record (`ILicenseRecord`), Dual-Key Rotation, and RBAC matrix.
@@ -277,6 +278,9 @@ export default function SettingsAdminTab({
           </div>
         </div>
       </SettingsSectionCard>
+
+      {/* 1b. Workspace Operating Modes (TEAM_FULL / SOLO_EXPERT / locked SOLO_LIGHT) */}
+      <WorkspaceModeSelectorCard currentUser={currentUser} showToast={showToast} />
 
       {/* 2. Initial Activation + Admin Setup (if not yet activated) */}
       {!isLicenseActive && (

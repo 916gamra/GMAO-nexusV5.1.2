@@ -6,6 +6,10 @@ import { analytics } from '../../../services/AnalyticsService';
 import { storageService } from '../../../utils/storageService';
 import { useAuth } from '../../../context/AuthContext';
 import { AuthorizationService } from '../../../core/security/AuthorizationService';
+import {
+  useWorkspaceProfile,
+  isTabVisibleInWorkspace,
+} from '../../../core/workspace/workspaceProfile';
 import { canViewMakerCheckerValidation } from './appearanceBootstrap';
 
 const MODULE_THEME = {
@@ -201,7 +205,10 @@ export default function FloatingSidebar({
 }: any) {
   const { t } = useTranslation();
   const { user: currentUser } = useAuth();
-  const canViewValidation = canViewMakerCheckerValidation(currentUser);
+  const workspaceProfile = useWorkspaceProfile();
+  const canViewValidation =
+    workspaceProfile.governanceMode !== 'SOLO_DIRECT' &&
+    canViewMakerCheckerValidation(currentUser);
 
   const getModulePendingCount = (moduleId: string): number => {
     if (!canViewValidation) return 0;
@@ -220,11 +227,13 @@ export default function FloatingSidebar({
   const visibleModules = useMemo(() => {
     if (!currentUser) return [];
     return PARENT_MODULES.filter((mod) =>
-      (mod.children || [{ id: mod.id }]).some((child) =>
-        AuthorizationService.canAccessTab(currentUser, child.id)
+      (mod.children || [{ id: mod.id }]).some(
+        (child) =>
+          AuthorizationService.canAccessTab(currentUser, child.id) &&
+          isTabVisibleInWorkspace(child.id, workspaceProfile)
       )
     );
-  }, [currentUser]);
+  }, [currentUser, workspaceProfile]);
 
   const canAccessSettings =
     Boolean(currentUser) && AuthorizationService.canAccessTab(currentUser, 'settings');
@@ -370,15 +379,22 @@ export default function FloatingSidebar({
     ? (t('nav.settings') || 'Paramètres')
     : (t(`nav.${activeParent?.id}`) !== `nav.${activeParent?.id}` ? t(`nav.${activeParent?.id}`) : activeParent?.label || 'Navigation');
 
-  // NH-7: Strictly select only an allowed child tab (never fall back to an unauthorized child[0])
+  // NH-7 + SOLO-EXPERT-P1: Strictly select only an allowed & workspace-visible child tab
   const handleSelectParent = (module) => {
     const candidates =
       Array.isArray(module.children) && module.children.length > 0
         ? module.children
         : [{ id: module.id }];
-    const allowedChild = candidates.find(
-      (c) => Boolean(currentUser) && AuthorizationService.canAccessTab(currentUser, c.id)
-    );
+    const allowedChild =
+      candidates.find(
+        (c) =>
+          Boolean(currentUser) &&
+          AuthorizationService.canAccessTab(currentUser, c.id) &&
+          isTabVisibleInWorkspace(c.id, workspaceProfile)
+      ) ||
+      candidates.find(
+        (c) => Boolean(currentUser) && AuthorizationService.canAccessTab(currentUser, c.id)
+      );
     if (!allowedChild) return;
     const firstChild = allowedChild.id;
     analytics.track('navigation_tab_changed', 'navigation', {

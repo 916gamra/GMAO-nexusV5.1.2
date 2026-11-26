@@ -2,6 +2,7 @@ import { STORAGE_KEYS } from '../../../infrastructure/persistence/storageKeys';
 import { storageService } from '../../../utils/storageService';
 import { AuthorizationService, type AuthActorInput } from '../../../core/security/AuthorizationService';
 import { isTechnicianRole } from '../../../core/security/technicianScope';
+import { loadWorkspaceProfile } from '../../../core/workspace/workspaceProfile';
 
 export interface AppliedAppearanceDomState {
   accentColor: string;
@@ -49,10 +50,12 @@ export function applyAppearanceDomFromStorage(
 
 /**
  * Fail-closed guard for Maker-Checker validation badges and navigation shortcuts.
- * Prevents unauthenticated sessions, TECHNICIEN, OPERATEUR, and VIEWER from seeing or clicking validation badges.
+ * Prevents unauthenticated sessions, TECHNICIEN, OPERATEUR, VIEWER, and SOLO_DIRECT workspace mode
+ * from seeing or clicking Maker-Checker validation badges.
  */
 export function canViewMakerCheckerValidation(user: AuthActorInput): boolean {
   if (!user) return false;
+  if (loadWorkspaceProfile().governanceMode === 'SOLO_DIRECT') return false;
   const actorObj = typeof user === 'string' ? { role: user } : { role: user.role };
   if (isTechnicianRole(actorObj)) return false;
   return AuthorizationService.canAccessTab(user, 'validation_center');

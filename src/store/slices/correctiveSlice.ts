@@ -46,6 +46,7 @@ import type {
 } from '../../types/store';
 import type { IMouvement } from '../../types/domain';
 import { Logger } from '../../core/logger/LoggerService';
+import { isSoloDirectAllowedForActor } from '../../core/workspace/workspaceProfile';
 import {
   ACTIVE_LIVE_KEY,
   resolveUpdate,
@@ -795,6 +796,8 @@ export function createCorrectiveSlice(set: StoreSet, get: StoreGet): CorrectiveS
       }
 
       // Enforce Segregation of Duties (SoD): submitter cannot approve their own corrective claim
+      const resolvedValidatorRole =
+        decisionData?.actorRole !== undefined ? decisionData.actorRole : actor.actorRole;
       if (
         isMakerCheckerSelfApproval({
           submitterId: existing.submitted_by_id,
@@ -803,6 +806,7 @@ export function createCorrectiveSlice(set: StoreSet, get: StoreGet): CorrectiveS
           validatorName,
           hasExplicitValidatorId: Boolean(explicitValidatorId),
           hasActiveSession,
+          actorRole: resolvedValidatorRole,
         })
       ) {
         Logger.warn('[CorrectiveSlice] SoD blocked self-approval on BT validation', {
@@ -1079,6 +1083,9 @@ export function createCorrectiveSlice(set: StoreSet, get: StoreGet): CorrectiveS
           validated_with_edits: editedByAdmin,
           skip_stock_deduction: skipDeduction,
           emitted_movement_ids: emittedIds,
+          ...(isSoloDirectAllowedForActor(resolvedValidatorRole)
+            ? { executionMode: 'SOLO_DIRECT' }
+            : {}),
         },
       });
 

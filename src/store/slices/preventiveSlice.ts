@@ -42,6 +42,7 @@ import {
   isMakerCheckerSelfApproval,
   isPartAlreadyDeductedByStoreBon,
 } from './storeBootstrapSlice';
+import { isSoloDirectAllowedForActor } from '../../core/workspace/workspaceProfile';
 
 const PREVENTIVE_MANAGER_ROLES = new Set(['ADMIN', 'RESPONSABLE', 'RESPONSABLE_MAINTENANCE']);
 const PREVENTIVE_EXECUTOR_ROLES = new Set([
@@ -807,6 +808,8 @@ export function createPreventiveSlice(set: StoreSet, get: StoreGet): PreventiveS
       }
 
       // Enforce Segregation of Duties (SoD): submitter cannot approve their own preventive execution
+      const resolvedValidatorRole =
+        decisionData?.actorRole !== undefined ? decisionData.actorRole : actor.actorRole;
       if (
         isMakerCheckerSelfApproval({
           submitterId: existing.submitted_by_id,
@@ -815,6 +818,7 @@ export function createPreventiveSlice(set: StoreSet, get: StoreGet): PreventiveS
           validatorName,
           hasExplicitValidatorId: Boolean(explicitValidatorId),
           hasActiveSession,
+          actorRole: resolvedValidatorRole,
         })
       ) {
         Logger.warn('[PreventiveSlice] SoD blocked self-approval on preventive execution', {
@@ -1127,6 +1131,9 @@ export function createPreventiveSlice(set: StoreSet, get: StoreGet): PreventiveS
           emitted_movement_ids: emittedIds,
           ...(approvedMeterReading > 0 ? { compteur_releve: approvedMeterReading } : {}),
           ...(generatedDiId ? { generated_di_id: generatedDiId } : {}),
+          ...(isSoloDirectAllowedForActor(resolvedValidatorRole)
+            ? { executionMode: 'SOLO_DIRECT' }
+            : {}),
         },
       });
 

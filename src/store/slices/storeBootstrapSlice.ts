@@ -14,6 +14,7 @@ import type { IWorkshopOrder } from '../../domain/corrective/workshopOrderServic
 import type { INeedRequest } from '../../domain/corrective/needRequestService';
 import { getEntityRecordId } from '../../services/lanStateMergeService';
 import { SecurityService } from '../../core/security/SecurityService';
+import { isSoloDirectAllowedForActor } from '../../core/workspace/workspaceProfile';
 import type {
   IMachine,
   IMouvement,
@@ -116,7 +117,13 @@ export function isMakerCheckerSelfApproval(params: {
   validatorName?: unknown;
   hasExplicitValidatorId?: boolean;
   hasActiveSession?: boolean;
+  actorRole?: unknown;
 }): boolean {
+  const effectiveRole = params.actorRole !== undefined ? params.actorRole : resolveActiveSessionRole();
+  if (isSoloDirectAllowedForActor(effectiveRole)) {
+    return false;
+  }
+
   const subId = String(params.submitterId || '').trim().toUpperCase();
   const valId = String(params.validatorId || '').trim().toUpperCase();
   const subName = String(params.submitterName || '').trim().toUpperCase();

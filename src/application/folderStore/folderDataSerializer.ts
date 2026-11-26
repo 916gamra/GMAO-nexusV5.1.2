@@ -1,5 +1,10 @@
 import { DataGateway } from '../DataGateway';
 import { STORAGE_KEYS } from '../../infrastructure/persistence/storageKeys';
+import {
+  loadWorkspaceProfile,
+  normalizeWorkspaceProfile,
+  refreshWorkspaceProfileCache,
+} from '../../core/workspace/workspaceProfile';
 import { applyAppearanceDomFromStorage } from '../../presentation/components/layout/appearanceBootstrap';
 import {
   computeDiscoveredAuditItems,
@@ -150,6 +155,7 @@ function buildConfigSystemFlagsObject(): Record<string, unknown> {
     cacheCeilingMb: storageService.getItem(STORAGE_KEYS.CACHE_CEILING_MB) ?? '256',
     storageCeilingMb: storageService.getItem(STORAGE_KEYS.STORAGE_CEILING_MB) ?? '1024',
     sharedFolderPath: storageService.getItem(STORAGE_KEYS.SHARED_FOLDER_PATH) ?? '',
+    workspaceProfile: loadWorkspaceProfile(),
   };
 }
 
@@ -673,10 +679,17 @@ export function hydrateLiveStateFromFolderFiles(
       setFlagIfDefined(STORAGE_KEYS.CACHE_CEILING_MB, systemFlagsObj.cacheCeilingMb);
       setFlagIfDefined(STORAGE_KEYS.STORAGE_CEILING_MB, systemFlagsObj.storageCeilingMb);
       setFlagIfDefined(STORAGE_KEYS.SHARED_FOLDER_PATH, systemFlagsObj.sharedFolderPath);
+      if (systemFlagsObj.workspaceProfile !== undefined && systemFlagsObj.workspaceProfile !== null) {
+        storageService.setItem(
+          STORAGE_KEYS.WORKSPACE_PROFILE,
+          normalizeWorkspaceProfile(systemFlagsObj.workspaceProfile)
+        );
+      }
     }
 
     try {
       applyAppearanceDomFromStorage();
+      refreshWorkspaceProfileCache();
       if (typeof window !== 'undefined') {
         window.dispatchEvent(new Event('gmao_appearance_changed'));
       }

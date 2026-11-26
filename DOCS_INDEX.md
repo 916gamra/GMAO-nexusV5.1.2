@@ -21,6 +21,7 @@
 | الملف | الوظيفة الهندسية |
 | :--- | :--- |
 | **[`docs/DATA_SSOT.md`](./docs/DATA_SSOT.md)** | الجدول الرسمي لجميع مفاتيح التخزين القياسية (`STORAGE_KEYS` — 36+ كياناً)، العلاقات المرجعية (`FK`)، والفلسفة الثلاثية للأصول والمخطط المعرفي (`Blueprint`) والـ `BOM Nexus`. |
+| **[`docs/WORKSPACE_MODES.md`](./docs/WORKSPACE_MODES.md)** | **أوضاع التشغيل وملف مساحة العمل (`TEAM_FULL` / `SOLO_EXPERT` / `SOLO_LIGHT`):** الفلسفة التشغيلية، المقارنة بين الأوضاع الثلاثة، حوكمة `SOLO_DIRECT` المحروسة، الاستقلالية الميدانية Tier 2 دون اشتراط `Blueprint`، وضمان صفر فقدان عند التبديل. |
 | **[`docs/DESIGN_SYSTEM_UI_UX.md`](./docs/DESIGN_SYSTEM_UI_UX.md)** | **الدستور البصري ونظام التصميم لتجربة وواجهة المستخدم:** المرجع الشامل لجميع المكونات المشتركة، أزرار `Action3DButton`، بطاقات `GmaoKpiCard`، شبكة `GmaoIndustrialDataGrid`، منظومة الفلاتر، قواعد الوضع الفاتح والداكن، وقالب إنشاء الصفحات الجديدة بدون ارتباك. |
 | **[`docs/COMPOSANTS_HIERARCHIE_ET_IDENTIFIANTS.md`](./docs/COMPOSANTS_HIERARCHIE_ET_IDENTIFIANTS.md)** | فلسفة الترقيم الثلاثي (`ID / CODE / REF`) والهيكل الهرمي الرباعي للمكونات (`Groupes ➔ Familles ➔ Templates ➔ Stock Entrepôt`). |
 | **[`docs/WIZARD_ENGINE.md`](./docs/WIZARD_ENGINE.md)** | توثيق محرك المعالجات الموجهة (`Profile-Driven Wizard Engine`) ومفاتيح التفعيل (`WIZARD_FEATURE_FLAGS`). |
@@ -154,6 +155,9 @@
 - **10. العملات والمالية الدولية (`Currency & Multi-Currency ISO`):**
   - **[`docs/modules/07-settings-systeme/page-dev-currency-finance.md`](./docs/modules/07-settings-systeme/page-dev-currency-finance.md)** — المرجع التقني (معايير ISO 4217، التحويل الآني للـ PUMP، والاحتفاظ بسعر الصرف التاريخي).
   - **[`docs/modules/07-settings-systeme/page-user-currency-finance.md`](./docs/modules/07-settings-systeme/page-user-currency-finance.md)** — دليل المستخدم التشغيلي (اختيار العملة الأساسية DA/MAD/EUR/USD، وتسجيل أسعار الصرف).
+- **11. أوضاع التشغيل (`Workspace Modes — Équipe Complète / Solo Expert / Solo Light`):**
+  - **[`docs/modules/07-settings-systeme/page-dev-workspace-modes.md`](./docs/modules/07-settings-systeme/page-dev-workspace-modes.md)** — المرجع التقني (`WorkspaceProfile`, `STORAGE_KEYS.WORKSPACE_PROFILE`, حراسة `SOLO_DIRECT`، وتزامن `config/system_flags.json`).
+  - **[`docs/modules/07-settings-systeme/page-user-workspace-modes.md`](./docs/modules/07-settings-systeme/page-user-workspace-modes.md)** — دليل المستخدم التشغيلي (مقارنة الأوضاع الثلاثة، التبديل الآمن بين `TEAM_FULL` و`SOLO_EXPERT`، وقفل `SOLO_LIGHT` قيد التصميم).
 
 
 

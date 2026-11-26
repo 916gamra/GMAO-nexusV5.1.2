@@ -24,6 +24,7 @@ export const SETTINGS_GUIDE_TAB_MAP: Readonly<Record<string, GuideSettingsRouteS
   settings_json_editor: { settingsSubTab: 'json-editor', allOf: ['settings.manage'] },
   settings_backup_audit: { settingsSubTab: 'backup-audit', anyOf: ['settings.view', 'settings.backup'] },
   settings_admin: { settingsSubTab: 'admin', allOf: ['settings.manage', 'users.manage'] },
+  settings_workspace_modes: { settingsSubTab: 'admin', allOf: ['settings.manage', 'users.manage'] },
   settings_performance: { settingsSubTab: 'performance', allOf: ['settings.view'] },
   settings_currency: { settingsSubTab: 'currency', anyOf: ['settings.view', 'settings.manage'] },
 };

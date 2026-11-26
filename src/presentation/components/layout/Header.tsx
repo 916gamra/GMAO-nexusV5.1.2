@@ -29,8 +29,13 @@ import { analytics } from '../../../services/AnalyticsService';
 import { notificationService } from '../../../services/NotificationService';
 import { getParentModuleForTab } from './navConfig';
 import { storageService } from '../../../utils/storageService';
+import { STORAGE_KEYS } from '../../../infrastructure/persistence/storageKeys';
 import { AuthorizationService } from '../../../core/security/AuthorizationService';
 import { SecurityService } from '../../../core/security/SecurityService';
+import {
+  useWorkspaceProfile,
+  isTabVisibleInWorkspace,
+} from '../../../core/workspace/workspaceProfile';
 import { canViewMakerCheckerValidation } from './appearanceBootstrap';
 import ShellModeSwitcher from '../common/ShellModeSwitcher';
 import { useTranslation } from '../../../i18n/I18nContext';
@@ -119,9 +124,12 @@ export default function Header({
     !AuthorizationService.isReadOnly(currentUser) &&
     (AuthorizationService.hasPermission(currentUser, 'settings.backup') ||
       AuthorizationService.hasPermission(currentUser, 'stock.export'));
+  const workspaceProfile = useWorkspaceProfile();
   const canAccessSettings =
     Boolean(currentUser) && AuthorizationService.canAccessTab(currentUser, 'settings');
-  const canViewValidation = canViewMakerCheckerValidation(currentUser);
+  const canViewValidation =
+    workspaceProfile.governanceMode !== 'SOLO_DIRECT' &&
+    canViewMakerCheckerValidation(currentUser);
 
   const [headerClockEnabled, setHeaderClockEnabled] = useState(() => {
     return storageService.getItem('gmao_header_clock') !== 'false';
@@ -199,8 +207,12 @@ export default function Header({
   const childTabs = useMemo(() => {
     const rawChildren = activeParent.children || [];
     if (!currentUser) return [];
-    return rawChildren.filter((c) => AuthorizationService.canAccessTab(currentUser, c.id));
-  }, [activeParent, currentUser]);
+    return rawChildren.filter(
+      (c) =>
+        AuthorizationService.canAccessTab(currentUser, c.id) &&
+        isTabVisibleInWorkspace(c.id, workspaceProfile)
+    );
+  }, [activeParent, currentUser, workspaceProfile]);
 
   // Smart Dynamic Breadcrumbs Calculation (NH-8: Fail-Closed RBAC-guarded links & NH-6: Corrective sub-routes)
   const breadcrumbs = useMemo(() => {
@@ -857,6 +869,31 @@ export default function Header({
 
         {/* Right: Actions & Tools */}
         <div className="flex items-center gap-1 sm:gap-1.5 shrink-0">
+          {workspaceProfile.preset === 'SOLO_EXPERT' && (
+            <button
+              type="button"
+              data-testid="header-workspace-mode-pill"
+              onClick={() => {
+                if (!canAccessSettings) return;
+                storageService.setItem(STORAGE_KEYS.SETTINGS_TARGET_TAB, 'admin');
+                setCurrentTab('settings');
+              }}
+              className={`h-8 hidden sm:inline-flex items-center gap-1.5 px-2.5 rounded-full text-[11px] font-extrabold border transition shrink-0 ${
+                canAccessSettings
+                  ? 'bg-amber-50 hover:bg-amber-100 border-amber-300/90 text-amber-800 cursor-pointer'
+                  : 'bg-amber-50/80 border-amber-200 text-amber-800 cursor-default'
+              }`}
+              title={
+                canAccessSettings
+                  ? 'Mode Solo Expert actif (Exécution directe terrain) — Cliquer pour configurer dans Paramètres > Sécurité & Comptes'
+                  : 'Mode Solo Expert actif (Exécution directe terrain)'
+              }
+              aria-label="Mode Solo Expert actif"
+            >
+              <span className="w-2 h-2 rounded-full bg-amber-500 shrink-0" aria-hidden="true" />
+              <span className="tracking-tight">SOLO EXPERT</span>
+            </button>
+          )}
           {canViewValidation && (() => {
               const totalPending =
                 Number(counts?.pendingSortieDemands || 0) +

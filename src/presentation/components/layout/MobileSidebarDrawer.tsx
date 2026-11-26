@@ -41,6 +41,10 @@ import { CubeIcon } from '../common/icons/CubeIcon';
 import { LayersIcon } from '../common/icons/LayersIcon';
 import { AuthorizationService } from '../../../core/security/AuthorizationService';
 import { isTechnicianRole } from '../../../core/security/technicianScope';
+import {
+  useWorkspaceProfile,
+  isTabVisibleInWorkspace,
+} from '../../../core/workspace/workspaceProfile';
 import { canViewMakerCheckerValidation } from './appearanceBootstrap';
 import { PARENT_MODULES, SIDEBAR_NAV_GROUPS, type ParentModuleDef } from './navConfig';
 import { useTranslation } from '../../../i18n/I18nContext';
@@ -290,6 +294,7 @@ export default function MobileSidebarDrawer({
   onLogout,
 }: any) {
   const { t } = useTranslation();
+  const workspaceProfile = useWorkspaceProfile();
   // Sidebar Dark / Light Theme state (persisted in storageService — NH-5 unified default 'light')
   const [sidebarTheme, setSidebarTheme] = useState(() => {
     return (
@@ -309,7 +314,9 @@ export default function MobileSidebarDrawer({
     (AuthorizationService.hasPermission(currentUser, 'settings.restore') ||
       AuthorizationService.hasPermission(currentUser, 'settings.manage'));
   const isTechUser = isTechnicianRole(currentUser);
-  const canViewValidation = canViewMakerCheckerValidation(currentUser);
+  const canViewValidation =
+    workspaceProfile.governanceMode !== 'SOLO_DIRECT' &&
+    canViewMakerCheckerValidation(currentUser);
   const pendingSortieDemands = canViewValidation ? Number(counts.pendingSortieDemands || 0) : 0;
   const pendingPreventiveVal = canViewValidation ? Number(counts.pendingPreventiveValidation || 0) : 0;
   const pendingCorrectiveVal = canViewValidation ? Number(counts.pendingCorrectiveValidation || 0) : 0;
@@ -676,17 +683,28 @@ export default function MobileSidebarDrawer({
             <div>
               <div
                 id="brand-title-text"
-                className={`font-bold text-[15px] tracking-tight leading-tight flex items-center gap-1.5 ${isDark ? 'text-white' : 'text-slate-900'}`}
+                className={`font-bold text-[15px] tracking-tight leading-tight flex items-center gap-1.5 flex-wrap ${isDark ? 'text-white' : 'text-slate-900'}`}
               >
                 <span>Ciob PDR</span>
                 <span className="text-[10px] font-extrabold uppercase px-1.5 py-0.5 rounded-md bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
                   XLS
                 </span>
+                {workspaceProfile.preset === 'SOLO_EXPERT' && (
+                  <span
+                    data-testid="sidebar-solo-expert-badge"
+                    className="text-[9px] font-extrabold uppercase px-1.5 py-0.5 rounded-md bg-amber-500/20 text-amber-600 dark:text-amber-300 border border-amber-500/30"
+                    title="Mode Solo Expert actif (ingénieur terrain autonome)"
+                  >
+                    SOLO
+                  </span>
+                )}
               </div>
               <div
                 className={`text-[11px] font-semibold tracking-tight ${isDark ? 'text-emerald-400' : 'text-emerald-700'}`}
               >
-                {t('app.subtitle', 'Pièces de Rechange & GMAO')}
+                {workspaceProfile.preset === 'SOLO_EXPERT'
+                  ? 'Solo Expert • Maintenance Terrain'
+                  : t('app.subtitle', 'Pièces de Rechange & GMAO')}
               </div>
             </div>
           </div>
@@ -738,6 +756,7 @@ export default function MobileSidebarDrawer({
                 .filter((child) => {
                   const visual = SIDEBAR_ITEM_VISUALS[child.id];
                   if (visual?.hideForTech && isTechUser) return false;
+                  if (!isTabVisibleInWorkspace(child.id, workspaceProfile)) return false;
                   return canAccess(child.id);
                 })
                 .map((child) => ({ child, parentMod: mod }));

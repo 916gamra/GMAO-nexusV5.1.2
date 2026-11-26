@@ -9,6 +9,8 @@ import {
   Printer,
   ShieldCheck,
   Info,
+  Plus,
+  CheckCircle2,
 } from 'lucide-react';
 import { useGmaoStore } from '../../../../store/useGmaoStore';
 import { getMachineAssetClass } from '../../../../utils/activeMachines';
@@ -48,6 +50,14 @@ export default function MachinePassport360Modal({
   onOpenQrSticker,
 }: MachinePassport360ModalProps) {
   const [activeTab, setActiveTab] = useState<'OVERVIEW' | 'COMPTEURS' | 'BOM' | 'CORRECTIF' | 'PREVENTIF'>('OVERVIEW');
+  const [showAddBomForm, setShowAddBomForm] = useState(false);
+  const [bomElementType, setBomElementType] = useState<'COMPOSANT' | 'PART' | 'PDR'>('COMPOSANT');
+  const [bomDesignation, setBomDesignation] = useState('');
+  const [bomRef, setBomRef] = useState('');
+  const [bomQty, setBomQty] = useState('1');
+  const [bomPosition, setBomPosition] = useState('');
+  const [bomNotes, setBomNotes] = useState('');
+  const [bomFeedback, setBomFeedback] = useState<string | null>(null);
 
   const machines = useGmaoStore((s) => s.machines) || [];
   const zones = useGmaoStore((s) => s.zones) || [];
@@ -683,16 +693,239 @@ export default function MachinePassport360Modal({
           {/* TAB 3: BOM & ORGANES */}
           {activeTab === 'BOM' && (
             <div className="space-y-4">
-              <div className="flex items-center justify-between">
-                <h4 className="text-xs font-black uppercase tracking-wider text-slate-500">
-                  Organes & Composants Enregistrés ({machineElements.length})
-                </h4>
-                {blueprint && (
-                  <span className="text-[11px] font-mono text-indigo-700 bg-indigo-50 px-2.5 py-1 rounded-lg border border-indigo-200">
-                    Blueprint : {blueprint.id_blueprint} • {blueprint.libelle || blueprint.ref_plan || ''}
-                  </span>
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <h4 className="text-xs font-black uppercase tracking-wider text-slate-500">
+                    Organes &amp; Composants Enregistrés ({machineElements.length})
+                  </h4>
+                  {blueprint ? (
+                    <span className="text-[11px] font-mono text-indigo-700 bg-indigo-50 px-2.5 py-1 rounded-lg border border-indigo-200">
+                      Blueprint : {blueprint.id_blueprint} • {blueprint.libelle || blueprint.ref_plan || ''}
+                    </span>
+                  ) : assetClass !== 'SYSTEM_GENERAL' ? (
+                    <span
+                      data-testid="bom-direct-tier2-badge"
+                      className="text-[10.5px] font-bold text-amber-800 bg-amber-50 px-2.5 py-1 rounded-lg border border-amber-200"
+                    >
+                      Mode direct Tier 2 — sans Blueprint requis
+                    </span>
+                  ) : null}
+                </div>
+
+                {assetClass !== 'SYSTEM_GENERAL' && (
+                  <button
+                    type="button"
+                    data-testid="bom-toggle-add-form-btn"
+                    onClick={() => {
+                      setShowAddBomForm((prev) => !prev);
+                      setBomFeedback(null);
+                    }}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-sky-800 hover:bg-sky-900 text-white text-xs font-bold shadow-2xs transition cursor-pointer shrink-0 self-start sm:self-auto"
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                    {showAddBomForm ? 'Fermer le formulaire' : 'Ajouter Composant / Part / PDR'}
+                  </button>
                 )}
               </div>
+
+              {assetClass === 'SYSTEM_GENERAL' && (
+                <div
+                  data-testid="bom-system-general-guard"
+                  className="p-3 rounded-xl bg-amber-50 border border-amber-200 text-xs text-amber-900 flex items-start gap-2"
+                >
+                  <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                  <span>
+                    Actif classé <strong>SYSTEM_GENERAL</strong> : la nomenclature BOM / Organes montés
+                    est réservée aux machines de production (Tier 2).
+                  </span>
+                </div>
+              )}
+
+              {bomFeedback && (
+                <div
+                  data-testid="bom-add-feedback"
+                  className="p-2.5 rounded-xl bg-emerald-50 border border-emerald-200 text-xs font-semibold text-emerald-800 flex items-center gap-2"
+                >
+                  <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                  <span>{bomFeedback}</span>
+                </div>
+              )}
+
+              {showAddBomForm && assetClass !== 'SYSTEM_GENERAL' && (
+                <form
+                  data-testid="bom-direct-add-form"
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    const cleanDesignation = bomDesignation.trim();
+                    if (!cleanDesignation) return;
+                    const parsedQty = Math.max(1, Number(bomQty) || 1);
+                    const cleanRef = bomRef.trim() || `${bomElementType}-${Date.now().toString(36).toUpperCase()}`;
+
+                    useGmaoStore.getState().addMachineElement?.({
+                      id_machine_registered: machineCode,
+                      element_type: bomElementType,
+                      ref_element: cleanRef,
+                      id_element: cleanRef,
+                      designation: cleanDesignation,
+                      nom_element: cleanDesignation,
+                      qte_montee: parsedQty,
+                      unite: 'U',
+                      emplacement_machine: bomPosition.trim() || undefined,
+                      remarques: bomNotes.trim() || undefined,
+                      statut: 'MONTE',
+                    });
+
+                    setBomDesignation('');
+                    setBomRef('');
+                    setBomQty('1');
+                    setBomPosition('');
+                    setBomNotes('');
+                    setShowAddBomForm(false);
+                    setBomFeedback(
+                      `${bomElementType} "${cleanDesignation}" rattaché directement à ${machineCode} (Tier 2).`
+                    );
+                  }}
+                  className="p-4 rounded-2xl bg-slate-50 border border-slate-200 space-y-3"
+                >
+                  <div className="text-xs font-extrabold text-slate-800">
+                    Rattachement Direct sur {machineCode} (Registre BOM Tier 2)
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                    <div>
+                      <label className="block text-[10px] font-bold uppercase text-slate-500 mb-1">
+                        Nature de l&apos;élément
+                      </label>
+                      <select
+                        data-testid="bom-input-type"
+                        value={bomElementType}
+                        onChange={(e) =>
+                          setBomElementType(e.target.value as 'COMPOSANT' | 'PART' | 'PDR')
+                        }
+                        className="w-full px-3 py-2 rounded-xl border border-slate-200 bg-white text-xs font-semibold text-slate-900"
+                      >
+                        <option value="COMPOSANT">COMPOSANT (Organe / Moteur / Réducteur)</option>
+                        <option value="PART">PART (Pièce usinée / Arbre / Carter)</option>
+                        <option value="PDR">PDR (Pièce de rechange / Roulement / Joint)</option>
+                      </select>
+                    </div>
+                    <div className="sm:col-span-2">
+                      <label className="block text-[10px] font-bold uppercase text-slate-500 mb-1">
+                        Désignation *
+                      </label>
+                      <input
+                        type="text"
+                        required
+                        data-testid="bom-input-designation"
+                        value={bomDesignation}
+                        onChange={(e) => setBomDesignation(e.target.value)}
+                        placeholder="Ex: Moteur principal 15kW, Roulement 6308-2RS, Arbre d'entrée..."
+                        className="w-full px-3 py-2 rounded-xl border border-slate-200 bg-white text-xs font-semibold text-slate-900"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                    <div>
+                      <label className="block text-[10px] font-bold uppercase text-slate-500 mb-1">
+                        Référence / Code (Optionnel)
+                      </label>
+                      <input
+                        type="text"
+                        list="passport-bom-ref-suggestions"
+                        data-testid="bom-input-ref"
+                        value={bomRef}
+                        onChange={(e) => setBomRef(e.target.value)}
+                        placeholder="Ex: MOT-15KW-01 ou réf PDR"
+                        className="w-full px-3 py-2 rounded-xl border border-slate-200 bg-white text-xs font-mono font-semibold text-slate-900"
+                      />
+                      <datalist id="passport-bom-ref-suggestions">
+                        {(rawStock || []).slice(0, 60).map((item: any) => {
+                          const ref = String(item?.ref || item?.code || '').trim();
+                          if (!ref) return null;
+                          return (
+                            <option
+                              key={`pdr-${ref}`}
+                              value={ref}
+                              label={String(item?.designation || ref)}
+                            />
+                          );
+                        })}
+                        {(warehouseItems || []).slice(0, 60).map((item: any) => {
+                          const ref = String(
+                            item?.code || item?.id_entrepot || item?.reference || ''
+                          ).trim();
+                          if (!ref) return null;
+                          return (
+                            <option
+                              key={`wh-${ref}`}
+                              value={ref}
+                              label={String(item?.designation || item?.nom || ref)}
+                            />
+                          );
+                        })}
+                      </datalist>
+                    </div>
+                    <div>
+                      <label className="block text-[10px] font-bold uppercase text-slate-500 mb-1">
+                        Quantité montée
+                      </label>
+                      <input
+                        type="number"
+                        min={1}
+                        step={1}
+                        data-testid="bom-input-qty"
+                        value={bomQty}
+                        onChange={(e) => setBomQty(e.target.value)}
+                        className="w-full px-3 py-2 rounded-xl border border-slate-200 bg-white text-xs font-mono font-semibold text-slate-900"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[10px] font-bold uppercase text-slate-500 mb-1">
+                        Emplacement machine
+                      </label>
+                      <input
+                        type="text"
+                        data-testid="bom-input-position"
+                        value={bomPosition}
+                        onChange={(e) => setBomPosition(e.target.value)}
+                        placeholder="Ex: Côté entraînement, Palier AR..."
+                        className="w-full px-3 py-2 rounded-xl border border-slate-200 bg-white text-xs font-semibold text-slate-900"
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-[10px] font-bold uppercase text-slate-500 mb-1">
+                      Observations techniques (Optionnel)
+                    </label>
+                    <input
+                      type="text"
+                      data-testid="bom-input-notes"
+                      value={bomNotes}
+                      onChange={(e) => setBomNotes(e.target.value)}
+                      placeholder="Ex: Monté lors de la révision T2, couple de serrage, numéro de série..."
+                      className="w-full px-3 py-2 rounded-xl border border-slate-200 bg-white text-xs font-semibold text-slate-900"
+                    />
+                  </div>
+
+                  <div className="flex items-center justify-end gap-2 pt-1">
+                    <button
+                      type="button"
+                      onClick={() => setShowAddBomForm(false)}
+                      className="px-3 py-1.5 rounded-xl bg-white border border-slate-200 text-xs font-bold text-slate-600 hover:bg-slate-100 cursor-pointer"
+                    >
+                      Annuler
+                    </button>
+                    <button
+                      type="submit"
+                      data-testid="bom-submit-btn"
+                      className="px-4 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold shadow-xs cursor-pointer"
+                    >
+                      Enregistrer sur la machine
+                    </button>
+                  </div>
+                </form>
+              )}
 
               {machineElements.length === 0 ? (
                 <div className="p-8 text-center bg-slate-50 rounded-2xl border border-dashed border-slate-200 text-slate-400">
