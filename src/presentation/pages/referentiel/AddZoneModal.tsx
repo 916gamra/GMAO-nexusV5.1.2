@@ -64,18 +64,30 @@ export default function AddZoneModal({ isOpen, onClose, zones = [], onAddZone })
       return;
     }
 
-    if (zones.some((z) => z.id_zone && z.id_zone.toLowerCase().trim() === form.id_zone.toLowerCase().trim())) {
-      setError("Cet ID de zone existe déjà.");
+    const cleanId = form.id_zone.trim().toUpperCase();
+    const cleanCode = form.code_zone.trim().toUpperCase();
+    if (
+      zones.some((z) => {
+        const zId = String(z.id_zone || '').trim().toUpperCase();
+        const zCode = String(z.code_zone || z.code || '').trim().toUpperCase();
+        return zId === cleanId || (cleanCode && zCode === cleanCode);
+      })
+    ) {
+      setError(`Cet ID ("${cleanId}") ou code ("${cleanCode}") de zone existe déjà.`);
       return;
     }
 
-    onAddZone({
-      code_zone: form.code_zone.trim().toUpperCase(),
-      id_zone: form.id_zone.trim().toUpperCase(),
+    const ok = onAddZone({
+      code_zone: cleanCode,
+      id_zone: cleanId,
       libelle: form.libelle.trim(),
       type: form.type.trim().toUpperCase(),
       description: form.description.trim(),
     });
+    if (ok === false) {
+      setError('Impossible de créer la zone (doublon ou règle de validation).');
+      return;
+    }
 
     onClose();
   };

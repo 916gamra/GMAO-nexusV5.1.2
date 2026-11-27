@@ -604,12 +604,8 @@ export default function MachinesRegisteredView({
             : {}),
           'Zone ID (F)': m.id_zone_default || '',
           'Zone Nom (F)': znObj?.libelle || m.id_zone_default || '',
-          ...(showTeamManagement
-            ? {
-                'Technicien ID (G)': m.technician || '',
-                'Technicien Nom (G)': techObj?.nom || m.technician || '',
-              }
-            : {}),
+          'Technicien ID (G)': m.technician || '',
+          'Technicien Nom (G)': techObj?.nom || m.technician || '',
           'Statut Opérationnel (H)': m.status || 'En Service',
           'Régime Travail': m.regime_travail || '2x8',
           ...(showFinance
@@ -650,13 +646,8 @@ export default function MachinesRegisteredView({
               dynamiquement avec{' '}
               <b className="text-cyan-700 font-semibold">Familles (D)</b>,{' '}
               <b className="text-amber-700 font-semibold">Templates (E)</b>,{' '}
-              <b className="text-purple-700 font-semibold">Zones (F)</b>
-              {showTeamManagement && (
-                <>
-                  {' '}et <b className="text-blue-700 font-semibold">Techniciens (G)</b>
-                </>
-              )}
-              .
+              <b className="text-purple-700 font-semibold">Zones (F)</b> et{' '}
+              <b className="text-blue-700 font-semibold">Techniciens (G)</b>.
             </p>
           </div>
         </div>
@@ -968,7 +959,7 @@ export default function MachinesRegisteredView({
               </div>
               <input
                 type="text"
-                placeholder={showTeamManagement ? 'Code, Nom, Zone, Tech...' : 'Code, Nom, N° Série, Zone...'}
+                placeholder="Code, Nom, N° Série, Zone, Tech..."
                 value={localSearch}
                 onChange={(e) => setLocalSearch(e.target.value)}
                 className="w-full h-9 pl-9 pr-7 rounded-xl border border-slate-200 bg-slate-50/70 text-xs font-semibold focus:bg-white focus:outline-none focus:ring-1 focus:ring-amber-500 transition-colors"
@@ -1127,7 +1118,7 @@ export default function MachinesRegisteredView({
                       ? [{ key: 'id_blueprint', label: 'Blueprint / Schéma' }]
                       : []),
                     { key: 'id_zone_default', label: 'Zone Défaut' },
-                    ...(showTeamManagement ? [{ key: 'technician', label: 'Technicien Assigné' }] : []),
+                    { key: 'technician', label: 'Technicien Assigné' },
                     { key: 'status', label: 'Statut Opérationnel' },
                     { key: 'sorties', label: 'Interventions (BT/PM)' },
                   ].map((col) => (
@@ -1318,7 +1309,7 @@ export default function MachinesRegisteredView({
             </span>
             <div>
               <div className="font-black">
-                Mode Pilotage Terrain Actif — Modifiez Statut{showTeamManagement ? ', Technicien' : ''}, Régime{showFinance ? " et Coût d'Arrêt" : ''} en ligne
+                Mode Pilotage Terrain Actif — Modifiez Statut, Technicien, Régime{showFinance ? " et Coût d'Arrêt" : ''} en ligne
               </div>
               <div className="text-[11px] text-amber-800">
                 Chaque validation déclenche le workflow de cycle de vie (suspension PM si archivée) et le journal AUDIT_EVENTS.
@@ -1455,17 +1446,15 @@ export default function MachinesRegisteredView({
                 <th
                   onClick={() => handleSort('id_zone_default')}
                   className="py-3 px-3.5 cursor-pointer select-none hover:bg-slate-200/80 transition group min-w-[180px] border-r border-slate-300"
-                  title={showTeamManagement ? 'Cliquer pour trier par Zone & Technicien' : 'Cliquer pour trier par Zone'}
+                  title="Cliquer pour trier par Zone & Technicien"
                 >
                   <div className="flex items-center gap-1.5">
                     <div className="flex items-center -space-x-1">
                       <MapPin className="w-3.5 h-3.5 text-slate-700 shrink-0" />
-                      {showTeamManagement && <Users className="w-3.5 h-3.5 text-slate-700 shrink-0" />}
+                      <Users className="w-3.5 h-3.5 text-slate-700 shrink-0" />
                     </div>
-                    <span>{showTeamManagement ? 'ZONE & TECHNICIEN' : 'ZONE / SECTEUR'}</span>
-                    <span className="text-slate-400 font-normal text-[10px]">
-                      {showTeamManagement ? '(F+G)' : '(F)'}
-                    </span>
+                    <span>ZONE &amp; TECHNICIEN</span>
+                    <span className="text-slate-400 font-normal text-[10px]">(F+G)</span>
                     {renderSortIcon('id_zone_default')}
                   </div>
                 </th>
@@ -1867,40 +1856,39 @@ export default function MachinesRegisteredView({
                           </button>
 
                           {/* Technician Badge / Quick-Edit Select */}
-                          {showTeamManagement &&
-                            (quickEditMode && canEdit && !isArchived ? (
-                              <select
-                                value={quickEditDrafts[m.id_machine_registered]?.technician ?? (m.technician || '')}
-                                onChange={(e) =>
-                                  handleStageQuickDraft(m.id_machine_registered, {
-                                    technician: e.target.value,
-                                  })
-                                }
-                                className="px-2 py-1 rounded-md border border-blue-300 bg-blue-50/70 text-[11px] font-bold text-slate-800 max-w-[190px] focus:outline-none"
-                                title="Réaffecter le technicien responsable"
-                              >
-                                <option value="">— Non assigné —</option>
-                                {technicians
-                                  .filter((t) => t?.is_active !== false)
-                                  .map((t) => (
-                                    <option key={t.id_technician || t.nom} value={t.id_technician || t.nom}>
-                                      {t.nom} ({t.id_technician || 'TECH'})
-                                    </option>
-                                  ))}
-                              </select>
-                            ) : (
-                              <div className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-blue-50 text-blue-800 border border-blue-200/70 text-[11px] font-semibold shadow-2xs">
-                                <Users className="w-3 h-3 text-blue-600 shrink-0" />
-                                <span className="font-bold text-slate-800">
-                                  {tech ? tech.nom : m.technician || 'Non assigné'}
+                          {quickEditMode && canEdit && !isArchived ? (
+                            <select
+                              value={quickEditDrafts[m.id_machine_registered]?.technician ?? (m.technician || '')}
+                              onChange={(e) =>
+                                handleStageQuickDraft(m.id_machine_registered, {
+                                  technician: e.target.value,
+                                })
+                              }
+                              className="px-2 py-1 rounded-md border border-blue-300 bg-blue-50/70 text-[11px] font-bold text-slate-800 max-w-[190px] focus:outline-none"
+                              title="Réaffecter le technicien responsable"
+                            >
+                              <option value="">— Non assigné —</option>
+                              {technicians
+                                .filter((t) => t?.is_active !== false)
+                                .map((t) => (
+                                  <option key={t.id_technician || t.nom} value={t.id_technician || t.nom}>
+                                    {t.nom} ({t.id_technician || 'TECH'})
+                                  </option>
+                                ))}
+                            </select>
+                          ) : (
+                            <div className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-blue-50 text-blue-800 border border-blue-200/70 text-[11px] font-semibold shadow-2xs">
+                              <Users className="w-3 h-3 text-blue-600 shrink-0" />
+                              <span className="font-bold text-slate-800">
+                                {tech ? tech.nom : m.technician || 'Non assigné'}
+                              </span>
+                              {tech?.id_technician && (
+                                <span className="font-mono text-[10px] text-blue-600 bg-blue-100/70 px-1 rounded">
+                                  {tech.id_technician}
                                 </span>
-                                {tech?.id_technician && (
-                                  <span className="font-mono text-[10px] text-blue-600 bg-blue-100/70 px-1 rounded">
-                                    {tech.id_technician}
-                                  </span>
-                                )}
-                              </div>
-                            ))}
+                              )}
+                            </div>
+                          )}
                         </div>
                       </td>
 

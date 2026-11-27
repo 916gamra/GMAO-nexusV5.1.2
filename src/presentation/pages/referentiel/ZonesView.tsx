@@ -10,6 +10,8 @@ import { MapPin, Search, ArrowRight, Users, Wrench, Trash2, Edit2, AlertTriangle
 import { useTranslation } from '../../../i18n/I18nContext';
 import { usePermission } from '../../components/common/PermissionGate';
 import { exportTypeBWorkbook } from '../../../utils/safeExcelExport';
+import { useCurrency } from '../../../utils/currencyService';
+import { useWorkspaceProfile } from '../../../core/workspace/workspaceProfile';
 import {
   computeZoneOperationalAnalytics,
   getCanonicalZoneKey,
@@ -41,6 +43,9 @@ export default function ZonesView({
   showToast,
 }) {
   const { t } = useTranslation();
+  const { formatCurrency, currencyCode } = useCurrency();
+  const workspaceProfile = useWorkspaceProfile();
+  const showFinance = workspaceProfile.moduleVisibility.showFinance;
   const canCreate = usePermission('zone.create');
   const canEdit = usePermission('zone.edit');
   const canDelete = usePermission('zone.delete');
@@ -111,6 +116,11 @@ export default function ZonesView({
       stockItems,
     ]
   );
+
+  const totalDowntimeHours12m = useMemo(() => {
+    const sum = zoneAnalytics.summaries.reduce((acc, s) => acc + (Number(s.downtimeHours12m) || 0), 0);
+    return Math.round(sum * 10) / 10;
+  }, [zoneAnalytics.summaries]);
 
   // Auto-calculation of next Code Zone (e.g. ZONE-01)
   const autoCodeZone = useMemo(() => {
@@ -202,8 +212,14 @@ export default function ZonesView({
   const sortedData = useMemo(() => {
     if (!sortField) return filtered;
     return [...filtered].sort((a, b) => {
-      let valA = a[sortField] || '';
-      let valB = b[sortField] || '';
+      let valA =
+        sortField === 'id_zone' || sortField === 'code_zone'
+          ? a.id_zone || a.code_zone || a.code || ''
+          : a[sortField] || '';
+      let valB =
+        sortField === 'id_zone' || sortField === 'code_zone'
+          ? b.id_zone || b.code_zone || b.code || ''
+          : b[sortField] || '';
       if (typeof valA === 'string') valA = valA.toLowerCase();
       if (typeof valB === 'string') valB = valB.toLowerCase();
       if (valA < valB) return sortOrder === 'asc' ? -1 : 1;
@@ -255,8 +271,9 @@ export default function ZonesView({
       'Total Machines Actives (F)',
       'BT Ouverts',
       'PM en Retard',
-      'Coût Maint. 12m (DH)',
-      'Perte Arrêt 12m (DH)',
+      ...(showFinance
+        ? [`Coût Maint. 12m (${currencyCode})`, `Perte Arrêt 12m (${currencyCode})`]
+        : ['Arrêts 12m (h)']),
       'Statut Zone',
     ];
     const rows = filtered.map((z) => {
@@ -275,8 +292,9 @@ export default function ZonesView({
         summary?.activeMachinesCount ?? 0,
         summary?.openCorrectiveCount ?? 0,
         summary?.overduePreventiveCount ?? 0,
-        summary?.totalMaintenanceCost12m ?? 0,
-        summary?.downtimeProductionLossCost12m ?? 0,
+        ...(showFinance
+          ? [summary?.totalMaintenanceCost12m ?? 0, summary?.downtimeProductionLossCost12m ?? 0]
+          : [summary?.downtimeHours12m ?? 0]),
         summary?.zoneStatus || 'NOMINAL',
       ];
     });
@@ -324,7 +342,7 @@ export default function ZonesView({
   const zoneColumns = useMemo(
     () => [
       {
-        key: 'code_zone',
+        key: 'id_zone',
         label: t('zones.columns.identifiers'),
         colLetter: 'b.1/b.2',
         icon: Hash,
@@ -567,7 +585,7 @@ export default function ZonesView({
       },
       {
         key: 'health',
-        label: 'État & Coût 12m',
+        label: showFinance ? 'État & Coût 12m' : 'État & Arrêts 12m',
         icon: Activity,
         render: (z) => {
           const summary = zoneAnalytics.byZoneKey[getCanonicalZoneKey(z)];
@@ -611,15 +629,21 @@ export default function ZonesView({
                 )}
               </div>
 
-              {totalImpact > 0 && (
+              {showFinance && totalImpact > 0 ? (
                 <div className="text-[10px] font-mono text-slate-600 font-bold">
-                  {Math.round(totalImpact).toLocaleString()} DH
+                  {formatCurrency(totalImpact, { decimals: 0 })}
                   {summary.downtimeHours12m > 0 && (
                     <span className="text-slate-400 font-normal">
                       {' '}• {summary.downtimeHours12m}h arrêt
                     </span>
                   )}
                 </div>
+              ) : (
+                summary.downtimeHours12m > 0 && (
+                  <div className="text-[10px] font-mono text-slate-600 font-bold">
+                    {summary.downtimeHours12m}h arrêt (12m)
+                  </div>
+                )
               )}
             </div>
           );
@@ -659,7 +683,7 @@ export default function ZonesView({
         ),
       },
     ],
-    [safeOps, safeTechs, zoneAnalytics, onNavigateToTechs, onNavigateToOps, onNavigateToMachines, onNavigateToEquipment, t, canEdit, canDelete]
+    [safeOps, safeTechs, zoneAnalytics, onNavigateToTechs, onNavigateToOps, onNavigateToMachines, onNavigateToEquipment, t, canEdit, canDelete, showFinance, formatCurrency]
   );
 
   return (
@@ -740,7 +764,6 @@ export default function ZonesView({
           unit="techniciens"
           icon={Users}
           color="blue"
-          isActive={healthFilter === 'NO_TECH'}
           badgeText={`${zoneAnalytics.totals.activeResponsablesCount} Resp. • ${zoneAnalytics.totals.activeOperatorsCount} Op.`}
           footerLabel="Couverture :"
           footerValue={
@@ -751,7 +774,7 @@ export default function ZonesView({
           onClick={onNavigateToTechs ? () => onNavigateToTechs('') : undefined}
         />
         <GmaoKpiCard
-          title="Risques & Coût Maint. 12m"
+          title={showFinance ? 'Risques & Coût Maint. 12m' : 'Risques & Arrêts 12m'}
           value={zoneAnalytics.totals.openCorrectiveCount}
           unit="BT ouverts"
           icon={ShieldAlert}
@@ -763,11 +786,16 @@ export default function ZonesView({
           isActive={healthFilter === 'ALERTS'}
           onClick={() => setHealthFilter(healthFilter === 'ALERTS' ? 'ALL' : 'ALERTS')}
           badgeText={`${zoneAnalytics.totals.overduePreventiveCount} PM retard • ${zoneAnalytics.totals.stoppedMachinesCount} arrêt(s)`}
-          footerLabel="Impact 12m :"
-          footerValue={`${Math.round(
-            zoneAnalytics.totals.totalMaintenanceCost12m +
-              zoneAnalytics.totals.downtimeProductionLossCost12m
-          ).toLocaleString()} DH`}
+          footerLabel={showFinance ? 'Impact 12m :' : 'Arrêts 12m :'}
+          footerValue={
+            showFinance
+              ? formatCurrency(
+                  zoneAnalytics.totals.totalMaintenanceCost12m +
+                    zoneAnalytics.totals.downtimeProductionLossCost12m,
+                  { decimals: 0 }
+                )
+              : `${totalDowntimeHours12m} h`
+          }
         />
       </GmaoKpiGrid>
 
@@ -827,13 +855,15 @@ export default function ZonesView({
           )}
 
           <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl text-[11px] font-bold bg-slate-50 text-slate-800 border border-slate-200 font-mono">
-            <span>Impact 12m :</span>
+            <span>{showFinance ? 'Impact 12m :' : 'Arrêts 12m :'}</span>
             <span className="text-indigo-700 font-black">
-              {Math.round(
-                zoneAnalytics.totals.totalMaintenanceCost12m +
-                  zoneAnalytics.totals.downtimeProductionLossCost12m
-              ).toLocaleString()}{' '}
-              DH
+              {showFinance
+                ? formatCurrency(
+                    zoneAnalytics.totals.totalMaintenanceCost12m +
+                      zoneAnalytics.totals.downtimeProductionLossCost12m,
+                    { decimals: 0 }
+                  )
+                : `${totalDowntimeHours12m} h`}
             </span>
           </div>
         </div>
@@ -1359,7 +1389,9 @@ export default function ZonesView({
         const linkedMachinesCount = safeMachines.filter(
           (m) => matchesZoneValue(m.id_zone_default, toDelete, true) || matchesZoneValue(m.id_zone, toDelete, true)
         ).length;
-        const linkedTechsCount = safeTechs.filter((t) => matchesZoneValue(t.id_zone, toDelete)).length;
+        const linkedTechsCount = safeTechs.filter((t) =>
+          matchesMemberZone(t, toDelete, { includeAll: false })
+        ).length;
         const linkedOpsCount = safeOps.filter((o) => matchesOpZone(o, toDelete)).length;
         const linkedWhCount = safeWarehouse.filter(
           (w) => matchesZoneValue(w.id_zone, toDelete) || matchesZoneValue(w.id_zone_default, toDelete)
@@ -1398,7 +1430,7 @@ export default function ZonesView({
                   disabled={totalLinked > 0}
                   onClick={() => {
                     if (!canDelete || totalLinked > 0) return;
-                    onDeleteZone(toDelete.id_zone);
+                    onDeleteZone(toDelete.id_zone || toDelete.code_zone);
                     setToDelete(null);
                   }}
                   className={`flex-1 h-10 rounded-xl text-white text-xs font-semibold ${

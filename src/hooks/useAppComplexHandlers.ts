@@ -226,11 +226,18 @@ export function useAppComplexHandlers({
   };
   const handleDeleteZone = (id) => {
     const targetZone = (zones || []).find((z) => z.id_zone === id || z.code_zone === id);
+    const resolvedId = String(targetZone?.id_zone || targetZone?.code_zone || id || '').trim();
     const zIdNorm = String(targetZone?.id_zone || id || '').trim().toUpperCase();
     const zCodeNorm = String(targetZone?.code_zone || targetZone?.code || id || '').trim().toUpperCase();
-    const matchesZone = (val: unknown) => {
+    const matchesZoneToken = (val: unknown) => {
       const v = String(val || '').trim().toUpperCase();
-      return Boolean(v && (v === zIdNorm || v === zCodeNorm));
+      if (!v || v === 'ALL') return false;
+      return Boolean((zIdNorm && v === zIdNorm) || (zCodeNorm && v === zCodeNorm));
+    };
+    const matchesZone = (val: unknown) => {
+      const raw = String(val || '').trim();
+      if (!raw) return false;
+      return raw.split(',').some((token) => matchesZoneToken(token));
     };
     const hasMachines = activeMachines.some(
       (m) => matchesZone(m.id_zone_default) || matchesZone(m.id_zone)
@@ -244,24 +251,28 @@ export function useAppComplexHandlers({
     const hasWarehouse = (warehouseItems || []).some(
       (w: any) => matchesZone(w.id_zone_default) || matchesZone(w.id_zone)
     );
-    if (hasMachines || hasTechs || hasOps || hasWarehouse) {
+    const hasDirectHistory =
+      (correctiveInterventions || []).some((ci: any) => matchesZone(ci?.id_zone)) ||
+      (preventiveTasks || []).some((pt: any) => matchesZone(pt?.id_zone)) ||
+      (mouvements || []).some((m: any) => matchesZone(m?.id_zone));
+    if (hasMachines || hasTechs || hasOps || hasWarehouse || hasDirectHistory) {
       showToast?.(
-        `Suppression refusée : la zone ${id} contient des machines ou techniciens actifs (ou membres/articles d'entrepôt). Réaffectez-les d'abord.`,
+        `Suppression refusée : la zone ${resolvedId} contient des machines ou techniciens actifs (ou membres/articles d'entrepôt/historiques liés). Réaffectez-les d'abord.`,
         'warning'
       );
       return;
     }
     setZones((prev) =>
-      (prev || []).filter((z) => !matchesZone(z?.id_zone) && !matchesZone(z?.code_zone || z?.code))
+      (prev || []).filter((z) => !matchesZoneToken(z?.id_zone) && !matchesZoneToken(z?.code_zone || z?.code))
     );
     appendAuditEvent?.({
       actionType: 'ZONE_DELETED',
       entityType: 'ZONE',
-      entityId: String(targetZone?.id_zone || id || '').trim(),
-      before: targetZone || { id_zone: id },
+      entityId: resolvedId,
+      before: targetZone || { id_zone: resolvedId },
       after: null,
     });
-    showToast?.(`Zone ${id} supprimée.`, 'info');
+    showToast?.(`Zone ${resolvedId} supprimée.`, 'info');
   };
 
   const handleUpdateOperation = (id, updatedOp) => {
@@ -373,14 +384,33 @@ export function useAppComplexHandlers({
     const hasPreventiveTasks = (preventiveTasks || []).some(
       (pt) => matchesOpRef(pt?.responsable) || matchesOpRef(pt?.technicien)
     );
+    const hasPreventiveExecs = (preventiveExecutions || []).some(
+      (ex) =>
+        matchesOpRef(ex?.executorName) ||
+        matchesOpRef(ex?.technicien) ||
+        matchesOpRef(ex?.id_technicien)
+    );
+    const hasExternalSorties = (sortiesExterne || []).some(
+      (se) =>
+        matchesOpRef(se?.technicien_demontage) || matchesOpRef(se?.technicien_montage)
+    );
     const hasSortieDemands = (sortieDemands || []).some(
       (sd) =>
         matchesOpRef(sd?.demandeur_id) ||
         matchesOpRef(sd?.demandeur_nom) ||
+        matchesOpRef(sd?.technicien_id) ||
+        matchesOpRef(sd?.technicien_nom) ||
         matchesOpRef(sd?.validated_by_id)
     );
 
-    if (hasMovements || hasCorrective || hasPreventiveTasks || hasSortieDemands) {
+    if (
+      hasMovements ||
+      hasCorrective ||
+      hasPreventiveTasks ||
+      hasPreventiveExecs ||
+      hasExternalSorties ||
+      hasSortieDemands
+    ) {
       const archivedPayload = {
         ...(targetOp || { id_operation: id }),
         is_active: false,
@@ -1464,6 +1494,14 @@ export function useAppComplexHandlers({
       (se) =>
         matchesTechRef(se?.technicien_demontage) || matchesTechRef(se?.technicien_montage)
     );
+    const hasSortieDemands = (sortieDemands || []).some(
+      (sd) =>
+        matchesTechRef(sd?.demandeur_id) ||
+        matchesTechRef(sd?.demandeur_nom) ||
+        matchesTechRef(sd?.technicien_id) ||
+        matchesTechRef(sd?.technicien_nom) ||
+        matchesTechRef(sd?.validated_by_id)
+    );
 
     if (
       hasMovements ||
@@ -1471,7 +1509,8 @@ export function useAppComplexHandlers({
       hasCorrective ||
       hasPreventiveTasks ||
       hasPreventiveExecs ||
-      hasExternalSorties
+      hasExternalSorties ||
+      hasSortieDemands
     ) {
       const archivedPayload = {
         ...(targetTech || { id_technician: id }),

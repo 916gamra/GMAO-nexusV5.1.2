@@ -53,6 +53,7 @@ import { computePersonnelWorkload } from '../../../application/services/Personne
 import { matchesMemberZone } from '../../../application/services/ZoneOperationalAnalyticsService';
 import { validatePasswordPolicy } from '../../../core/security/AuthService';
 import { LicenseGateService } from '../../../core/security/LicenseGateService';
+import { useWorkspaceProfile } from '../../../core/workspace/workspaceProfile';
 
 export default function UtilisateursView({
   technicians = [],
@@ -88,6 +89,8 @@ export default function UtilisateursView({
     removePersonnelAuthAccount,
   } = useAuth();
   const isAdmin = currentUser?.role === 'ADMIN';
+  const workspaceProfile = useWorkspaceProfile();
+  const showAccountControls = workspaceProfile.moduleVisibility.showTeamManagement;
   const canManageUsersPerm = usePermission('users.manage');
   const canManageUsers = Boolean(currentUser) && (isAdmin || canManageUsersPerm);
   const handleOpenZoneModal = onOpenAddZoneModal || onOpenAddZone;
@@ -107,6 +110,18 @@ export default function UtilisateursView({
   const [accessFilter, setAccessFilter] = useState<
     'ALL' | 'ACTIVE' | 'OVERLOADED' | 'NO_ACCOUNT' | 'NO_PASSWORD' | 'DISABLED' | 'ARCHIVED'
   >('ALL');
+
+  // Reset multi-account filters when login/RBAC controls are hidden (e.g. SOLO_EXPERT)
+  useEffect(() => {
+    if (
+      !showAccountControls &&
+      (accessFilter === 'NO_ACCOUNT' ||
+        accessFilter === 'NO_PASSWORD' ||
+        accessFilter === 'DISABLED')
+    ) {
+      setAccessFilter('ALL');
+    }
+  }, [showAccountControls, accessFilter]);
 
   // Sync incoming zone navigation filters from ZonesView
   useEffect(() => {
@@ -586,12 +601,27 @@ export default function UtilisateursView({
 
     if (userToEdit) {
       // Edit mode
-      const isTech = userToEdit.id.startsWith('TECH-');
+      const cleanName = form.nom.trim();
+      const duplicateEditName = combinedUsers.some(
+        (u) =>
+          u.id !== userToEdit.id &&
+          u.type === userToEdit.type &&
+          String(u.nom || '').trim().toLowerCase() === cleanName.toLowerCase()
+      );
+      if (duplicateEditName) {
+        showToast?.(
+          `Un autre membre (${userToEdit.type}) porte déjà le nom "${cleanName}".`,
+          'warning'
+        );
+        return;
+      }
+
+      const isTech = userToEdit.type === 'TECHNICIEN';
       if (isTech) {
         onUpdateTechnician(userToEdit.id, {
           ...userToEdit.raw,
           id_technician: userToEdit.id,
-          nom: form.nom.trim(),
+          nom: cleanName,
           id_zone: form.id_zone,
           specialite: form.specialite,
         });
@@ -663,7 +693,7 @@ export default function UtilisateursView({
 
       // Pre-validate 1-step GMAO login onboarding BEFORE mutating personnel list
       const wantsImmediateAccess = Boolean(
-        isAdmin && onboardingAccess.enabled && upsertPersonnelAuthAccount
+        showAccountControls && isAdmin && onboardingAccess.enabled && upsertPersonnelAuthAccount
       );
       const loginUsername = String(onboardingAccess.username || nextId)
         .trim()
@@ -799,7 +829,7 @@ export default function UtilisateursView({
   // Delete / Soft-Archive Handler
   const confirmDelete = () => {
     if (!canManageUsers || !userToDelete) return;
-    const isTech = userToDelete.id.startsWith('TECH-');
+    const isTech = userToDelete.type === 'TECHNICIEN';
     const result = isTech
       ? onDeleteTechnician(userToDelete.id)
       : onDeleteOperation(userToDelete.id);
@@ -813,7 +843,7 @@ export default function UtilisateursView({
 
   const handleReactivateUser = (user) => {
     if (!canManageUsers || !user) return;
-    const isTech = user.id.startsWith('TECH-');
+    const isTech = user.type === 'TECHNICIEN';
     if (isTech) {
       onUpdateTechnician(user.id, {
         ...user.raw,
@@ -843,7 +873,7 @@ export default function UtilisateursView({
       'BT Ouverts',
       'Tâches PM Actives',
       'Statut Fiche',
-      'Accès GMAO',
+      ...(showAccountControls ? ['Accès GMAO'] : []),
     ];
     const rows = filtered.map((u) => {
       const acc = getAccountForPersonnel ? getAccountForPersonnel(u.id) : null;
@@ -858,13 +888,17 @@ export default function UtilisateursView({
         w?.openCorrectiveCount ?? 0,
         w?.activePreventiveTasksCount ?? 0,
         u.isArchived ? 'ARCHIVÉ' : 'ACTIF',
-        acc
-          ? acc.isActive === false
-            ? 'Désactivé'
-            : acc.hasPassword === false
-              ? `@${acc.username} (Sans mot de passe)`
-              : `@${acc.username} (${acc.role})`
-          : 'Non activé',
+        ...(showAccountControls
+          ? [
+              acc
+                ? acc.isActive === false
+                  ? 'Désactivé'
+                  : acc.hasPassword === false
+                    ? `@${acc.username} (Sans mot de passe)`
+                    : `@${acc.username} (${acc.role})`
+                : 'Non activé',
+            ]
+          : []),
       ];
     });
     exportTypeBWorkbook({
@@ -1105,65 +1139,69 @@ export default function UtilisateursView({
           );
         },
       },
-      {
-        key: 'acces_gmao',
-        label: 'Accès GMAO',
-        colLetter: 'G',
-        icon: Key,
-        render: (user) => {
-          const acc = getAccountForPersonnel ? getAccountForPersonnel(user.id) : null;
-          if (acc && acc.isActive !== false && acc.hasPassword === false) {
-            return (
-              <button
-                type="button"
-                onClick={() => isAdmin && openAccessModal(user)}
-                className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-bold bg-rose-50 text-rose-800 border border-rose-200 hover:bg-rose-100 transition cursor-pointer shadow-2xs"
-                title={`Compte @${acc.username} sans mot de passe — Cliquer pour définir un mot de passe`}
-              >
-                <AlertTriangle className="w-3 h-3 text-rose-600 shrink-0" />
-                <span>Sans mot de passe</span>
-              </button>
-            );
-          }
-          if (acc && acc.isActive !== false) {
-            return (
-              <button
-                type="button"
-                onClick={() => isAdmin && openAccessModal(user)}
-                className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-bold bg-emerald-50 text-emerald-800 border border-emerald-200 hover:bg-emerald-100 transition cursor-pointer shadow-2xs"
-                title={`Compte actif : @${acc.username} (${acc.role}) — Cliquer pour configurer`}
-              >
-                <Unlock className="w-3 h-3 text-emerald-600 shrink-0" />
-                <span className="font-mono">@{acc.username}</span>
-              </button>
-            );
-          }
-          if (acc && acc.isActive === false) {
-            return (
-              <button
-                type="button"
-                onClick={() => isAdmin && openAccessModal(user)}
-                className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-bold bg-amber-50 text-amber-800 border border-amber-200 hover:bg-amber-100 transition cursor-pointer shadow-2xs"
-                title="Accès désactivé — Cliquer pour réactiver"
-              >
-                <Lock className="w-3 h-3 text-amber-600 shrink-0" />
-                <span>Désactivé</span>
-              </button>
-            );
-          }
-          return (
-            <button
-              type="button"
-              onClick={() => isAdmin && openAccessModal(user)}
-              className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-medium bg-slate-100 text-slate-600 border border-slate-200 hover:bg-indigo-50 hover:text-indigo-700 hover:border-indigo-200 transition cursor-pointer shadow-2xs"
-              title="Activer un compte de connexion pour ce membre"
-            >
-              <Key className="w-3 h-3 text-slate-400 shrink-0" />
-              <span>Activer accès</span>
-            </button>
-          );
-        },
-      },
+      ...(showAccountControls
+        ? [
+            {
+              key: 'acces_gmao',
+              label: 'Accès GMAO',
+              colLetter: 'G',
+              icon: Key,
+              render: (user) => {
+                const acc = getAccountForPersonnel ? getAccountForPersonnel(user.id) : null;
+                if (acc && acc.isActive !== false && acc.hasPassword === false) {
+                  return (
+                    <button
+                      type="button"
+                      onClick={() => isAdmin && openAccessModal(user)}
+                      className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-bold bg-rose-50 text-rose-800 border border-rose-200 hover:bg-rose-100 transition cursor-pointer shadow-2xs"
+                      title={`Compte @${acc.username} sans mot de passe — Cliquer pour définir un mot de passe`}
+                    >
+                      <AlertTriangle className="w-3 h-3 text-rose-600 shrink-0" />
+                      <span>Sans mot de passe</span>
+                    </button>
+                  );
+                }
+                if (acc && acc.isActive !== false) {
+                  return (
+                    <button
+                      type="button"
+                      onClick={() => isAdmin && openAccessModal(user)}
+                      className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-bold bg-emerald-50 text-emerald-800 border border-emerald-200 hover:bg-emerald-100 transition cursor-pointer shadow-2xs"
+                      title={`Compte actif : @${acc.username} (${acc.role}) — Cliquer pour configurer`}
+                    >
+                      <Unlock className="w-3 h-3 text-emerald-600 shrink-0" />
+                      <span className="font-mono">@{acc.username}</span>
+                    </button>
+                  );
+                }
+                if (acc && acc.isActive === false) {
+                  return (
+                    <button
+                      type="button"
+                      onClick={() => isAdmin && openAccessModal(user)}
+                      className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-bold bg-amber-50 text-amber-800 border border-amber-200 hover:bg-amber-100 transition cursor-pointer shadow-2xs"
+                      title="Accès désactivé — Cliquer pour réactiver"
+                    >
+                      <Lock className="w-3 h-3 text-amber-600 shrink-0" />
+                      <span>Désactivé</span>
+                    </button>
+                  );
+                }
+                return (
+                  <button
+                    type="button"
+                    onClick={() => isAdmin && openAccessModal(user)}
+                    className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-medium bg-slate-100 text-slate-600 border border-slate-200 hover:bg-indigo-50 hover:text-indigo-700 hover:border-indigo-200 transition cursor-pointer shadow-2xs"
+                    title="Activer un compte de connexion pour ce membre"
+                  >
+                    <Key className="w-3 h-3 text-slate-400 shrink-0" />
+                    <span>Activer accès</span>
+                  </button>
+                );
+              },
+            },
+          ]
+        : []),
       {
         key: 'actions',
         label: t('utilisateurs.columns.actions'),
@@ -1182,7 +1220,7 @@ export default function UtilisateursView({
             );
           return (
           <div className="flex items-center justify-center gap-1.5">
-            {isAdmin && (
+            {showAccountControls && isAdmin && (
               <button
                 type="button"
                 onClick={() => openAccessModal(user)}
@@ -1264,7 +1302,7 @@ export default function UtilisateursView({
         },
       },
     ],
-    [zones, authAccounts, workloadReport, isAdmin, canManageUsers, getAccountForPersonnel, onReassignTechnicianWorkload]
+    [zones, authAccounts, workloadReport, isAdmin, showAccountControls, canManageUsers, getAccountForPersonnel, onReassignTechnicianWorkload]
   );
 
   return (
@@ -1277,11 +1315,20 @@ export default function UtilisateursView({
           <div className="flex items-center gap-3 min-w-0 relative">
             <PageHeaderIcon icon={Users} colorClass="text-purple-700" />
             <div>
-              <h2 className="text-lg font-bold text-slate-900 tracking-tight">
-                {t('utilisateurs.title')}
-              </h2>
+              <div className="flex items-center gap-2 flex-wrap">
+                <h2 className="text-lg font-bold text-slate-900 tracking-tight">
+                  {showAccountControls ? t('utilisateurs.title') : 'Équipe Terrain & Techniciens'}
+                </h2>
+                {!showAccountControls && (
+                  <span className="px-2 py-0.5 rounded-md text-[10px] font-black uppercase tracking-wider bg-indigo-50 text-indigo-700 border border-indigo-200">
+                    SOLO EXPERT
+                  </span>
+                )}
+              </div>
               <p className="text-xs text-slate-500 mt-0.5">
-                {t('utilisateurs.subtitle')}
+                {showAccountControls
+                  ? t('utilisateurs.subtitle')
+                  : 'Annuaire des techniciens et intervenants terrain pour affecter vos machines, BT, PM et suivre la charge (sans comptes de connexion multi-utilisateurs).'}
               </p>
             </div>
           </div>
@@ -1423,10 +1470,10 @@ export default function UtilisateursView({
                   ...(overloadedCount > 0
                     ? [{ id: 'OVERLOADED' as const, label: 'Surchargés', count: overloadedCount }]
                     : []),
-                  ...(noAccountCount > 0
+                  ...(showAccountControls && noAccountCount > 0
                     ? [{ id: 'NO_ACCOUNT' as const, label: 'Sans accès', count: noAccountCount }]
                     : []),
-                  ...(workloadReport.summary.missingPasswordCount > 0
+                  ...(showAccountControls && workloadReport.summary.missingPasswordCount > 0
                     ? [
                         {
                           id: 'NO_PASSWORD' as const,
@@ -1435,7 +1482,15 @@ export default function UtilisateursView({
                         },
                       ]
                     : []),
-                  { id: 'DISABLED' as const, label: 'Désactivés', count: workloadReport.summary.disabledAccessCount },
+                  ...(showAccountControls
+                    ? [
+                        {
+                          id: 'DISABLED' as const,
+                          label: 'Désactivés',
+                          count: workloadReport.summary.disabledAccessCount,
+                        },
+                      ]
+                    : []),
                   { id: 'ARCHIVED' as const, label: 'Archivés', count: workloadReport.summary.archivedCount },
                 ].map((pill) => (
                   <button
@@ -1927,7 +1982,12 @@ export default function UtilisateursView({
                   <UserCodePicker
                     prefix={modalPrefix}
                     currentCode={form.customCode || modalAutoNextId}
-                    onChangeCode={(code) => setForm((prev) => ({ ...prev, customCode: code }))}
+                    onChangeCode={(code) => {
+                      setForm((prev) => ({ ...prev, customCode: code }));
+                      setOnboardingAccess((prev) =>
+                        prev.usernameTouched ? prev : { ...prev, username: String(code || '').toLowerCase() }
+                      );
+                    }}
                     autoGeneratedCode={modalAutoNextId}
                     takenNumbers={modalTakenNumbers}
                     label={t('utilisateurs.modal.code_user')}
@@ -2100,10 +2160,7 @@ export default function UtilisateursView({
                       {handleOpenZoneModal && (
                         <button
                           type="button"
-                          onClick={() => {
-                            setShowAddModal(false);
-                            handleOpenZoneModal();
-                          }}
+                          onClick={handleOpenZoneModal}
                           className="text-[10px] text-indigo-600 hover:underline font-bold inline-flex items-center gap-0.5 cursor-pointer"
                         >
                           <Plus className="w-3 h-3" />
@@ -2116,6 +2173,9 @@ export default function UtilisateursView({
                       onChange={(e) => setForm({ ...form, id_zone: e.target.value })}
                       className="w-full h-10 px-3 text-xs font-medium bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:border-indigo-500 focus:bg-white transition"
                     >
+                      {(zones.length === 0 || !form.id_zone) && (
+                        <option value="">— Sélectionner une zone —</option>
+                      )}
                       {zones.map((z, zIdx) => (
                         <option key={`zone-opt-${z.id_zone || zIdx}`} value={z.id_zone}>
                           {z.libelle} ({z.id_zone})
@@ -2141,8 +2201,8 @@ export default function UtilisateursView({
                   </div>
                 )}
 
-                {/* 1-Step GMAO Login Onboarding (Admin only, New User creation) */}
-                {!userToEdit && isAdmin && upsertPersonnelAuthAccount && (
+                {/* 1-Step GMAO Login Onboarding (Admin only, Multi-Account mode, New User creation) */}
+                {showAccountControls && !userToEdit && isAdmin && upsertPersonnelAuthAccount && (
                   <div className="p-3.5 rounded-xl bg-emerald-50/60 border border-emerald-200 space-y-3">
                     <label className="flex items-center justify-between gap-3 cursor-pointer">
                       <div>

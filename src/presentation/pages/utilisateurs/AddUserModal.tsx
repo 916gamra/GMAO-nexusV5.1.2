@@ -215,7 +215,11 @@ export default function AddUserModal({
     }
 
     if (profileType === 'TECHNICIEN') {
-      if (technicians.some((t) => t.nom.toLowerCase().trim() === form.nom.toLowerCase().trim())) {
+      if (
+        technicians.some(
+          (t) => String(t?.nom || '').toLowerCase().trim() === form.nom.toLowerCase().trim()
+        )
+      ) {
         setError('Un technicien portant ce nom existe déjà.');
         return;
       }
@@ -226,7 +230,11 @@ export default function AddUserModal({
         specialite: form.specialite.trim() || 'Spécialiste GMAO',
       });
     } else if (profileType === 'OPERATEUR') {
-      if (operations.some((o) => o.nom.toLowerCase().trim() === form.nom.toLowerCase().trim())) {
+      if (
+        operations.some(
+          (o) => String(o?.nom || '').toLowerCase().trim() === form.nom.toLowerCase().trim()
+        )
+      ) {
         setError('Un opérateur portant ce nom existe déjà.');
         return;
       }
@@ -238,7 +246,11 @@ export default function AddUserModal({
       });
     } else {
       // RESPONSABLE
-      if (operations.some((o) => o.nom.toLowerCase().trim() === form.nom.toLowerCase().trim())) {
+      if (
+        operations.some(
+          (o) => String(o?.nom || '').toLowerCase().trim() === form.nom.toLowerCase().trim()
+        )
+      ) {
         setError('Un responsable portant ce nom existe déjà.');
         return;
       }
@@ -445,7 +457,7 @@ export default function AddUserModal({
                   ? 'ex: Karim Bennani'
                   : profileType === 'RESPONSABLE'
                     ? 'ex: Nabile Ghazawi'
-                    : 'ex: Nettoyage et Graissage Ligne 1'
+                    : 'ex: Youssef El Amrani'
               }
               value={form.nom}
               onChange={(e) => setForm({ ...form, nom: e.target.value })}

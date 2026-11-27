@@ -25,11 +25,11 @@ export interface AccessFormState {
 }
 
 export interface UtilisateursModalsProps {
-  userToDelete: { id: string; nom?: string; source?: string } | null;
+  userToDelete: { id: string; nom?: string; source?: string; type?: string } | null;
   userToDeleteWorkload?: PersonnelWorkloadMetrics | null;
   setUserToDelete: (u: any) => void;
   confirmDelete: () => void;
-  onOpenReassign?: (u: { id: string; nom?: string; source?: string }) => void;
+  onOpenReassign?: (u: { id: string; nom?: string; source?: string; type?: string }) => void;
   userToReassign?: { id: string; nom?: string } | null;
   userToReassignWorkload?: PersonnelWorkloadMetrics | null;
   setUserToReassign?: (u: any) => void;
@@ -152,7 +152,10 @@ export default function UtilisateursModals({
                 </div>
               )}
 
-              {hasWorkload && userToDelete.id.startsWith('TECH-') && onOpenReassign && (
+              {hasWorkload &&
+                (userToDelete.type === 'TECHNICIEN' ||
+                  (!userToDelete.type && userToDelete.id.startsWith('TECH-'))) &&
+                onOpenReassign && (
                 <button
                   type="button"
                   onClick={() => {

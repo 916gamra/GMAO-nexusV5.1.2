@@ -106,11 +106,12 @@ describe('SOLO-EXPERT-P1 — Workspace Operating Modes, Fail-Closed SOLO_DIRECT 
     expect(activated.profile.preset).toBe('SOLO_EXPERT');
     expect(activated.profile.governanceMode).toBe('SOLO_DIRECT');
 
-    // Verify navigation projection in SOLO_EXPERT (only Blueprints is omitted in Group 02)
+    // Verify navigation projection in SOLO_EXPERT (only Blueprints is omitted in Group 02; Utilisateurs stays visible as Field Technicians Directory with showTeamManagement=false hiding multi-account login controls)
     expect(isTabVisibleInWorkspace('finance', activated.profile)).toBe(false);
     expect(isTabVisibleInWorkspace('stock', activated.profile)).toBe(false);
     expect(isTabVisibleInWorkspace('blueprints', activated.profile)).toBe(false);
-    expect(isTabVisibleInWorkspace('utilisateurs', activated.profile)).toBe(false);
+    expect(isTabVisibleInWorkspace('utilisateurs', activated.profile)).toBe(true);
+    expect(activated.profile.moduleVisibility.showTeamManagement).toBe(false);
     expect(isTabVisibleInWorkspace('validation_center', activated.profile)).toBe(false);
 
     // Core field maintenance, Tier 1/Tier 2 Parc hierarchy (Families -> Templates -> Machines), withdrawal log & PDR catalogs remain visible

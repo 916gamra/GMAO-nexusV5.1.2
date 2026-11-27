@@ -237,7 +237,11 @@ export function computeEquipmentCockpitMetrics(params: {
   sortiesExterne?: Array<PassportExternalSortieInput & Record<string, any>>;
   stockItems?: Array<PassportStockItemInput & Record<string, any>>;
   referenceDate?: Date;
+  requireHourlyCost?: boolean;
+  requireTechnician?: boolean;
 }): EquipmentCockpitMetrics {
+  const requireHourlyCost = params.requireHourlyCost !== false;
+  const requireTechnician = params.requireTechnician !== false;
   const safeMachines = (params.machines || []).filter(
     (m) => getMachineAssetClass(m) === 'SYSTEM_GENERAL'
   );
@@ -329,7 +333,10 @@ export function computeEquipmentCockpitMetrics(params: {
     const missingTechnician = !String(eq?.technician || '').trim();
     const missingHourlyCost = hourlyDowntimeCost <= 0;
     const isIncompleteSetup =
-      !archived && (missingZone || missingTechnician || missingHourlyCost);
+      !archived &&
+      (missingZone ||
+        (requireTechnician && missingTechnician) ||
+        (requireHourlyCost && missingHourlyCost));
 
     perEquipmentSignals[code] = {
       machineCode: code,

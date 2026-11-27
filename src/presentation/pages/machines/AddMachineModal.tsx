@@ -677,7 +677,7 @@ export default function AddMachineModal({
         </div>
       </div>
 
-      <div className={`grid grid-cols-1 ${showTeamManagement ? 'sm:grid-cols-2' : ''} gap-3.5`}>
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
         {/* Zone with '+' Button (Real physical zone) */}
         <div>
           <div className="flex items-center justify-between mb-1.5">
@@ -712,33 +712,31 @@ export default function AddMachineModal({
           />
         </div>
 
-        {/* Technician with '+' Button */}
-        {showTeamManagement && (
-          <div>
-            <div className="flex items-center justify-between mb-1.5">
-              <label className="text-[11px] font-bold text-slate-600 uppercase tracking-wider flex items-center gap-1">
-                <Users className="w-3 h-3 text-blue-600" />
-                <span>Technicien (G)</span>
-              </label>
-              {onOpenAddTechModal && (
-                <button
-                  type="button"
-                  onClick={onOpenAddTechModal}
-                  className="text-[11px] text-emerald-700 hover:text-emerald-900 font-bold inline-flex items-center gap-0.5 cursor-pointer bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200/60"
-                >
-                  <Plus className="w-3 h-3" />
-                  <span>Nouveau</span>
-                </button>
-              )}
-            </div>
-            <CustomSelect
-              value={form.technician}
-              onChange={(val) => setForm({ ...form, technician: val })}
-              options={technicianOptions}
-              placeholder="— Non assigné / Moi-même —"
-            />
+        {/* Technician with '+' Button (Optional in SOLO_EXPERT) */}
+        <div>
+          <div className="flex items-center justify-between mb-1.5">
+            <label className="text-[11px] font-bold text-slate-600 uppercase tracking-wider flex items-center gap-1">
+              <Users className="w-3 h-3 text-blue-600" />
+              <span>Technicien (G)</span>
+            </label>
+            {onOpenAddTechModal && (
+              <button
+                type="button"
+                onClick={onOpenAddTechModal}
+                className="text-[11px] text-emerald-700 hover:text-emerald-900 font-bold inline-flex items-center gap-0.5 cursor-pointer bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200/60"
+              >
+                <Plus className="w-3 h-3" />
+                <span>Nouveau</span>
+              </button>
+            )}
           </div>
-        )}
+          <CustomSelect
+            value={form.technician}
+            onChange={(val) => setForm({ ...form, technician: val })}
+            options={technicianOptions}
+            placeholder="— Non assigné / Moi-même —"
+          />
+        </div>
       </div>
 
       <div>
@@ -805,12 +803,9 @@ export default function AddMachineModal({
               </strong>
             </div>
             <div>
-              <span className="text-slate-500">
-                {showTeamManagement ? 'Zone / Tech : ' : 'Zone : '}
-              </span>
+              <span className="text-slate-500">Zone / Tech : </span>
               <strong className="font-mono text-slate-800">
-                {form.id_zone_default || '—'}
-                {showTeamManagement ? ` • ${form.technician || '—'}` : ''}
+                {form.id_zone_default || '—'} • {form.technician || 'Non assigné'}
               </strong>
             </div>
           </div>
@@ -897,9 +892,8 @@ export default function AddMachineModal({
         id: 'step-3-exploitation',
         code: 'ÉTAPE 03',
         title: 'Zone & Exploitation',
-        description: showTeamManagement
-          ? 'Définissez le N° de série, la Zone physique (Col F), le Technicien référent (Col G) et le Statut (Col H).'
-          : 'Définissez le N° de série, la Zone physique (Col F) et le Statut opérationnel (Col H).',
+        description:
+          'Définissez le N° de série, la Zone physique (Col F), le Technicien référent (Col G, optionnel) et le Statut (Col H).',
         badge: 'COL F-H',
         icon: MapPin,
         content: step3ExploitationSection,

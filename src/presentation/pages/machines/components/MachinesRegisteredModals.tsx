@@ -123,8 +123,7 @@ export function MachinesRegisteredModals({
 }: MachinesRegisteredModalsProps) {
   const { formatCurrency, currencySymbol } = useCurrency();
   const workspaceProfile = useWorkspaceProfile();
-  const { showFinance, showBlueprintsInPrimaryNav, showTeamManagement } =
-    workspaceProfile.moduleVisibility;
+  const { showFinance, showBlueprintsInPrimaryNav } = workspaceProfile.moduleVisibility;
 
   const [editError, setEditError] = useState('');
   const [allowMeterReset, setAllowMeterReset] = useState(false);
@@ -625,7 +624,7 @@ export function MachinesRegisteredModals({
                 </div>
               </div>
 
-              <div className={`grid grid-cols-1 ${showTeamManagement ? 'sm:grid-cols-2' : ''} gap-3`}>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <label className="text-[11px] font-bold text-slate-600 uppercase tracking-wider block mb-1">
                     Secteur / Zone Réelle (F)
@@ -648,39 +647,37 @@ export function MachinesRegisteredModals({
                     })}
                   />
                 </div>
-                {showTeamManagement && (
-                  <div>
-                    <label className="text-[11px] font-bold text-slate-600 uppercase tracking-wider block mb-1">
-                      Technicien Responsable (G)
-                    </label>
-                    <CustomSelect
-                      value={toEdit.technician || ''}
-                      onChange={(val) => setToEdit({ ...toEdit, technician: val })}
-                      options={[
-                        { value: '', label: '— Non assigné / Moi-même —' },
-                        ...technicians
-                          .filter(
-                            (t) =>
-                              (t.is_active !== false &&
-                                t.actif !== false &&
-                                String(t.statut || '').toUpperCase() !== 'ARCHIVE') ||
-                              t.id_technician === toEdit.technician ||
-                              t.nom === toEdit.technician
-                          )
-                          .map((t) => {
-                            const isTechArchived =
-                              t.is_active === false ||
-                              t.actif === false ||
-                              String(t.statut || '').toUpperCase() === 'ARCHIVE';
-                            return {
-                              value: t.id_technician,
-                              label: `${t.nom} (${t.id_technician})${isTechArchived ? ' — Archivé' : ''}`,
-                            };
-                          }),
-                      ]}
-                    />
-                  </div>
-                )}
+                <div>
+                  <label className="text-[11px] font-bold text-slate-600 uppercase tracking-wider block mb-1">
+                    Technicien Responsable (G)
+                  </label>
+                  <CustomSelect
+                    value={toEdit.technician || ''}
+                    onChange={(val) => setToEdit({ ...toEdit, technician: val })}
+                    options={[
+                      { value: '', label: '— Non assigné / Moi-même —' },
+                      ...technicians
+                        .filter(
+                          (t) =>
+                            (t.is_active !== false &&
+                              t.actif !== false &&
+                              String(t.statut || '').toUpperCase() !== 'ARCHIVE') ||
+                            t.id_technician === toEdit.technician ||
+                            t.nom === toEdit.technician
+                        )
+                        .map((t) => {
+                          const isTechArchived =
+                            t.is_active === false ||
+                            t.actif === false ||
+                            String(t.statut || '').toUpperCase() === 'ARCHIVE';
+                          return {
+                            value: t.id_technician,
+                            label: `${t.nom} (${t.id_technician})${isTechArchived ? ' — Archivé' : ''}`,
+                          };
+                        }),
+                    ]}
+                  />
+                </div>
               </div>
 
               <div>

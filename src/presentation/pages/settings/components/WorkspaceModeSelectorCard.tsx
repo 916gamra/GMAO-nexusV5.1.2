@@ -104,9 +104,9 @@ const VISIBILITY_CONTROLS: ReadonlyArray<{
   },
   {
     key: 'showTeamManagement',
-    label: 'Gestion d’Équipe (Utilisateurs)',
+    label: 'Comptes Multi-Utilisateurs & Accès RBAC',
     description:
-      'Afficher Utilisateurs (Membres) dans la barre latérale (le Centre de Validation dépend du mode de gouvernance).',
+      'Afficher la gestion des comptes de connexion (identifiants, mots de passe, rôles RBAC) dans Utilisateurs. L’annuaire Techniciens reste toujours accessible pour répartir vos BT et PM.',
   },
 ];
 

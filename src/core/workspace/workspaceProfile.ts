@@ -25,7 +25,7 @@ export interface WorkspaceModuleVisibility {
   showStockInventory: boolean;
   /** Show Tier 3 Blueprints (`blueprints` & Blueprint fields) in primary navigation; Families -> Templates -> Machines remain visible. */
   showBlueprintsInPrimaryNav: boolean;
-  /** Show Team & Users management (`utilisateurs`) in primary navigation. */
+  /** Show multi-user login accounts & RBAC access controls inside Utilisateurs; the Technicians/Field Team directory stays visible in SOLO_EXPERT. */
   showTeamManagement: boolean;
 }
 
@@ -321,9 +321,6 @@ export function isTabVisibleInWorkspace(
     return false;
   }
   if (cleanTab === 'blueprints' && !profile.moduleVisibility.showBlueprintsInPrimaryNav) {
-    return false;
-  }
-  if (cleanTab === 'utilisateurs' && !profile.moduleVisibility.showTeamManagement) {
     return false;
   }
 

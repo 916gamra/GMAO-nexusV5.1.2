@@ -507,4 +507,129 @@ describe('Zone & Equipment / Utilisateurs — Phase C Small-Factory Cockpit & Wo
       root.unmount();
     });
   });
+
+  it('computeEquipmentCockpitMetrics respects requireHourlyCost=false and requireTechnician=false in SOLO_EXPERT', () => {
+    const metrics = computeEquipmentCockpitMetrics({
+      machines: [
+        {
+          id_machine_registered: 'TGBT-01',
+          designation: 'Tableau Général BT',
+          asset_class: 'SYSTEM_GENERAL',
+          id_zone_default: 'Z-UTIL',
+          technician: '',
+          status: 'En Service',
+          cout_arret_horaire: 0,
+        },
+        {
+          id_machine_registered: 'CHILL-02',
+          designation: 'Groupe Froid Sans Zone',
+          asset_class: 'SYSTEM_GENERAL',
+          id_zone_default: '',
+          technician: '',
+          status: 'En Service',
+          cout_arret_horaire: 0,
+        },
+      ],
+      requireHourlyCost: false,
+      requireTechnician: false,
+    });
+
+    expect(metrics.perEquipmentSignals['TGBT-01'].missingHourlyCost).toBe(true);
+    expect(metrics.perEquipmentSignals['TGBT-01'].missingTechnician).toBe(true);
+    expect(metrics.perEquipmentSignals['TGBT-01'].isIncompleteSetup).toBe(false);
+    expect(metrics.perEquipmentSignals['CHILL-02'].isIncompleteSetup).toBe(true);
+    expect(metrics.incompleteSetupCount).toBe(1);
+  });
+
+  it('hardens handleDeleteZone (comma-separated multi-zone ops), handleDeleteTechnician (sortieDemands), and handleDeleteOperation (preventiveExecutions & sortiesExterne)', () => {
+    const zonesBox = makeSetter<any[]>([
+      { id_zone: 'POL', code_zone: 'ZONE-01', libelle: 'Polissage' },
+      { id_zone: 'FREE', code_zone: 'ZONE-02', libelle: 'Zone Libre' },
+    ]);
+    const opsBox = makeSetter<any[]>([
+      { id_operation: 'RESP-01', nom: 'Nabile Resp', id_zone: 'DET, POL', is_active: true },
+      { id_operation: 'OP-EXT', nom: 'Sami Externe', id_zone: 'ALL', is_active: true },
+    ]);
+    const techsBox = makeSetter<any[]>([
+      { id_technician: 'EMP-99', nom: 'Karim Demande', id_zone: 'DET', is_active: true },
+    ]);
+    const toasts: Array<{ msg: string; type?: string }> = [];
+
+    const handlers = createComplexHandlers({
+      zones: zonesBox.get(),
+      setZones: zonesBox.set,
+      operations: opsBox.get(),
+      setOperations: opsBox.set,
+      technicians: techsBox.get(),
+      setTechnicians: techsBox.set,
+      machines: [],
+      setMachines: () => {},
+      mouvements: [],
+      setMouvements: () => {},
+      setTypes: () => {},
+      rawStock: [],
+      setRawStock: () => {},
+      setDesignations: () => {},
+      setFamilies: () => {},
+      templates: [],
+      setTemplates: () => {},
+      setCompGroups: () => {},
+      compFamilies: [],
+      setCompFamilies: () => {},
+      compTemplates: [],
+      setCompTemplates: () => {},
+      setPartGroups: () => {},
+      partTypes: [],
+      setPartTypes: () => {},
+      partDesignations: [],
+      setPartDesignations: () => {},
+      warehouseItems: [],
+      setWarehouseItems: () => {},
+      blueprints: [],
+      setBlueprints: () => {},
+      sortiesExterne: [
+        { id: 'SE-1', technicien_demontage: 'Sami Externe', statut: 'EN_COURS' },
+      ],
+      setSortiesExterne: () => {},
+      sortieDemands: [
+        { id: 'SD-1', technicien_id: 'EMP-99', statut: 'PENDING_VALIDATION' },
+      ],
+      setSortieDemands: () => {},
+      preventiveTasks: [],
+      setPreventiveTasks: () => {},
+      preventiveExecutions: [
+        { id: 'EXEC-1', executorName: 'Nabile Resp', periodMonth: '2026-05' },
+      ],
+      setPreventiveExecutions: () => {},
+      meterReadings: [],
+      setMeterReadings: () => {},
+      correctiveInterventions: [],
+      setCorrectiveInterventions: () => {},
+      machineElementsLedger: [],
+      setMachineElementsLedger: () => {},
+      appendAuditEvent: () => {},
+      showToast: (msg: string, type?: string) => toasts.push({ msg, type }),
+      setCurrentTab: () => {},
+    });
+
+    // 1. Zone POL referenced inside comma-separated "DET, POL" must NOT be deleted
+    handlers.handleDeleteZone('POL');
+    expect(zonesBox.get().some((z) => z.id_zone === 'POL')).toBe(true);
+
+    // 2. Unlinked zone FREE (not matched by OP-EXT's "ALL") CAN be deleted cleanly
+    handlers.handleDeleteZone('FREE');
+    expect(zonesBox.get().some((z) => z.id_zone === 'FREE')).toBe(false);
+
+    // 3. Technician EMP-99 linked to sortieDemands must be ARCHIVED (not hard-deleted)
+    const techRes = handlers.handleDeleteTechnician('EMP-99');
+    expect(techRes).toBe('ARCHIVED');
+    expect(techsBox.get().find((t) => t.id_technician === 'EMP-99')?.is_active).toBe(false);
+
+    // 4. Operation RESP-01 linked to preventiveExecutions and OP-EXT linked to sortiesExterne must be ARCHIVED
+    expect(handlers.handleDeleteOperation('RESP-01')).toBe('ARCHIVED');
+    expect(opsBox.get().find((o) => o.id_operation === 'RESP-01')?.is_active).toBe(false);
+
+    expect(handlers.handleDeleteOperation('OP-EXT')).toBe('ARCHIVED');
+    expect(opsBox.get().find((o) => o.id_operation === 'OP-EXT')?.is_active).toBe(false);
+  });
 });

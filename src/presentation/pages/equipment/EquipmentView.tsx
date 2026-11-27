@@ -19,7 +19,6 @@ import {
   Tag,
   Hash,
   X,
-  Check,
   Search,
   ToggleLeft,
   ToggleRight,
@@ -63,8 +62,9 @@ import GmaoIndustrialDataGrid, {
   GmaoColumn,
 } from '../../components/common/GmaoIndustrialDataGrid';
 import CustomSelect from '../../components/common/CustomSelect';
-import SequentialCodePicker from '../../components/common/SequentialCodePicker';
 import MachinePassport360Modal from '../machines/components/MachinePassport360Modal';
+import { useCurrency } from '../../../utils/currencyService';
+import { useWorkspaceProfile } from '../../../core/workspace/workspaceProfile';
 import type {
   IGeneralSystemType,
   IMachine,
@@ -240,6 +240,18 @@ const EquipmentView: React.FC<EquipmentViewProps> = ({
 
   // Archive / Delete Confirmation Modal state
   const [archiveTarget, setArchiveTarget] = useState<IMachine | null>(null);
+
+  const { formatCurrency, currencySymbol, currencyCode } = useCurrency();
+  const workspaceProfile = useWorkspaceProfile();
+  const showFinance = workspaceProfile.moduleVisibility.showFinance;
+  const showTeamManagement = workspaceProfile.moduleVisibility.showTeamManagement;
+
+  // Reset TCO sort if Finance visibility is turned off
+  useEffect(() => {
+    if (!showFinance && sortField === 'tco') {
+      setSortField('id_machine_registered');
+    }
+  }, [showFinance, sortField]);
 
   // Close sort dropdown on outside click
   useEffect(() => {
@@ -455,6 +467,8 @@ const EquipmentView: React.FC<EquipmentViewProps> = ({
         preventiveExecutions,
         sortiesExterne,
         stockItems,
+        requireHourlyCost: showFinance,
+        requireTechnician: showTeamManagement,
       }),
     [
       machines,
@@ -463,6 +477,8 @@ const EquipmentView: React.FC<EquipmentViewProps> = ({
       preventiveExecutions,
       sortiesExterne,
       stockItems,
+      showFinance,
+      showTeamManagement,
     ]
   );
 
@@ -1037,10 +1053,18 @@ const EquipmentView: React.FC<EquipmentViewProps> = ({
         'N° Série': m.serial_number || '',
         'Mise en Service': m.date_mise_en_service || '',
         'Régime Travail': passport?.regimeTravail || m.regime_travail || '2x8',
-        'Coût Arrêt/h (DH)': Number(m.cout_arret_horaire || 0),
+        ...(showFinance
+          ? {
+              [`Coût Arrêt/h (${currencyCode})`]: Number(m.cout_arret_horaire || 0),
+            }
+          : {}),
         'BT Ouverts': flux?.openWoCount ?? 0,
-        'TCO Maint. 12m (DH)': passport?.totalMaintenanceCost12m ?? 0,
-        'Perte Arrêt 12m (DH)': passport?.downtimeProductionLossCost12m ?? 0,
+        ...(showFinance
+          ? {
+              [`TCO Maint. 12m (${currencyCode})`]: passport?.totalMaintenanceCost12m ?? 0,
+              [`Perte Arrêt 12m (${currencyCode})`]: passport?.downtimeProductionLossCost12m ?? 0,
+            }
+          : {}),
         'Arrêts 12m (h)': passport?.totalDowntimeHours12m ?? 0,
         'Disponibilité 12m (%)': passport?.availabilityRate12m ?? 100,
         'Score Santé (/100)': passport?.healthScore ?? 100,
@@ -1237,7 +1261,7 @@ const EquipmentView: React.FC<EquipmentViewProps> = ({
         ? [
             {
               key: 'economie',
-              label: 'Régime & Coût Arrêt/h',
+              label: showFinance ? 'Régime & Coût Arrêt/h' : 'Régime de Marche',
               icon: Calculator,
               align: 'center' as const,
               render: (m: IMachine) => {
@@ -1269,20 +1293,22 @@ const EquipmentView: React.FC<EquipmentViewProps> = ({
                       <option value="2x8">2x8</option>
                       <option value="3x8">3x8</option>
                     </select>
-                    <input
-                      type="number"
-                      min={0}
-                      step="any"
-                      value={costVal}
-                      onChange={(e) =>
-                        setQuickEditDrafts((prev) => ({
-                          ...prev,
-                          [id]: { ...(prev[id] || {}), cout_arret_horaire: e.target.value },
-                        }))
-                      }
-                      className="h-8 w-20 px-2 rounded-lg border border-indigo-200 bg-indigo-50/40 text-xs font-mono font-bold text-slate-800 focus:outline-none focus:border-indigo-500 text-right"
-                      title="Coût d'arrêt horaire (DH/h)"
-                    />
+                    {showFinance && (
+                      <input
+                        type="number"
+                        min={0}
+                        step="any"
+                        value={costVal}
+                        onChange={(e) =>
+                          setQuickEditDrafts((prev) => ({
+                            ...prev,
+                            [id]: { ...(prev[id] || {}), cout_arret_horaire: e.target.value },
+                          }))
+                        }
+                        className="h-8 w-20 px-2 rounded-lg border border-indigo-200 bg-indigo-50/40 text-xs font-mono font-bold text-slate-800 focus:outline-none focus:border-indigo-500 text-right"
+                        title={`Coût d'arrêt horaire (${currencySymbol}/h)`}
+                      />
+                    )}
                   </div>
                 );
               },
@@ -1346,8 +1372,8 @@ const EquipmentView: React.FC<EquipmentViewProps> = ({
                 >
                   <Activity className="w-2.5 h-2.5 shrink-0" />
                   <span>{passport.healthScore}/100</span>
-                  {passport.totalMaintenanceCost12m > 0 && (
-                    <span>• {Math.round(passport.totalMaintenanceCost12m).toLocaleString()} DH</span>
+                  {showFinance && passport.totalMaintenanceCost12m > 0 && (
+                    <span>• {formatCurrency(passport.totalMaintenanceCost12m, { decimals: 0 })}</span>
                   )}
                   {passport.totalDowntimeHours12m > 0 && (
                     <span>• {passport.totalDowntimeHours12m}h</span>
@@ -1509,6 +1535,9 @@ const EquipmentView: React.FC<EquipmentViewProps> = ({
     onNavigateToZone,
     onNavigateToPreventive,
     onNavigateToQuickSortie,
+    showFinance,
+    currencySymbol,
+    formatCurrency,
   ]);
 
   // Canonical DataGrid Columns for System Types
@@ -1869,10 +1898,10 @@ const EquipmentView: React.FC<EquipmentViewProps> = ({
             setStatusFilter(statusFilter === 'ALERTE' ? 'ALL' : 'ALERTE');
           }}
           badgeText={`${kpiStats.enMaintenance} Maint. • ${kpiStats.enArret} Arrêt • ${kpiStats.totalOpenBts} BT`}
-          footerLabel={kpiStats.totalMaintCost12m > 0 ? 'TCO Maint. 12m :' : 'Cycle de vie :'}
+          footerLabel={showFinance && kpiStats.totalMaintCost12m > 0 ? 'TCO Maint. 12m :' : 'Cycle de vie :'}
           footerValue={
-            kpiStats.totalMaintCost12m > 0
-              ? `${Math.round(kpiStats.totalMaintCost12m).toLocaleString()} DH`
+            showFinance && kpiStats.totalMaintCost12m > 0
+              ? formatCurrency(kpiStats.totalMaintCost12m, { decimals: 0 })
               : `${kpiStats.archivedCount} archivé(s)`
           }
         />
@@ -1920,7 +1949,9 @@ const EquipmentView: React.FC<EquipmentViewProps> = ({
                 <PowerOff className="w-3.5 h-3.5 shrink-0" />
                 <span>Arrêt / Maint. :</span>
                 <span className="font-mono font-black">
-                  {cockpitMetrics.stoppedOrMaintCount} ({Math.round(cockpitMetrics.activeHourlyLossDh).toLocaleString()} DH/h)
+                  {showFinance
+                    ? `${cockpitMetrics.stoppedOrMaintCount} (${Math.round(cockpitMetrics.activeHourlyLossDh).toLocaleString()} ${currencySymbol}/h)`
+                    : `${cockpitMetrics.stoppedOrMaintCount} équip.`}
                 </span>
               </button>
 
@@ -1938,11 +1969,11 @@ const EquipmentView: React.FC<EquipmentViewProps> = ({
                 }`}
               >
                 <ShieldAlert className="w-3.5 h-3.5 shrink-0" />
-                <span>Critiques / BER :</span>
+                <span>{showFinance ? 'Critiques / BER :' : 'Santé Critique :'}</span>
                 <span className="font-mono font-black">
                   {cockpitMetrics.badActorsCount}
-                  {cockpitMetrics.badActorsEconomicImpact12m > 0
-                    ? ` (${Math.round(cockpitMetrics.badActorsEconomicImpact12m).toLocaleString()} DH)`
+                  {showFinance && cockpitMetrics.badActorsEconomicImpact12m > 0
+                    ? ` (${formatCurrency(cockpitMetrics.badActorsEconomicImpact12m, { decimals: 0 })})`
                     : ''}
                 </span>
               </button>
@@ -1981,7 +2012,15 @@ const EquipmentView: React.FC<EquipmentViewProps> = ({
                       ? 'bg-orange-50 text-orange-800 border-orange-200 hover:bg-orange-100'
                       : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100'
                 }`}
-                title="Équipements actifs sans Zone, Technicien ou Coût d'arrêt horaire"
+                title={
+                  showFinance && showTeamManagement
+                    ? "Équipements actifs sans Zone, Technicien ou Coût d'arrêt horaire"
+                    : showFinance
+                      ? "Équipements actifs sans Zone ou Coût d'arrêt horaire"
+                      : showTeamManagement
+                        ? 'Équipements actifs sans Zone ou Technicien'
+                        : 'Équipements actifs sans Zone géographique'
+                }
               >
                 <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
                 <span>Fiches Incomplètes :</span>
@@ -2061,7 +2100,11 @@ const EquipmentView: React.FC<EquipmentViewProps> = ({
                           ? 'bg-indigo-600 text-white border-indigo-600'
                           : 'bg-indigo-50 hover:bg-indigo-100 text-indigo-800 border-indigo-200/80'
                       }`}
-                      title="Modifier Statut, Technicien, Régime et Coût Arrêt/h directement dans le tableau"
+                      title={
+                        showFinance
+                          ? 'Modifier Statut, Technicien, Régime et Coût Arrêt/h directement dans le tableau'
+                          : 'Modifier Statut, Technicien et Régime de marche directement dans le tableau'
+                      }
                     >
                       <SlidersHorizontal className="w-3.5 h-3.5" />
                       <span>{quickEditMode ? 'Quitter Pilotage' : 'Pilotage Rapide'}</span>
@@ -2242,8 +2285,8 @@ const EquipmentView: React.FC<EquipmentViewProps> = ({
                               ? 'SYSTÈME (D)'
                               : sortField === 'id_zone_default'
                                 ? 'ZONE (E)'
-                                : sortField === 'tco'
-                                  ? 'TCO 12M (DH)'
+                                : sortField === 'tco' && showFinance
+                                  ? `TCO 12M (${currencyCode})`
                                   : 'STATUT (H)'}
                       </b>
                     </span>
@@ -2269,7 +2312,9 @@ const EquipmentView: React.FC<EquipmentViewProps> = ({
                         { field: 'designation', label: 'Désignation (Col. C)' },
                         { field: 'id_general_system_type', label: 'Type de Système (Col. D)' },
                         { field: 'id_zone_default', label: 'Zone Géographique (Col. E)' },
-                        { field: 'tco', label: 'TCO Maint. 12m (DH)' },
+                        ...(showFinance
+                          ? [{ field: 'tco', label: `TCO Maint. 12m (${currencyCode})` }]
+                          : []),
                         { field: 'status', label: 'Statut Opérationnel (Col. H)' },
                       ].map((opt) => (
                         <button

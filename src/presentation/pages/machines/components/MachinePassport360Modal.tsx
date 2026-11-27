@@ -64,8 +64,7 @@ export default function MachinePassport360Modal({
 
   const { formatCurrency, currencySymbol } = useCurrency();
   const workspaceProfile = useWorkspaceProfile();
-  const { showFinance, showBlueprintsInPrimaryNav, showTeamManagement } =
-    workspaceProfile.moduleVisibility;
+  const { showFinance, showBlueprintsInPrimaryNav } = workspaceProfile.moduleVisibility;
 
   const machines = useGmaoStore((s) => s.machines) || [];
   const zones = useGmaoStore((s) => s.zones) || [];
@@ -537,14 +536,12 @@ export default function MachinePassport360Modal({
                         : 'Machine de Production'}
                     </span>
                   </div>
-                  {showTeamManagement && (
-                    <div>
-                      <span className="text-[10px] text-slate-400 font-bold block">Technicien Assigné</span>
-                      <span className="font-semibold text-slate-800">
-                        {techObj ? `${techObj.nom} (${techObj.id_technician})` : machine.technician || '—'}
-                      </span>
-                    </div>
-                  )}
+                  <div>
+                    <span className="text-[10px] text-slate-400 font-bold block">Technicien Assigné</span>
+                    <span className="font-semibold text-slate-800">
+                      {techObj ? `${techObj.nom} (${techObj.id_technician})` : machine.technician || '—'}
+                    </span>
+                  </div>
                   <div>
                     <span className="text-[10px] text-slate-400 font-bold block">Régime d&apos;Ouverture</span>
                     <span className="font-mono font-semibold text-slate-800">
@@ -1060,9 +1057,7 @@ export default function MachinePassport360Modal({
 
                         <div className="flex items-center gap-4 text-[11px] text-slate-500 flex-wrap">
                           <span>Date : <span className="font-semibold text-slate-700">{dateLabel}</span></span>
-                          {showTeamManagement && (
-                            <span>Technicien : <span className="font-semibold text-slate-700">{String(ci.technicien || ci.intervenant || '—')}</span></span>
-                          )}
+                          <span>Technicien : <span className="font-semibold text-slate-700">{String(ci.technicien || ci.intervenant || '—')}</span></span>
                           {downtimeHours > 0 && (
                             <span className="text-amber-700 font-semibold">Arrêt : {downtimeHours}h</span>
                           )}
@@ -1116,9 +1111,7 @@ export default function MachinePassport360Modal({
                           </span>
                         </div>
                         <div className="text-[11px] text-slate-500 flex items-center gap-3 flex-wrap">
-                          {showTeamManagement && (
-                            <span>Réalisé par : <span className="font-semibold text-slate-700">{String(ex.technicianName || ex.technicien || '—')}</span></span>
-                          )}
+                          <span>Réalisé par : <span className="font-semibold text-slate-700">{String(ex.technicianName || ex.technicien || '—')}</span></span>
                           {Boolean(durationText) && <span>Durée : {durationText}</span>}
                           {Boolean(ex.anomalie_detectee) && (
                             <span className="text-rose-600 font-bold flex items-center gap-1">
