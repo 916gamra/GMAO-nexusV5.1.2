@@ -127,9 +127,9 @@ const MODULE_ROADMAP: RoadmapGroupMeta[] = [
       en: 'Preventive Maintenance & Operating Meters',
     },
     description: {
-      fr: 'Matrice annuelle 12 mois, exécutions horodatées (PreventiveExecution), suivi par compteurs (heures/cycles) et référentiel d’ingénierie préventive.',
-      ar: 'مصفوفة سنوية من 12 شهراً، سجل تنفيذ مؤرّخ (PreventiveExecution)، صيانة بالعدادات (ساعات/دورات) ومرجعية الهندسة الوقائية.',
-      en: '12-month annual matrix, dated execution history (PreventiveExecution), hour/cycle meter triggers, and preventive engineering catalog.',
+      fr: '4 espaces actifs en TEAM_FULL & SOLO_EXPERT : Cockpit hebdomadaire + 5 vues planning, Horomètres & Relevés CBM terrain, Historique & Charge Techniciens, et Référentiel Préventif (Plans, Guides PDR, Actions AFNOR protégées).',
+      ar: '4 فضاءات نشطة في TEAM_FULL وSOLO_EXPERT: قمرة الأسبوع + 5 عروض تخطيط، العدادات وقياسات CBM الميدانية، السجل وأداء الفنيين، ومرجعية الهندسة الوقائية (الخطط والأدلة ورموز AFNOR المحمية).',
+      en: '4 active workspaces in TEAM_FULL & SOLO_EXPERT: Weekly Cockpit + 5 planning views, Operating Meters & field CBM readings, Execution History & Technician Workload analytics, and Preventive Engineering catalog.',
     },
     icon: CalendarClock,
     tabs: [
@@ -1367,10 +1367,10 @@ export default function GuideView({ onNavigateToTab }: GuideViewProps) {
                   </div>
                   <p className="text-[11.5px] text-slate-600 mt-0.5 leading-relaxed">
                     {langKey === 'ar'
-                      ? 'وضع Solo Expert مصمم لمهندس الصيانة الميداني المستقل: تنفيذ مباشر (SOLO_DIRECT) بدون مصادقة مزدوجة، إخفاء المالية/المخزن/حسابات الدخول المتعددة وBlueprints مع إبقاء Parc Machines وEntrepôt (4 مستويات) ومجموعة Zones وÉquipe Terrain والتجهيزات العامة نشطة بالكامل.'
+                      ? 'وضع Solo Expert مصمم لمهندس الصيانة الميداني المستقل: تنفيذ مباشر (SOLO_DIRECT) بدون مصادقة مزدوجة، إخفاء المالية/المخزن/حسابات الدخول المتعددة وBlueprints مع إبقاء Parc Machines وEntrepôt (4 مستويات) وZones وفريق الميدان والتجهيزات العامة والصيانة الوقائية والعدادات وCBM نشطة بالكامل.'
                       : langKey === 'en'
-                      ? 'Solo Expert is built for autonomous field engineers: direct execution (SOLO_DIRECT) without dual approval, Finance/Stock/Multi-account Auth & Blueprints hidden by default, while keeping Machine Fleet, Entrepôt (4 levels), Zones, Field Technicians Directory, and General System Equipment active.'
-                      : 'Pensé pour l’ingénieur maintenance autonome : exécution directe (SOLO_DIRECT) sans double validation, Finance/Magasin/Comptes multi-utilisateurs et Blueprints masqués par défaut, tout en gardant actifs Parc Machines, Entrepôt (4 niveaux), Zones, Équipe Terrain & Utilités.'}
+                      ? 'Solo Expert is built for autonomous field engineers: direct execution (SOLO_DIRECT) without dual approval, Finance/Stock/Multi-account Auth & Blueprints hidden by default, while keeping Machine Fleet, Entrepôt (4 levels), Zones, Field Technicians, Utilities, and Preventive/Meters/CBM fully active.'
+                      : 'Pensé pour l’ingénieur maintenance autonome : exécution directe (SOLO_DIRECT) sans double validation, Finance/Magasin/Comptes multi-utilisateurs et Blueprints masqués par défaut, tout en gardant actifs Parc Machines, Entrepôt (4 niveaux), Zones, Équipe Terrain, Utilités et Préventif / Compteurs / CBM.'}
                   </p>
                 </div>
               </div>
@@ -1392,7 +1392,7 @@ export default function GuideView({ onNavigateToTab }: GuideViewProps) {
               </button>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-2.5 text-[11.5px]">
+            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-5 gap-2.5 text-[11.5px]">
               <div className="p-3 rounded-xl bg-white/90 border border-slate-200/80 space-y-1">
                 <div className="font-black text-slate-900 flex items-center gap-1.5">
                   <Factory className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
@@ -1455,13 +1455,33 @@ export default function GuideView({ onNavigateToTab }: GuideViewProps) {
 
               <div className="p-3 rounded-xl bg-white/90 border border-slate-200/80 space-y-1">
                 <div className="font-black text-slate-900 flex items-center gap-1.5">
+                  <CalendarClock className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                  <span>
+                    {langKey === 'ar'
+                      ? '4. الوقائية والعدادات وCBM الميداني'
+                      : langKey === 'en'
+                      ? '4. Preventive, Meters & Field CBM'
+                      : '4. Préventif, Compteurs & CBM Terrain'}
+                  </span>
+                </div>
+                <p className="text-slate-600 leading-relaxed">
+                  {langKey === 'ar'
+                    ? 'تنفيذ مباشر (SOLO_DIRECT) بدون تكاليف أو تعقيد Maker-Checker، مع إبقاء توزيع وطباعة OT للفنيين، تعديل/إعادة إسناد المهام، قياسات العدادات وCBM اليدوية، وجدول أداء الفنيين.'
+                    : langKey === 'en'
+                    ? 'Direct SOLO_DIRECT execution without financial or Maker-Checker clutter, while keeping technician dispatch & OT printing, task edit/reassign, Meter PM & manual CBM, and Technician Workload analytics.'
+                    : 'Exécution directe SOLO_DIRECT sans bruit financier ni Maker-Checker, tout en conservant le dispatch techniciens, l’impression OT/LOTO, l’édition/réaffectation, Compteurs & CBM terrain, et le bilan par technicien.'}
+                </p>
+              </div>
+
+              <div className="p-3 rounded-xl bg-white/90 border border-slate-200/80 space-y-1">
+                <div className="font-black text-slate-900 flex items-center gap-1.5">
                   <Settings className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
                   <span>
                     {langKey === 'ar'
-                      ? '4. التبديل الآمن والتحكم الجزئي'
+                      ? '5. التبديل الآمن والتحكم الجزئي'
                       : langKey === 'en'
-                      ? '4. Reversible Switch & Modular Toggles'
-                      : '4. Bascule Réversible & Interrupteurs'}
+                      ? '5. Reversible Switch & Modular Toggles'
+                      : '5. Bascule Réversible & Interrupteurs'}
                   </span>
                 </div>
                 <p className="text-slate-600 leading-relaxed">

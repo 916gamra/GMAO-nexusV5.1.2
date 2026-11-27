@@ -8,6 +8,7 @@ import {
   ChevronDown,
   ChevronUp,
   Gauge,
+  Printer,
   User,
   Wrench,
   Zap,
@@ -17,6 +18,9 @@ import {
   resolvePreventiveLaborRate,
   type TaskCycleEvaluation,
 } from '../../../../domain/preventive/preventiveScheduleEngine';
+import { isArchivedPersonnel } from '../../../../application/services/ZoneOperationalAnalyticsService';
+import { useCurrency } from '../../../../utils/currencyService';
+import { useWorkspaceProfile } from '../../../../core/workspace/workspaceProfile';
 import type { IMachine, ITechnician } from '../../../../types/domain';
 import type { PreventiveTaskItem } from '../../../../types/store';
 
@@ -38,6 +42,20 @@ export interface WeeklyCockpitSummary {
   priorityQueue: CockpitTaskEntry[];
   weeklyTotalCount: number;
   weeklyCompletionRate: number;
+}
+
+export function taskHasRequiredPdr(task: PreventiveTaskItem | null | undefined): boolean {
+  if (!task) return false;
+  if (Array.isArray((task as any).pdr_requises) && (task as any).pdr_requises.length > 0) {
+    return true;
+  }
+  if (typeof (task as any).pdr_ref === 'string' && (task as any).pdr_ref.trim().length > 0) {
+    return true;
+  }
+  if (Array.isArray((task as any).pieces_requises) && (task as any).pieces_requises.length > 0) {
+    return true;
+  }
+  return false;
 }
 
 export function buildWeeklyCockpitSummary(
@@ -87,8 +105,7 @@ export function buildWeeklyCockpitSummary(
 
     const isScheduledThisWeek = Boolean(task.planning && task.planning[currentWeekKey]);
     const isApproachingTrigger = cycle.triggerReason !== 'NONE';
-    const hasRequiredPdr =
-      Array.isArray((task as any).pieces_requises) && (task as any).pieces_requises.length > 0;
+    const hasRequiredPdr = taskHasRequiredPdr(task);
 
     const entry: CockpitTaskEntry = {
       task,
@@ -165,6 +182,7 @@ interface PreventiveWeeklyCockpitProps {
   canExecutePreventive: boolean;
   onOpenValidate?: ((task: PreventiveTaskItem) => void) | null;
   onQuickValidateTask?: ((task: PreventiveTaskItem, overrideTechName?: string) => void) | null;
+  onPrintWorkOrder?: ((task: PreventiveTaskItem) => void) | null;
   onOpenRoundModal?: (() => void) | null;
   onFilterOverdue?: (() => void) | null;
   onFilterThisWeek?: (() => void) | null;
@@ -180,17 +198,25 @@ export default function PreventiveWeeklyCockpit({
   canExecutePreventive,
   onOpenValidate = null,
   onQuickValidateTask = null,
+  onPrintWorkOrder = null,
   onOpenRoundModal = null,
   onFilterOverdue = null,
   onFilterThisWeek = null,
 }: PreventiveWeeklyCockpitProps) {
+  const { symbol } = useCurrency();
+  const workspaceProfile = useWorkspaceProfile();
+  const showFinance = workspaceProfile.moduleVisibility.showFinance;
+  const isSoloDirect = workspaceProfile.governanceMode === 'SOLO_DIRECT';
+
   const summary = useMemo(
     () => buildWeeklyCockpitSummary(tasks, machines, currentWeekNumber),
     [tasks, machines, currentWeekNumber]
   );
 
   const [isExpanded, setIsExpanded] = useState<boolean>(true);
+  const [showAllCards, setShowAllCards] = useState<boolean>(false);
   const [selectedQuickTech, setSelectedQuickTech] = useState<string>('');
+  const [cockpitTechFilter, setCockpitTechFilter] = useState<string>('ALL');
 
   const activeTechnicians = useMemo(() => {
     const list: Array<{ name: string; rate: number }> = [];
@@ -200,11 +226,7 @@ export default function PreventiveWeeklyCockpit({
       if (typeof t === 'string') {
         name = t.trim();
       } else if (t && typeof t === 'object') {
-        if (
-          t.is_active === false ||
-          t.actif === false ||
-          String(t.statut || '').toUpperCase() === 'ARCHIVE'
-        ) {
+        if (isArchivedPersonnel(t as any)) {
           continue;
         }
         name = t.nom
@@ -222,11 +244,31 @@ export default function PreventiveWeeklyCockpit({
     return list;
   }, [technicians]);
 
+  const queueTechnicianNames = useMemo(() => {
+    const set = new Set<string>();
+    for (const entry of summary.priorityQueue) {
+      const resp = String(entry.task.responsable || '').trim();
+      if (resp) set.add(resp);
+    }
+    return Array.from(set).sort((a, b) => a.localeCompare(b));
+  }, [summary.priorityQueue]);
+
+  const filteredQueue = useMemo(() => {
+    if (cockpitTechFilter === 'ALL') return summary.priorityQueue;
+    if (cockpitTechFilter === '__UNASSIGNED__') {
+      return summary.priorityQueue.filter((e) => !String(e.task.responsable || '').trim());
+    }
+    const target = cockpitTechFilter.trim().toUpperCase();
+    return summary.priorityQueue.filter(
+      (e) => String(e.task.responsable || '').trim().toUpperCase() === target
+    );
+  }, [summary.priorityQueue, cockpitTechFilter]);
+
   if (tasks.length === 0) return null;
 
   const hasUrgentWork =
     summary.overdueTasks.length > 0 || summary.thisWeekTodoTasks.length > 0;
-  const displayedQueue = summary.priorityQueue.slice(0, 6);
+  const displayedQueue = showAllCards ? filteredQueue : filteredQueue.slice(0, 6);
 
   return (
     <div
@@ -307,16 +349,39 @@ export default function PreventiveWeeklyCockpit({
           </div>
         </div>
 
-        {/* Right Controls: Single-PC Multi-Role Technician Selector + Ronde Rapide + Expand Toggle */}
+        {/* Right Controls: Technician Dispatch Filter + Executor Selector + Ronde Rapide + Expand Toggle */}
         <div className="flex items-center gap-2 flex-wrap self-end lg:self-center">
+          {!isTechUser && summary.priorityQueue.length > 0 && queueTechnicianNames.length > 0 && (
+            <div
+              className="flex items-center gap-1.5 bg-white/90 border border-slate-200 rounded-xl px-2.5 py-1 shadow-2xs"
+              title="Filtrer la file de la semaine par technicien assigné"
+            >
+              <User className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+              <select
+                aria-label="Filtrer la file par technicien"
+                value={cockpitTechFilter}
+                onChange={(e) => setCockpitTechFilter(e.target.value)}
+                className="text-xs font-bold text-slate-800 bg-transparent outline-none cursor-pointer"
+              >
+                <option value="ALL">Équipe : Tous ({summary.priorityQueue.length})</option>
+                {queueTechnicianNames.map((name) => (
+                  <option key={name} value={name}>
+                    {name}
+                  </option>
+                ))}
+                <option value="__UNASSIGNED__">Non assigné</option>
+              </select>
+            </div>
+          )}
+
           {!isTechUser && canExecutePreventive && activeTechnicians.length > 0 && (
             <div
               className="flex items-center gap-1.5 bg-white/90 border border-slate-200 rounded-xl px-2.5 py-1 shadow-2xs"
-              title="Mode PC Atelier Partagé : choisissez le technicien exécutant pour la validation 1-clic"
+              title="Choisissez le technicien exécutant pour la validation 1-clic"
             >
               <User className="w-3.5 h-3.5 text-indigo-600 shrink-0" />
               <span className="text-[10.5px] font-bold text-slate-500 hidden sm:inline">
-                Exécutant (PC Partagé) :
+                {isSoloDirect ? 'Exécutant :' : 'Exécutant (PC Partagé) :'}
               </span>
               <select
                 value={selectedQuickTech}
@@ -326,7 +391,7 @@ export default function PreventiveWeeklyCockpit({
                 <option value="">Responsable assigné (auto)</option>
                 {activeTechnicians.map((tech) => (
                   <option key={tech.name} value={tech.name}>
-                    {tech.name} ({tech.rate} DH/h)
+                    {showFinance ? `${tech.name} (${tech.rate} ${symbol}/h)` : tech.name}
                   </option>
                 ))}
               </select>
@@ -351,7 +416,7 @@ export default function PreventiveWeeklyCockpit({
               onClick={() => setIsExpanded((prev) => !prev)}
               className="h-8 px-2.5 rounded-xl bg-white/80 hover:bg-white border border-slate-200 text-slate-700 text-xs font-bold flex items-center gap-1 cursor-pointer transition"
             >
-              <span>{isExpanded ? 'Réduire' : `Voir (${summary.priorityQueue.length})`}</span>
+              <span>{isExpanded ? 'Réduire' : `Voir (${filteredQueue.length})`}</span>
               {isExpanded ? (
                 <ChevronUp className="w-3.5 h-3.5" />
               ) : (
@@ -363,8 +428,8 @@ export default function PreventiveWeeklyCockpit({
       </div>
 
       {/* Expandable Priority Action Cards */}
-      {isExpanded && displayedQueue.length > 0 && (
-        <div className="px-4 pb-3.5 pt-2 border-t border-slate-200/70 bg-white/60">
+      {isExpanded && filteredQueue.length > 0 && (
+        <div className="px-4 pb-3.5 pt-2 border-t border-slate-200/70 bg-white/60 space-y-2.5">
           <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-2.5">
             {displayedQueue.map((item) => {
               const { task, cycle, isOverdue, hasRequiredPdr, liveMeter } = item;
@@ -439,13 +504,18 @@ export default function PreventiveWeeklyCockpit({
                         <User className="w-3 h-3 text-slate-500" />
                         {executorLabel}
                       </span>
+                      {hasRequiredPdr && (
+                        <span className="inline-flex items-center px-1.5 py-0.5 rounded bg-amber-100 text-amber-900 font-bold">
+                          PDR requise
+                        </span>
+                      )}
                     </div>
                   </div>
 
-                  {/* Fast Execution Buttons */}
-                  {canExecutePreventive && (
+                  {/* Fast Execution & Field Dispatch Buttons */}
+                  {(canExecutePreventive || onPrintWorkOrder) && (
                     <div className="flex items-center gap-1.5 pt-2 border-t border-slate-200/70">
-                      {!hasRequiredPdr && onQuickValidateTask ? (
+                      {canExecutePreventive && !hasRequiredPdr && onQuickValidateTask ? (
                         <button
                           type="button"
                           onClick={() =>
@@ -462,7 +532,7 @@ export default function PreventiveWeeklyCockpit({
                         </button>
                       ) : null}
 
-                      {onOpenValidate && (
+                      {canExecutePreventive && onOpenValidate && (
                         <button
                           type="button"
                           onClick={() => onOpenValidate(task)}
@@ -475,12 +545,38 @@ export default function PreventiveWeeklyCockpit({
                           <span>{hasRequiredPdr ? 'Valider avec PDR' : 'Détails / PDR'}</span>
                         </button>
                       )}
+
+                      {onPrintWorkOrder && (
+                        <button
+                          type="button"
+                          onClick={() => onPrintWorkOrder(task)}
+                          className="h-7 px-2 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200 text-[11px] font-bold flex items-center justify-center gap-1 cursor-pointer transition shrink-0"
+                          title="Imprimer le Bon d'Intervention (OT) pour remise au technicien"
+                        >
+                          <Printer className="w-3 h-3" />
+                          <span>OT</span>
+                        </button>
+                      )}
                     </div>
                   )}
                 </div>
               );
             })}
           </div>
+
+          {filteredQueue.length > 6 && (
+            <div className="flex justify-center pt-1">
+              <button
+                type="button"
+                onClick={() => setShowAllCards((prev) => !prev)}
+                className="px-3.5 py-1 rounded-xl bg-white hover:bg-indigo-50 border border-slate-200 text-indigo-700 text-[11px] font-bold cursor-pointer transition"
+              >
+                {showAllCards
+                  ? 'Afficher les 6 priorités principales'
+                  : `Voir toutes les tâches prioritaires (${filteredQueue.length})`}
+              </button>
+            </div>
+          )}
         </div>
       )}
     </div>

@@ -14,8 +14,11 @@ import {
   ClipboardCheck,
 } from 'lucide-react';
 import { getMachineAssetClass } from '../../../../utils/activeMachines';
+import { isArchivedPersonnel } from '../../../../application/services/ZoneOperationalAnalyticsService';
 import { useGmaoStore } from '../../../../store/useGmaoStore';
 import { buildConsumablePdrInventory } from '../../../../core/domain';
+import { useCurrency } from '../../../../utils/currencyService';
+import { useWorkspaceProfile } from '../../../../core/workspace/workspaceProfile';
 import {
   computeTaskCycleStatus,
   resolvePreventiveLaborRate,
@@ -129,6 +132,10 @@ export default function SystemGeneralRoundModal({
   showToast,
 }: SystemGeneralRoundModalProps) {
   const generalSystemTypes = useGmaoStore((s) => s.generalSystemTypes) || [];
+  const { symbol } = useCurrency();
+  const workspaceProfile = useWorkspaceProfile();
+  const showFinance = workspaceProfile.moduleVisibility.showFinance;
+  const isSoloDirect = workspaceProfile.governanceMode === 'SOLO_DIRECT';
 
   const currentWeekKey = useMemo(() => {
     const d = new Date();
@@ -167,11 +174,7 @@ export default function SystemGeneralRoundModal({
     () =>
       (technicians || []).filter((t): t is ITechnician => {
         if (!t || typeof t !== 'object') return false;
-        return (
-          t.is_active !== false &&
-          t.actif !== false &&
-          String(t.statut || '').toUpperCase() !== 'ARCHIVE'
-        );
+        return !isArchivedPersonnel(t as any);
       }),
     [technicians]
   );
@@ -194,11 +197,12 @@ export default function SystemGeneralRoundModal({
     return map;
   }, [machines]);
 
-  // Filter tasks belonging to SYSTEM_GENERAL machines
+  // Filter tasks belonging to ACTIVE SYSTEM_GENERAL machines
   const sysGenTasks = useMemo(() => {
     return (tasks || []).filter((t) => {
       const mId = String(t.id_machine || '');
       const m = machineMap.get(mId) || machineMap.get(mId.trim().toUpperCase());
+      if (m && String(m.status || '').toUpperCase() === 'ARCHIVEE') return false;
       return getMachineAssetClass(m) === 'SYSTEM_GENERAL';
     });
   }, [tasks, machineMap]);
@@ -349,8 +353,24 @@ export default function SystemGeneralRoundModal({
       return;
     }
 
+    // Pre-validate PDR selections before committing any point in the round
+    const missingPdrTask = selectedTasksList.find((task) => {
+      const st = pointStates[task.id];
+      return st?.outcome === 'PDR' && !String(st.pdrRef || '').trim();
+    });
+    if (missingPdrTask) {
+      showToast?.(
+        `Veuillez sélectionner une pièce PDR pour « ${missingPdrTask.composant || missingPdrTask.id_machine} » avant de valider la ronde.`,
+        'warning'
+      );
+      return;
+    }
+
+    const effectiveSubmitAsTech = isTechUser || (!isSoloDirect && multiRoleSubmitAsTech);
     let completedCount = 0;
+    let failedCount = 0;
     let triggeredDiCount = 0;
+    let lastErrorMessage = '';
 
     for (const task of selectedTasksList) {
       const st = pointStates[task.id];
@@ -388,38 +408,48 @@ export default function SystemGeneralRoundModal({
 
       const executorName = roundTech || task.responsable || 'Technicien';
       const resolvedLaborRate = resolvePreventiveLaborRate(technicians, executorName);
-      onMarkTaskDone?.(String(task.id), {
-        date_realisation: roundDate,
-        technicien: executorName,
-        duree_reelle: durationPerPoint || '10 min',
-        taux_horaire: resolvedLaborRate,
-        observations,
-        usedPDR,
-        num_bon_saisi_par_tech: st.numBon || globalBonNumber || '',
-        mode_calcul_recurrence: String(task.mode_calcul_recurrence || 'FIXE'),
-        submitForValidation: isTechUser || multiRoleSubmitAsTech,
-      });
-      completedCount += 1;
-
-      if (st.outcome === 'ANOMALIE' && st.triggerCorrectiveDi && onCreateCorrective) {
-        onCreateCorrective(task, {
-          description:
-            st.anomalyNote ||
-            `Anomalie détectée durant la ronde sur ${task.composant} (${task.id_machine}).`,
-          priorite: 'Haute',
-          demandeur: executorName || 'Ronde Préventive',
+      try {
+        onMarkTaskDone?.(String(task.id), {
+          date_realisation: roundDate,
+          technicien: executorName,
+          duree_reelle: durationPerPoint || '10 min',
+          taux_horaire: resolvedLaborRate,
+          observations,
+          usedPDR,
+          num_bon_saisi_par_tech: st.numBon || globalBonNumber || '',
+          mode_calcul_recurrence: String(task.mode_calcul_recurrence || 'FIXE'),
+          submitForValidation: effectiveSubmitAsTech,
         });
-        triggeredDiCount += 1;
+        completedCount += 1;
+
+        if (st.outcome === 'ANOMALIE' && st.triggerCorrectiveDi && onCreateCorrective) {
+          onCreateCorrective(task, {
+            description:
+              st.anomalyNote ||
+              `Anomalie détectée durant la ronde sur ${task.composant} (${task.id_machine}).`,
+            priorite: 'Haute',
+            demandeur: executorName || 'Ronde Préventive',
+          });
+          triggeredDiCount += 1;
+        }
+      } catch (err: any) {
+        failedCount += 1;
+        lastErrorMessage = err?.message || 'Erreur lors de la validation du point';
       }
+    }
+
+    if (failedCount > 0 && completedCount === 0) {
+      showToast?.(`Échec de la ronde (${failedCount} point(s)) : ${lastErrorMessage}`, 'error');
+      return;
     }
 
     showToast?.(
       `Ronde enregistrée : ${completedCount} point(s) ${
-        isTechUser || multiRoleSubmitAsTech ? 'soumis (À valider)' : 'validé(s)'
-      }${
-        triggeredDiCount > 0 ? `, ${triggeredDiCount} DI corrective(s) ouverte(s)` : ''
+        effectiveSubmitAsTech ? 'soumis (À valider)' : 'validé(s)'
+      }${triggeredDiCount > 0 ? `, ${triggeredDiCount} DI corrective(s) ouverte(s)` : ''}${
+        failedCount > 0 ? ` — ${failedCount} point(s) ignoré(s) (${lastErrorMessage})` : ''
       }.`,
-      'success'
+      failedCount > 0 ? 'warning' : 'success'
     );
     onClose();
   };
@@ -497,7 +527,7 @@ export default function SystemGeneralRoundModal({
               </button>
             </div>
 
-            {!isTechUser && (
+            {!isTechUser && !isSoloDirect && (
               <label
                 className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-purple-50 border border-purple-200 text-purple-900 font-bold text-[11px] cursor-pointer"
                 title="PC Partagé Atelier : enregistrer la ronde comme déclaration terrain (en attente de validation Maker-Checker) ou valider directement en tant que responsable"
@@ -570,9 +600,11 @@ export default function SystemGeneralRoundModal({
                   <User className="w-3 h-3 text-emerald-600" />
                   <span>Exécutant Terrain</span>
                 </span>
-                <span className="font-mono text-[9.5px] text-emerald-700 font-black">
-                  {currentResolvedTechRate} DH/h
-                </span>
+                {showFinance && (
+                  <span className="font-mono text-[9.5px] text-emerald-700 font-black">
+                    {currentResolvedTechRate} {symbol}/h
+                  </span>
+                )}
               </label>
               <input
                 type="text"

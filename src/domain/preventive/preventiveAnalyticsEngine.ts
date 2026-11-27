@@ -70,6 +70,19 @@ export interface UpcomingPdrRiskItem {
   impactedMachines: string[];
 }
 
+export interface TechnicianWorkloadStat {
+  technicianName: string;
+  totalTasks: number;
+  doneTasks: number;
+  todoTasks: number;
+  overdueTasks: number;
+  pendingTasks: number;
+  approvedExecs: number;
+  totalDurationMinutes: number;
+  totalCost: number;
+  complianceRate: number;
+}
+
 export interface PreventiveAnalyticsReport {
   today: string;
   overview: {
@@ -108,6 +121,7 @@ export interface PreventiveAnalyticsReport {
   zonesStats: ZoneHealthStat[];
   actionsStats: ActionCostStat[];
   machineRiskStats: MachineRiskStat[];
+  techniciansStats: TechnicianWorkloadStat[];
   pdrReadinessRisks: UpcomingPdrRiskItem[];
   evaluatedTasks: Array<{ task: any; cycle: TaskCycleEvaluation }>;
 }
@@ -312,6 +326,10 @@ export function computePreventiveAnalytics(
     string,
     { count: number; laborCost: number; sparesCost: number; totalCost: number }
   >();
+  const techExecAgg = new Map<
+    string,
+    { label: string; count: number; durationMinutes: number; totalCost: number }
+  >();
 
   for (const ex of relevantExecutions) {
     const valStatus = String(ex.validation_status || 'APPROVED').trim().toUpperCase();
@@ -351,11 +369,12 @@ export function computePreventiveAnalytics(
         ? Math.max(0, Number(ex.laborCost))
         : Math.max(0, rawTotal - sparesCost);
     const effectiveTotal = rawTotal > 0 ? rawTotal : explicitLabor + sparesCost;
+    const durationMin = Math.max(0, Number(ex.durationMinutes || 0));
 
     totalLaborCost += explicitLabor;
     totalSparesCost += sparesCost;
     totalCost += effectiveTotal;
-    totalDurationMinutes += Math.max(0, Number(ex.durationMinutes || 0));
+    totalDurationMinutes += durationMin;
 
     const actCode = String(ex.actionCode || 'C').trim().toUpperCase();
     const actEntry = actionExecAgg.get(actCode) || {
@@ -384,6 +403,21 @@ export function computePreventiveAnalytics(
       mEntry.totalCost += effectiveTotal;
       machineExecAgg.set(machCode, mEntry);
     }
+
+    const rawTechLabel = String(
+      (ex as any).technicianName || (ex as any).technician || 'Non assigné'
+    ).trim() || 'Non assigné';
+    const techKey = rawTechLabel.toUpperCase();
+    const tEntry = techExecAgg.get(techKey) || {
+      label: rawTechLabel,
+      count: 0,
+      durationMinutes: 0,
+      totalCost: 0,
+    };
+    tEntry.count += 1;
+    tEntry.durationMinutes += durationMin;
+    tEntry.totalCost += effectiveTotal;
+    techExecAgg.set(techKey, tEntry);
   }
 
   const onTimeComplianceRate =
@@ -648,6 +682,72 @@ export function computePreventiveAnalytics(
     (a, b) => b.shortageQty - a.shortageQty || b.impactedTaskCount - a.impactedTaskCount
   );
 
+  // 8. Technician Workload & Compliance Breakdown
+  const techTaskAgg = new Map<
+    string,
+    {
+      label: string;
+      totalTasks: number;
+      doneTasks: number;
+      todoTasks: number;
+      overdueTasks: number;
+      pendingTasks: number;
+    }
+  >();
+
+  for (const { task, cycle } of evaluatedTasks) {
+    const rawLabel = String(task?.responsable || '').trim() || 'Non assigné';
+    const key = rawLabel.toUpperCase();
+    const entry = techTaskAgg.get(key) || {
+      label: rawLabel,
+      totalTasks: 0,
+      doneTasks: 0,
+      todoTasks: 0,
+      overdueTasks: 0,
+      pendingTasks: 0,
+    };
+    entry.totalTasks += 1;
+    if (cycle.effectiveEtat === 'Fait') entry.doneTasks += 1;
+    else if (cycle.effectiveEtat === 'En retard') entry.overdueTasks += 1;
+    else if (
+      cycle.effectiveEtat === 'En attente validation' ||
+      cycle.effectiveEtat === 'À clarifier'
+    ) {
+      entry.pendingTasks += 1;
+    } else {
+      entry.todoTasks += 1;
+    }
+    techTaskAgg.set(key, entry);
+  }
+
+  const allTechKeys = new Set<string>([...techTaskAgg.keys(), ...techExecAgg.keys()]);
+  const techniciansStats: TechnicianWorkloadStat[] = Array.from(allTechKeys)
+    .map((key) => {
+      const tAgg = techTaskAgg.get(key);
+      const exAgg = techExecAgg.get(key);
+      const totalTasks = tAgg?.totalTasks || 0;
+      const doneTasks = tAgg?.doneTasks || 0;
+      return {
+        technicianName: tAgg?.label || exAgg?.label || 'Non assigné',
+        totalTasks,
+        doneTasks,
+        todoTasks: tAgg?.todoTasks || 0,
+        overdueTasks: tAgg?.overdueTasks || 0,
+        pendingTasks: tAgg?.pendingTasks || 0,
+        approvedExecs: exAgg?.count || 0,
+        totalDurationMinutes: exAgg?.durationMinutes || 0,
+        totalCost: round2(exAgg?.totalCost || 0),
+        complianceRate: totalTasks > 0 ? Math.round((doneTasks / totalTasks) * 100) : 0,
+      };
+    })
+    .filter((t) => t.totalTasks > 0 || t.approvedExecs > 0)
+    .sort(
+      (a, b) =>
+        b.overdueTasks - a.overdueTasks ||
+        b.totalTasks - a.totalTasks ||
+        b.approvedExecs - a.approvedExecs
+    );
+
   return {
     today,
     overview: {
@@ -686,6 +786,7 @@ export function computePreventiveAnalytics(
     zonesStats,
     actionsStats,
     machineRiskStats,
+    techniciansStats,
     pdrReadinessRisks,
     evaluatedTasks,
   };

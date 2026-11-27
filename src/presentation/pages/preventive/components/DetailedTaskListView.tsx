@@ -17,10 +17,14 @@ import {
   SlidersHorizontal,
   Zap,
   Gauge,
+  Pencil,
+  Trash2,
 } from 'lucide-react';
 import TablePaginationCard from '../../../components/common/TablePaginationCard';
 import { useI18n } from '../../../../i18n/I18nContext';
 import { computeTaskCycleStatus } from '../../../../domain/preventive/preventiveScheduleEngine';
+import { useCurrency } from '../../../../utils/currencyService';
+import { useWorkspaceProfile } from '../../../../core/workspace/workspaceProfile';
 
 const ACTION_PILL_MAP = {
   C: { bg: 'bg-blue-500/10 text-blue-800 border-blue-200/80', dot: 'bg-blue-600', label: 'Contrôle' },
@@ -52,11 +56,17 @@ export default function DetailedTaskListView({
   onOpenValidate = () => {},
   onOpenCorrective = () => {},
   onOpenPrint = () => {},
+  onEditTask = null,
+  onDeleteTask = null,
   onSwitchView = () => {},
   hasActiveFilters = false,
   clearAllFilters = () => {},
 }: any) {
   const { t } = useI18n();
+  const { symbol } = useCurrency();
+  const { moduleVisibility } = useWorkspaceProfile();
+  const showFinance = moduleVisibility.showFinance;
+  const colCount = showFinance ? 10 : 9;
   const [pageSize, setPageSize] = useState(initialPageSize);
   const [currentPage, setCurrentPage] = useState(1);
   const [groupByMachine, setGroupByMachine] = useState(initialGroupByMachine);
@@ -367,9 +377,11 @@ export default function DetailedTaskListView({
           </div>
         </td>
 
-        <td className="py-2.5 px-3 font-mono font-bold text-slate-900 border-r border-slate-200/70 whitespace-nowrap">
-          {Number(tItem.cout_cumule || 0).toFixed(2)} DH
-        </td>
+        {showFinance && (
+          <td className="py-2.5 px-3 font-mono font-bold text-slate-900 border-r border-slate-200/70 whitespace-nowrap">
+            {Number(tItem.cout_cumule || 0).toFixed(2)} {symbol}
+          </td>
+        )}
 
         <td className="py-2.5 px-3 text-center border-r border-slate-200/70 whitespace-nowrap">
           <span
@@ -399,6 +411,26 @@ export default function DetailedTaskListView({
                 title={t('preventive.buttons.create_corrective_bt', "Déclencher un BT Correctif en cas d'anomalie")}
               >
                 BT
+              </button>
+            )}
+            {onEditTask && (
+              <button
+                type="button"
+                onClick={() => onEditTask(tItem)}
+                className="p-1 text-slate-600 hover:text-indigo-600 hover:bg-indigo-50 border border-slate-200 rounded-lg transition cursor-pointer"
+                title="Modifier ou réaffecter la tâche"
+              >
+                <Pencil className="w-3.5 h-3.5" />
+              </button>
+            )}
+            {onDeleteTask && (
+              <button
+                type="button"
+                onClick={() => onDeleteTask(tItem)}
+                className="p-1 text-slate-500 hover:text-rose-600 hover:bg-rose-50 border border-slate-200 rounded-lg transition cursor-pointer"
+                title="Supprimer cette tâche préventive"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
               </button>
             )}
             {onOpenValidate && (
@@ -511,12 +543,14 @@ export default function DetailedTaskListView({
                     <span>{t('preventive.table.col_responsable', 'RESPONSABLE')}</span>
                   </div>
                 </th>
-                <th className="py-3 px-3 min-w-[90px] border-r border-slate-300">
-                  <div className="flex items-center gap-1.5">
-                    <DollarSign className="w-3.5 h-3.5 text-slate-700 shrink-0" />
-                    <span>{t('preventive.table.col_cout', 'COÛT (DH)')}</span>
-                  </div>
-                </th>
+                {showFinance && (
+                  <th className="py-3 px-3 min-w-[90px] border-r border-slate-300">
+                    <div className="flex items-center gap-1.5">
+                      <DollarSign className="w-3.5 h-3.5 text-slate-700 shrink-0" />
+                      <span>COÛT ({symbol})</span>
+                    </div>
+                  </th>
+                )}
                 <th className="py-3 px-3 min-w-[90px] text-center border-r border-slate-300">
                   <div className="flex items-center justify-center gap-1.5">
                     <CheckCircle2 className="w-3.5 h-3.5 text-slate-700 shrink-0" />
@@ -531,7 +565,7 @@ export default function DetailedTaskListView({
             <tbody className="divide-y divide-slate-200/80">
               {totalItems === 0 ? (
                 <tr>
-                  <td colSpan={10} className="p-12 text-center text-slate-400 text-xs">
+                  <td colSpan={colCount} className="p-12 text-center text-slate-400 text-xs">
                     <div className="max-w-md mx-auto space-y-2">
                       <List className="w-8 h-8 text-slate-300 mx-auto" />
                       <p className="font-bold text-slate-600">{t('preventive.table.empty_tasks', 'Aucune tâche trouvée')}</p>
@@ -555,7 +589,7 @@ export default function DetailedTaskListView({
                   {/* Top Virtual Spacer */}
                   {isVirtualized && virtualTaskWindow.topSpacerHeight > 0 && (
                     <tr aria-hidden="true" style={{ height: virtualTaskWindow.topSpacerHeight }} className="border-0 p-0 m-0 select-none">
-                      <td colSpan={10} style={{ height: virtualTaskWindow.topSpacerHeight, padding: 0, border: 0, margin: 0, lineHeight: 0 }} />
+                      <td colSpan={colCount} style={{ height: virtualTaskWindow.topSpacerHeight, padding: 0, border: 0, margin: 0, lineHeight: 0 }} />
                     </tr>
                   )}
 
@@ -568,7 +602,7 @@ export default function DetailedTaskListView({
                           key={virtualRow.key}
                           className="bg-slate-100/95 hover:bg-slate-200/80 border-t-2 border-b border-slate-300 transition-colors"
                         >
-                          <td colSpan={10} className="py-2.5 px-4">
+                          <td colSpan={colCount} className="py-2.5 px-4">
                             <div className="flex items-center justify-between flex-wrap gap-2">
                               <button
                                 type="button"
@@ -646,7 +680,7 @@ export default function DetailedTaskListView({
                   {/* Bottom Virtual Spacer */}
                   {isVirtualized && virtualTaskWindow.bottomSpacerHeight > 0 && (
                     <tr aria-hidden="true" style={{ height: virtualTaskWindow.bottomSpacerHeight }} className="border-0 p-0 m-0 select-none">
-                      <td colSpan={10} style={{ height: virtualTaskWindow.bottomSpacerHeight, padding: 0, border: 0, margin: 0, lineHeight: 0 }} />
+                      <td colSpan={colCount} style={{ height: virtualTaskWindow.bottomSpacerHeight, padding: 0, border: 0, margin: 0, lineHeight: 0 }} />
                     </tr>
                   )}
                 </>
@@ -677,6 +711,8 @@ DetailedTaskListView.propTypes = {
   onOpenValidate: PropTypes.func,
   onOpenCorrective: PropTypes.func,
   onOpenPrint: PropTypes.func,
+  onEditTask: PropTypes.func,
+  onDeleteTask: PropTypes.func,
   onSwitchView: PropTypes.func,
   hasActiveFilters: PropTypes.bool,
   clearAllFilters: PropTypes.func,

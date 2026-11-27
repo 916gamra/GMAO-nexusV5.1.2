@@ -40,6 +40,63 @@ export interface ICbmTelemetryPayload {
   machineCode?: string;
   value: number;
   timestamp?: string;
+  operatorName?: string;
+}
+
+export interface CbmThresholdValidationResult {
+  valid: boolean;
+  errorFr?: string;
+}
+
+/**
+ * Validates that CBM warning & critical thresholds obey physical bounds and direction ordering.
+ * - HIGH_BAD: minPhysicalBound <= warningThreshold < criticalThreshold <= maxPhysicalBound
+ * - LOW_BAD:  minPhysicalBound <= criticalThreshold < warningThreshold <= maxPhysicalBound
+ */
+export function validateCbmRuleThresholds(params: {
+  direction: 'HIGH_BAD' | 'LOW_BAD';
+  warningThreshold: number;
+  criticalThreshold: number;
+  hysteresis?: number;
+  minPhysicalBound: number;
+  maxPhysicalBound: number;
+  unit?: string;
+}): CbmThresholdValidationResult {
+  const { direction, warningThreshold, criticalThreshold, minPhysicalBound, maxPhysicalBound } =
+    params;
+  const hyst = params.hysteresis ?? 0;
+  const unitLabel = params.unit ? ` ${params.unit}` : '';
+
+  if (!Number.isFinite(warningThreshold) || !Number.isFinite(criticalThreshold)) {
+    return { valid: false, errorFr: 'Les seuils Warning et Critique doivent être numériques.' };
+  }
+  if (!Number.isFinite(hyst) || hyst < 0) {
+    return { valid: false, errorFr: 'L’hystérésis doit être supérieure ou égale à 0.' };
+  }
+  if (
+    warningThreshold < minPhysicalBound ||
+    warningThreshold > maxPhysicalBound ||
+    criticalThreshold < minPhysicalBound ||
+    criticalThreshold > maxPhysicalBound
+  ) {
+    return {
+      valid: false,
+      errorFr: `Les seuils doivent rester dans les limites physiques [${minPhysicalBound}..${maxPhysicalBound}${unitLabel}].`,
+    };
+  }
+  if (direction === 'HIGH_BAD' && warningThreshold >= criticalThreshold) {
+    return {
+      valid: false,
+      errorFr: `Pour ce paramètre (dépassement haut), le seuil Warning (${warningThreshold}${unitLabel}) doit être strictement inférieur au seuil Critique (${criticalThreshold}${unitLabel}).`,
+    };
+  }
+  if (direction === 'LOW_BAD' && warningThreshold <= criticalThreshold) {
+    return {
+      valid: false,
+      errorFr: `Pour ce paramètre (chute basse), le seuil Warning (${warningThreshold}${unitLabel}) doit être strictement supérieur au seuil Critique (${criticalThreshold}${unitLabel}).`,
+    };
+  }
+  return { valid: true };
 }
 
 export interface ICbmEvaluationResult {
@@ -164,7 +221,7 @@ export function evaluateSensorTelemetry(
       warningThreshold: rule.warningThreshold,
       criticalThreshold: rule.criticalThreshold,
       shouldTriggerCorrectiveDi: false,
-      diagnosticMessageFr: `Défaut capteur (${rule.protocol} ${rule.endpointAddress}) : valeur ${val} ${rule.unit} hors limites physiques [${rule.minPhysicalBound}..${rule.maxPhysicalBound} ${rule.unit}].`,
+      diagnosticMessageFr: `Mesure hors limites physiques (${rule.endpointAddress}) : ${val} ${rule.unit} hors plage [${rule.minPhysicalBound}..${rule.maxPhysicalBound} ${rule.unit}].`,
     };
   }
 
@@ -223,7 +280,7 @@ export function evaluateSensorTelemetry(
 }
 
 /**
- * Processes an incoming MQTT / OPC-UA / Modbus telemetry frame, updates the matched sensor rule,
+ * Processes an incoming manual CBM measurement or telemetry frame, updates the matched rule,
  * and generates a deduplicated Corrective DI payload if a CRITICAL threshold is breached.
  */
 export function ingestTelemetryPayload(
@@ -304,13 +361,25 @@ export function ingestTelemetryPayload(
   }
 
   const preset = CBM_PARAMETER_PRESETS[targetRule.parameter];
+  const isManual = targetRule.protocol === 'MANUEL';
+  const comparisonOp = targetRule.direction === 'LOW_BAD' ? '≤' : '≥';
+  const breachLabel = targetRule.direction === 'LOW_BAD' ? 'Chute critique' : 'Dépassement critique';
+  const cleanOperator = String(payload.operatorName || '').trim();
+  const demandeurLabel = isManual
+    ? cleanOperator
+      ? `Relevé CBM Terrain (${cleanOperator})`
+      : 'Relevé CBM Terrain (Manuel)'
+    : `Automate IoT (${targetRule.protocol})`;
+
   const autoCreatedDiPayload: Partial<CorrectiveInterventionItem> = {
     code_machine: targetRule.machineCode,
     type_panne: preset?.typePanne || 'M',
-    anomalie: `[CBM ${targetRule.protocol}] Dépassement critique ${targetRule.organe} (${evaluation.measuredValue} ${targetRule.unit} ≥ ${targetRule.criticalThreshold} ${targetRule.unit})`,
-    travail_a_faire: `Inspection conditionnelle urgente déclenchée par capteur ${targetRule.protocol} (${targetRule.endpointAddress}). Valeur mesurée: ${evaluation.measuredValue} ${targetRule.unit} (Seuil critique: ${targetRule.criticalThreshold} ${targetRule.unit}). Vérifier ${targetRule.organe}.`,
+    anomalie: `[CBM ${targetRule.protocol}] ${breachLabel} ${targetRule.organe} (${evaluation.measuredValue} ${targetRule.unit} ${comparisonOp} ${targetRule.criticalThreshold} ${targetRule.unit})`,
+    travail_a_faire: isManual
+      ? `Inspection conditionnelle urgente suite à relevé terrain (${targetRule.endpointAddress}). Valeur mesurée: ${evaluation.measuredValue} ${targetRule.unit} (Seuil critique: ${comparisonOp} ${targetRule.criticalThreshold} ${targetRule.unit}). Vérifier ${targetRule.organe}.`
+      : `Inspection conditionnelle urgente déclenchée par capteur ${targetRule.protocol} (${targetRule.endpointAddress}). Valeur mesurée: ${evaluation.measuredValue} ${targetRule.unit} (Seuil critique: ${comparisonOp} ${targetRule.criticalThreshold} ${targetRule.unit}). Vérifier ${targetRule.organe}.`,
     priorite: 'HAUTE',
-    demandeur: `Automate IoT (${targetRule.protocol})`,
+    demandeur: demandeurLabel,
     source: 'IOT_CBM_AUTO',
     cbm_sensor_id: targetRule.id,
     ...(targetRule.recommendedPdrRef ? { pdr_ref: targetRule.recommendedPdrRef } : {}),

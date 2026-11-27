@@ -294,6 +294,7 @@ export default function TabActions({
                       </button>
                       <button
                         onClick={async () => {
+                          if (['C', 'N', 'G', 'V'].includes(act.code)) return;
                           if (
                             await confirmAction({
                               title: "Supprimer l'action",
@@ -304,8 +305,13 @@ export default function TabActions({
                             onDeleteAction(act.id);
                           }
                         }}
-                        className="p-1.5 hover:bg-rose-50 text-slate-400 hover:text-rose-600 rounded-lg transition-colors cursor-pointer border border-transparent hover:border-rose-100"
-                        title="Supprimer l'action"
+                        disabled={['C', 'N', 'G', 'V'].includes(act.code)}
+                        className="p-1.5 hover:bg-rose-50 text-slate-400 hover:text-rose-600 rounded-lg transition-colors cursor-pointer border border-transparent hover:border-rose-100 disabled:opacity-35 disabled:cursor-not-allowed"
+                        title={
+                          ['C', 'N', 'G', 'V'].includes(act.code)
+                            ? 'Action standard AFNOR protégée'
+                            : "Supprimer l'action"
+                        }
                       >
                         <Trash2 className="w-3.5 h-3.5" />
                       </button>
@@ -332,7 +338,9 @@ export default function TabActions({
 
                 <div className="mt-3 pt-2.5 border-t border-slate-100 flex items-center justify-between text-[10.5px] text-slate-400 font-mono">
                   <span>Code ISO: {act.code}</span>
-                  <span className="text-[10px] font-sans font-bold text-slate-400">Light UI Autotheme</span>
+                  <span className="text-[10px] font-sans font-bold text-slate-400">
+                    {['C', 'N', 'G', 'V'].includes(act.code) ? 'Standard AFNOR' : 'Action personnalisée'}
+                  </span>
                 </div>
               </div>
             );

@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useMemo } from 'react';
 import {
   Activity,
   Thermometer,
@@ -16,12 +16,15 @@ import {
 import {
   CBM_PARAMETER_PRESETS,
   ingestTelemetryPayload,
+  validateCbmRuleThresholds,
   type CbmParameterType,
   type ICbmEvaluationResult,
   type ICbmSensorRule,
-  type IoTProtocol,
 } from '../../../../domain/preventive/cbmTelemetryService';
 import { useGmaoStore } from '../../../../store/useGmaoStore';
+import { useAuth } from '../../../../context/AuthContext';
+import { AuthorizationService } from '../../../../core/security/AuthorizationService';
+import { filterActiveMachines } from '../../../../utils/activeMachines';
 import { storageService } from '../../../../utils/storageService';
 import { indexedDBService } from '../../../../utils/indexedDBService';
 import { serverSyncService } from '../../../../services/serverSyncService';
@@ -58,13 +61,28 @@ interface CbmIoTSensorPanelProps {
   machines: IMachine[];
   showToast?: ((msg: string, type?: 'success' | 'error' | 'warning' | 'info') => void) | null;
   defaultExpanded?: boolean;
+  canManage?: boolean;
+  canExecute?: boolean;
 }
 
 export default function CbmIoTSensorPanel({
   machines = [],
   showToast = null,
   defaultExpanded = false,
+  canManage,
+  canExecute,
 }: CbmIoTSensorPanelProps) {
+  const { user } = useAuth();
+  const canManageCbm =
+    canManage !== undefined
+      ? canManage
+      : AuthorizationService.hasPermission(user, 'preventive.manage');
+  const canExecuteCbm =
+    canExecute !== undefined
+      ? canExecute
+      : AuthorizationService.hasPermission(user, 'preventive.execute') || canManageCbm;
+
+  const activeMachines = useMemo(() => filterActiveMachines(machines || []), [machines]);
   const correctiveInterventions = useGmaoStore((s) => s.correctiveInterventions) || [];
   const handleSaveIntervention = useGmaoStore((s) => s.handleSaveIntervention);
 
@@ -79,8 +97,7 @@ export default function CbmIoTSensorPanel({
   const [newRuleMachine, setNewRuleMachine] = useState('');
   const [newRuleOrgane, setNewRuleOrgane] = useState('Palier Moteur Principal');
   const [newRuleParam, setNewRuleParam] = useState<CbmParameterType>('TEMPERATURE_PALIER');
-  const [newRuleProtocol, setNewRuleProtocol] = useState<IoTProtocol>('MANUEL');
-  const [newRuleEndpoint] = useState('Point de mesure terrain #1');
+  const [newRuleEndpoint, setNewRuleEndpoint] = useState('Thermomètre IR — Point terrain #1');
   const [newRuleWarn, setNewRuleWarn] = useState<string>('75');
   const [newRuleCrit, setNewRuleCrit] = useState<string>('90');
 
@@ -106,11 +123,26 @@ export default function CbmIoTSensorPanel({
     if (preset) {
       setNewRuleWarn(String(preset.warningThreshold));
       setNewRuleCrit(String(preset.criticalThreshold));
+      const defaultInstrument =
+        param === 'TEMPERATURE_PALIER'
+          ? 'Thermomètre IR — Point terrain #1'
+          : param === 'VIBRATION_RMS'
+          ? 'Vibromètre portable — Palier #1'
+          : param === 'PRESSION_HYDRAULIQUE'
+          ? 'Manomètre circuit — Point #1'
+          : param === 'COURANT_MOTEUR'
+          ? 'Pince ampèremétrique — Armoire'
+          : 'Débitmètre réseau air — Collecteur';
+      setNewRuleEndpoint(defaultInstrument);
     }
   };
 
   const handleRecordMeasurement = useCallback(
     (targetRule: ICbmSensorRule, rawInputStr?: string) => {
+      if (!canExecuteCbm) {
+        showToast?.('Action refusée : rôle en lecture seule.', 'warning');
+        return;
+      }
       const valueToParse =
         rawInputStr !== undefined ? rawInputStr : manualInputValues[targetRule.id] ?? '';
       const numVal = Number(valueToParse);
@@ -119,6 +151,7 @@ export default function CbmIoTSensorPanel({
         return;
       }
 
+      const operatorName = String(user?.name || user?.nom || '').trim();
       const result = ingestTelemetryPayload(
         {
           sensorId: targetRule.id,
@@ -126,6 +159,7 @@ export default function CbmIoTSensorPanel({
           endpointAddress: targetRule.endpointAddress,
           machineCode: targetRule.machineCode,
           value: numVal,
+          operatorName,
         },
         sensorRules,
         correctiveInterventions
@@ -143,7 +177,7 @@ export default function CbmIoTSensorPanel({
         );
       } else if (result.skippedDuplicateOpenDi) {
         showToast?.(
-          `Seuil critique dépassé (${numVal} ${targetRule.unit}) — Une DI Corrective est déjà ouverte pour ce point.`,
+          `Seuil critique franchi (${numVal} ${targetRule.unit}) — Une DI Corrective est déjà ouverte pour ce point.`,
           'warning'
         );
       } else if (result.evaluation?.status === 'WARNING') {
@@ -160,18 +194,51 @@ export default function CbmIoTSensorPanel({
         );
       }
     },
-    [manualInputValues, sensorRules, correctiveInterventions, handleSaveIntervention, showToast]
+    [
+      canExecuteCbm,
+      manualInputValues,
+      sensorRules,
+      correctiveInterventions,
+      handleSaveIntervention,
+      showToast,
+      user,
+    ]
   );
 
   const handleAddRule = (e: React.FormEvent) => {
     e.preventDefault();
+    if (!canManageCbm) {
+      showToast?.('Permissions insuffisantes pour configurer un point de contrôle CBM.', 'warning');
+      return;
+    }
     const firstMachineCode = String(
-      machines[0]?.id_machine_registered || machines[0]?.code_machine || ''
+      activeMachines[0]?.id_machine_registered || activeMachines[0]?.code_machine || ''
     ).trim();
-    const machCode = (newRuleMachine || firstMachineCode || 'EQP-01').trim();
+    const machCode = (newRuleMachine || firstMachineCode).trim();
+    if (!machCode) {
+      showToast?.(
+        'Aucune machine active enregistrée. Veuillez enregistrer une machine dans Parc Machines avant de créer un point CBM.',
+        'warning'
+      );
+      return;
+    }
+
     const preset = CBM_PARAMETER_PRESETS[newRuleParam];
     const warnNum = Number(newRuleWarn);
     const critNum = Number(newRuleCrit);
+    const validation = validateCbmRuleThresholds({
+      direction: preset.direction,
+      warningThreshold: warnNum,
+      criticalThreshold: critNum,
+      hysteresis: preset.hysteresis,
+      minPhysicalBound: preset.minPhysicalBound,
+      maxPhysicalBound: preset.maxPhysicalBound,
+      unit: preset.unit,
+    });
+    if (!validation.valid) {
+      showToast?.(validation.errorFr || 'Seuils CBM invalides.', 'error');
+      return;
+    }
 
     const rule: ICbmSensorRule = {
       id: `CBM-${machCode}-${Date.now().toString().slice(-4)}`,
@@ -179,11 +246,11 @@ export default function CbmIoTSensorPanel({
       organe: newRuleOrgane.trim() || 'Organe Principal',
       parameter: newRuleParam,
       unit: preset.unit,
-      protocol: newRuleProtocol,
-      endpointAddress: newRuleEndpoint.trim() || 'Point de contrôle manuel',
+      protocol: 'MANUEL',
+      endpointAddress: newRuleEndpoint.trim() || 'Point de contrôle terrain',
       direction: preset.direction,
-      warningThreshold: Number.isFinite(warnNum) ? warnNum : preset.warningThreshold,
-      criticalThreshold: Number.isFinite(critNum) ? critNum : preset.criticalThreshold,
+      warningThreshold: warnNum,
+      criticalThreshold: critNum,
       hysteresis: preset.hysteresis,
       minPhysicalBound: preset.minPhysicalBound,
       maxPhysicalBound: preset.maxPhysicalBound,
@@ -203,6 +270,10 @@ export default function CbmIoTSensorPanel({
   };
 
   const handleDeleteRule = (ruleId: string) => {
+    if (!canManageCbm) {
+      showToast?.('Permissions insuffisantes pour supprimer un point CBM.', 'warning');
+      return;
+    }
     const nextRules = sensorRules.filter((r) => r.id !== ruleId);
     setSensorRules(nextRules);
     savePersistedCbmRules(nextRules);
@@ -233,7 +304,7 @@ export default function CbmIoTSensorPanel({
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-2 flex-wrap">
               <h3 className="text-xs font-black uppercase tracking-wider text-slate-800">
-                Relevés Conditionnels Manuels Optionnels (Température / Vibration / Pression)
+                Relevés Conditionnels Terrain — CBM Manuel (Température / Vibration / Pression)
               </h3>
               <span className="px-2 py-0.5 rounded-full text-[10px] font-mono font-bold bg-slate-200/80 text-slate-700">
                 {sensorRules.length} point(s) configuré(s)
@@ -250,23 +321,25 @@ export default function CbmIoTSensorPanel({
               )}
             </div>
             <p className="text-[11px] text-slate-500 mt-0.5 truncate">
-              Points d&apos;inspection manuels sauvegardés localement (thermomètre IR, manomètre, vibromètre) avec ouverture automatique de DI si seuil critique dépassé.
+              Saisie manuelle terrain (thermomètre IR, manomètre, vibromètre, pince) avec seuils ISO et ouverture automatique d&apos;une DI Corrective en cas de dépassement critique.
             </p>
           </div>
         </button>
 
         <div className="flex items-center gap-2 shrink-0 self-end sm:self-center">
-          <button
-            type="button"
-            onClick={() => {
-              setIsExpanded(true);
-              setShowAddRuleForm(true);
-            }}
-            className="h-8 px-3 rounded-xl bg-white hover:bg-indigo-50 text-indigo-700 border border-indigo-200 text-xs font-bold flex items-center gap-1.5 cursor-pointer transition shadow-2xs"
-          >
-            <Plus className="w-3.5 h-3.5" />
-            <span>Ajouter un point</span>
-          </button>
+          {canManageCbm && (
+            <button
+              type="button"
+              onClick={() => {
+                setIsExpanded(true);
+                setShowAddRuleForm(true);
+              }}
+              className="h-8 px-3 rounded-xl bg-white hover:bg-indigo-50 text-indigo-700 border border-indigo-200 text-xs font-bold flex items-center gap-1.5 cursor-pointer transition shadow-2xs"
+            >
+              <Plus className="w-3.5 h-3.5" />
+              <span>Ajouter un point</span>
+            </button>
+          )}
           <button
             type="button"
             onClick={() => setIsExpanded((prev) => !prev)}
@@ -285,22 +358,23 @@ export default function CbmIoTSensorPanel({
       {isExpanded && (
         <div className="p-4 border-t border-slate-200 space-y-4">
           {/* Add New Manual Inspection Point Form */}
-          {showAddRuleForm && (
+          {showAddRuleForm && canManageCbm && (
             <form
               onSubmit={handleAddRule}
               className="p-3.5 rounded-xl bg-slate-50 border border-slate-200 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-2.5 text-xs"
             >
               <div>
                 <label className="block text-[10px] font-bold text-slate-600 uppercase mb-1">
-                  Machine
+                  Machine active *
                 </label>
                 <select
                   value={newRuleMachine}
                   onChange={(e) => setNewRuleMachine(e.target.value)}
                   className="w-full h-8 px-2 rounded-lg bg-white border border-slate-300 text-slate-800 text-xs font-semibold"
+                  required
                 >
                   <option value="">Sélectionner...</option>
-                  {machines.map((m) => {
+                  {activeMachines.map((m) => {
                     const code = String(m.id_machine_registered || m.code_machine || '');
                     return (
                       <option key={code} value={code}>
@@ -312,7 +386,7 @@ export default function CbmIoTSensorPanel({
               </div>
               <div>
                 <label className="block text-[10px] font-bold text-slate-600 uppercase mb-1">
-                  Organe / Point
+                  Organe / Point *
                 </label>
                 <input
                   type="text"
@@ -341,7 +415,7 @@ export default function CbmIoTSensorPanel({
               </div>
               <div>
                 <label className="block text-[10px] font-bold text-slate-600 uppercase mb-1">
-                  Seuils (Alerte / Critique)
+                  Seuils ({CBM_PARAMETER_PRESETS[newRuleParam]?.direction === 'LOW_BAD' ? 'Alerte > Crit.' : 'Alerte < Crit.'})
                 </label>
                 <div className="flex items-center gap-1.5">
                   <input
@@ -366,18 +440,16 @@ export default function CbmIoTSensorPanel({
               </div>
               <div>
                 <label className="block text-[10px] font-bold text-slate-600 uppercase mb-1">
-                  Mode / Instrument
+                  Instrument / Repère (Manuel)
                 </label>
-                <select
-                  value={newRuleProtocol}
-                  onChange={(e) => setNewRuleProtocol(e.target.value as IoTProtocol)}
-                  className="w-full h-8 px-2 rounded-lg bg-white border border-slate-300 text-slate-800 text-xs font-mono"
-                >
-                  <option value="MANUEL">MANUEL (Thermomètre / Manomètre)</option>
-                  <option value="MQTT">MQTT</option>
-                  <option value="OPC_UA">OPC_UA</option>
-                  <option value="MODBUS_TCP">MODBUS_TCP</option>
-                </select>
+                <input
+                  type="text"
+                  value={newRuleEndpoint}
+                  onChange={(e) => setNewRuleEndpoint(e.target.value)}
+                  placeholder="Ex: Thermomètre IR #1"
+                  className="w-full h-8 px-2.5 rounded-lg bg-white border border-slate-300 text-slate-800 text-xs"
+                  required
+                />
               </div>
               <div className="flex items-end gap-1.5">
                 <button
@@ -405,7 +477,7 @@ export default function CbmIoTSensorPanel({
                 Aucun point de contrôle conditionnel configuré (0 capteur fictif)
               </div>
               <p className="text-[11px] text-slate-500 max-w-lg mx-auto">
-                Ajoutez uniquement les points critiques que votre technicien mesure réellement sur le terrain (ex: température roulement broche, pression hydraulique presse) pour suivre les seuils d&apos;alerte.
+                Ajoutez uniquement les points critiques que votre équipe mesure réellement sur le terrain (ex: température roulement broche, pression hydraulique presse) pour suivre les seuils d&apos;alerte.
               </p>
             </div>
           ) : (
@@ -427,6 +499,8 @@ export default function CbmIoTSensorPanel({
                     : rule.lastValue !== undefined
                     ? String(rule.lastValue)
                     : '';
+
+                const op = rule.direction === 'LOW_BAD' ? '≤' : '≥';
 
                 return (
                   <div
@@ -451,8 +525,8 @@ export default function CbmIoTSensorPanel({
                           <div className="text-xs font-black text-slate-900 truncate">
                             {rule.machineCode} • {rule.organe}
                           </div>
-                          <div className="text-[10px] font-mono text-slate-500 truncate">
-                            [{rule.protocol}] {CBM_PARAMETER_PRESETS[rule.parameter]?.labelFr || rule.parameter}
+                          <div className="text-[10px] font-mono text-slate-500 truncate" title={rule.endpointAddress}>
+                            {rule.endpointAddress || CBM_PARAMETER_PRESETS[rule.parameter]?.labelFr || rule.parameter}
                           </div>
                         </div>
                       </div>
@@ -463,17 +537,19 @@ export default function CbmIoTSensorPanel({
                         >
                           {status}
                         </span>
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleDeleteRule(rule.id);
-                          }}
-                          className="p-1 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition cursor-pointer"
-                          title="Supprimer ce point de contrôle"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
+                        {canManageCbm && (
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleDeleteRule(rule.id);
+                            }}
+                            className="p-1 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition cursor-pointer"
+                            title="Supprimer ce point de contrôle"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        )}
                       </div>
                     </div>
 
@@ -488,38 +564,40 @@ export default function CbmIoTSensorPanel({
                       </div>
                       <div className="text-right text-[10px] font-mono text-slate-500">
                         <div>
-                          Alerte: <b className="text-amber-700">{rule.warningThreshold} {rule.unit}</b>
+                          Alerte: <b className="text-amber-700">{op} {rule.warningThreshold} {rule.unit}</b>
                         </div>
                         <div>
-                          Critique (DI): <b className="text-rose-700">{rule.criticalThreshold} {rule.unit}</b>
+                          Critique (DI): <b className="text-rose-700">{op} {rule.criticalThreshold} {rule.unit}</b>
                         </div>
                       </div>
                     </div>
 
-                    {/* Fast Manual Reading Input */}
-                    <div className="mt-2.5 pt-2 border-t border-slate-100 flex items-center gap-1.5">
-                      <input
-                        type="number"
-                        step="0.1"
-                        placeholder={`Mesure (${rule.unit})`}
-                        value={inputVal}
-                        onChange={(e) =>
-                          setManualInputValues((prev) => ({
-                            ...prev,
-                            [rule.id]: e.target.value,
-                          }))
-                        }
-                        className="flex-1 min-w-0 h-8 px-2.5 rounded-lg bg-slate-50 border border-slate-200 text-slate-900 font-mono font-bold text-xs focus:bg-white focus:border-indigo-500 outline-none"
-                      />
-                      <button
-                        type="button"
-                        onClick={() => handleRecordMeasurement(rule)}
-                        className="h-8 px-3 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-[11px] flex items-center gap-1 shrink-0 cursor-pointer transition"
-                      >
-                        <Zap className="w-3 h-3" />
-                        <span>Valider relevé</span>
-                      </button>
-                    </div>
+                    {/* Fast Manual Reading Input — RBAC guarded */}
+                    {canExecuteCbm && (
+                      <div className="mt-2.5 pt-2 border-t border-slate-100 flex items-center gap-1.5">
+                        <input
+                          type="number"
+                          step="0.1"
+                          placeholder={`Mesure (${rule.unit})`}
+                          value={inputVal}
+                          onChange={(e) =>
+                            setManualInputValues((prev) => ({
+                              ...prev,
+                              [rule.id]: e.target.value,
+                            }))
+                          }
+                          className="flex-1 min-w-0 h-8 px-2.5 rounded-lg bg-slate-50 border border-slate-200 text-slate-900 font-mono font-bold text-xs focus:bg-white focus:border-indigo-500 outline-none"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => handleRecordMeasurement(rule)}
+                          className="h-8 px-3 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-[11px] flex items-center gap-1 shrink-0 cursor-pointer transition"
+                        >
+                          <Zap className="w-3 h-3" />
+                          <span>Valider relevé</span>
+                        </button>
+                      </div>
+                    )}
                   </div>
                 );
               })}

@@ -40,9 +40,9 @@ Dans l'industrie réelle, un même moteur GMAO sert trois profils très différe
 - **Public cible :** Ingénieur maintenance terrain, responsable technique autonome, chef d'atelier polyvalent qui exécute, suit et rapporte lui-même ses interventions.
 - **Gouvernance :** `SOLO_DIRECT` (**fail-closed** : autorise l'exécution/clôture directe uniquement pour un utilisateur authentifié de rôle vérifié `ADMIN` ; tout autre rôle `TECHNICIEN`, `RESPONSABLE_MAINTENANCE`, `OPERATEUR`, `VIEWER` reste bloqué en `TEAM_MAKER_CHECKER`). Chaque action directe est explicitement estampillée `executionMode: 'SOLO_DIRECT'` dans le journal d'audit immuable `AUDIT_EVENTS`.
 - **Périmètre projeté par défaut (ajustable à la carte) :**
-  - **Mis au premier plan :** Parc Machines hiérarchique complet (`families` ➔ `templates` ➔ `machines`), Passeport 360° & BOM directe sans Blueprint obligatoire, Préventif & Compteurs (`preventive`, `preventive_referentiel`), Correctif complet (`DI`, `BT`, `Live`, `Besoins`, `Atelier Mécanique BR/RECT`, `Clôture`, `Pareto`), Entrepôt Organes & Pièces (`entrepot`, `comp_*`, `part_*`), Journal de retrait PDR (`sortie`), Arborescence `Nexus`, `Zones`, `Équipements Système Général`, Rapports d'exploitation & MTTR/MTBF.
-  - **Masqué par défaut de la navigation principale (sans aucune suppression) :** Finance & Budgets (`finance`), Inventaire Magasin (`stock` — tout en conservant `sortie` et les catalogues PDR), Centre de Validation (`validation_center`), Gestion d'équipe (`utilisateurs`), Blueprints Machine Tier 3 (`blueprints`).
-  - **Personnalisation fine :** 4 interrupteurs modulaires permettent de réafficher individuellement *Finance*, *Inventaire Stock*, *Blueprints Machine (Tier 3)* ou *Équipe & Validation* même en restant en `SOLO_EXPERT`.
+  - **Mis au premier plan :** Parc Machines hiérarchique complet (`families` ➔ `templates` ➔ `machines`), Passeport 360° & BOM directe sans Blueprint obligatoire, Préventif, Compteurs & CBM terrain (`preventive`, `preventive_referentiel` avec dispatch techniciens, impression `OT/LOTO` et tableau *Charge & Performance par Technicien*), Correctif complet (`DI`, `BT`, `Live`, `Besoins`, `Atelier Mécanique BR/RECT`, `Clôture`, `Pareto`), Entrepôt Organes & Pièces (`entrepot`, `comp_*`, `part_*`), Journal de retrait PDR (`sortie`), Arborescence `Nexus`, `Zones`, `Équipe Terrain & Techniciens` (`utilisateurs` sans multi-comptes), `Équipements Système Général`, Rapports d'exploitation & MTTR/MTBF.
+  - **Masqué par défaut de la navigation principale (sans aucune suppression) :** Finance & Budgets (`finance`), Inventaire Magasin (`stock` — tout en conservant `sortie` et les catalogues PDR), Centre de Validation (`validation_center`), Contrôles multi-comptes RBAC (`showTeamManagement: false`, tout en gardant visible l'annuaire Équipe Terrain), Blueprints Machine Tier 3 (`blueprints`).
+  - **Personnalisation fine :** 4 interrupteurs modulaires permettent de réafficher individuellement *Finance*, *Inventaire Stock*, *Blueprints Machine (Tier 3)* ou *Comptes & Accès Multi-Utilisateurs* même en restant en `SOLO_EXPERT`.
 - **Bénéfices clés :**
   - **Zéro friction terrain :** un seul ingénieur crée, exécute, consomme ses pièces, suit son atelier mécanique et ses besoins d'achat, puis clôture avec des statistiques MTTR/MTBF/heures de travail exactes.
   - **Hiérarchie Parc préservée & Tier 2 autonome (Blueprint non bloquant) :** la classification `Familles ➔ Templates ➔ Machines Registered` fonctionne à l'identique du mode `TEAM_FULL`, tout en permettant de rattacher directement des `COMPOSANT`, `PART` et `PDR` dans le Passeport 360° (`machineElementsLedger`) sans avoir à créer de `Blueprint`.
@@ -67,14 +67,14 @@ Dans l'industrie réelle, un même moteur GMAO sert trois profils très différe
 | **Gouvernance** | `TEAM_MAKER_CHECKER` | `SOLO_DIRECT` (`ADMIN` seul) | Simplifiée (à définir) |
 | **Centre de Validation (`À valider`)** | Affiché & obligatoire | Masqué (exécution directe) | Masqué |
 | **Correctif (`DI / BT / Live / Atelier / Besoins`)** | Complet (multi-acteurs) | Complet (cycle autonome 1 personne) | Simplifié (prévu) |
-| **Préventif & Compteurs (`Meter PM`)** | Complet | Complet | Simplifié (prévu) |
+| **Préventif, Compteurs (`Meter PM`) & `CBM Terrain`** | Complet + Coûts + Maker-Checker | Complet (`SOLO_DIRECT`, sans coûts ni Maker-Checker, avec dispatch & bilan techniciens, `OT/LOTO` et `CBM`) | Simplifié (prévu) |
 | **Parc Machines (`Familles ➔ Templates ➔ Machines`)** | Complet + Passeport 360° | Complet (identique `ADMIN`) + BOM directe | Simplifié (prévu) |
 | **Blueprints Machine (Tier 3)** | Visibles par défaut | Masqués par défaut (optionnels) | Masqués |
 | **Entrepôt Organes (`Components` & `Parts`)** | Complet | Complet | Optionnel (à définir) |
 | **Journal de Retrait PDR (`Sortie Rapide`)** | Actif | Actif (traçabilité pièces) | Simplifié (prévu) |
 | **Inventaire Magasin (`Stock`, `PO`)** | Visible par défaut | Masqué par défaut (réactivable) | Masqué |
 | **Finance & Budgets (`ISO 4217`)** | Visible par défaut | Masqué par défaut (réactivable) | Masqué |
-| **Gestion d'équipe (`Utilisateurs`)** | Visible par défaut | Masqué par défaut (réactivable) | Masqué |
+| **Équipe Terrain (`Utilisateurs`) & Comptes RBAC** | Annuaire + Comptes RBAC | Annuaire Équipe Terrain actif ; multi-comptes RBAC masqués (réactivables) | Masqué |
 | **Audit immuable (`AUDIT_EVENTS`)** | ✅ Toujours actif | ✅ Toujours actif (`SOLO_DIRECT` tracé) | ✅ Toujours actif |
 | **Sécurité `LOTO` & `SYSTEM_GENERAL`** | ✅ Toujours actifs | ✅ Toujours actifs | ✅ Toujours actifs |
 

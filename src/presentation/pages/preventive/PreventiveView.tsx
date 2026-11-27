@@ -33,6 +33,8 @@ import {
   getTechnicianDisplayName,
 } from '../../../core/security/technicianScope';
 import { AuthorizationService } from '../../../core/security/AuthorizationService';
+import { useCurrency } from '../../../utils/currencyService';
+import { useWorkspaceProfile } from '../../../core/workspace/workspaceProfile';
 
 export default function PreventiveView({
   tasks = [],
@@ -71,6 +73,9 @@ export default function PreventiveView({
 }) {
   const { t } = useI18n();
   const { user } = useAuth();
+  const { symbol, currencyCode } = useCurrency();
+  const workspaceProfile = useWorkspaceProfile();
+  const showFinance = workspaceProfile.moduleVisibility.showFinance;
   const isTechUser = isTechnicianRole(user);
   const canExecutePreventive =
     Boolean(user) && AuthorizationService.hasPermission(user, 'preventive.execute');
@@ -227,6 +232,16 @@ export default function PreventiveView({
     if (showToast) {
       showToast(`Tâche ${targetTask?.composant || ''} validée avec succès !`, 'success');
     }
+  };
+
+  const handleUpdateTask = (id, updates) => {
+    if (!canManagePreventive) return;
+    if (onUpdateTask) {
+      onUpdateTask(id, updates);
+    } else {
+      useGmaoStore.getState().handleUpdateTask(id, updates);
+    }
+    if (showToast) showToast('Tâche préventive mise à jour avec succès.', 'success');
   };
 
   const handleDeleteTask = (id) => {
@@ -522,6 +537,7 @@ export default function PreventiveView({
             onReviewPreventiveExecution={canManagePreventive ? onReviewPreventiveExecution : null}
             showToast={showToast}
             onDeleteExecution={canManagePreventive ? onDeleteExecution : null}
+            onUpdateTask={canManagePreventive ? handleUpdateTask : null}
             onDeleteTask={canManagePreventive ? handleDeleteTask : null}
             onUpdateTaskCounter={canExecutePreventive ? handleUpdateTaskCounter : null}
             onUpdateTaskStatus={canExecutePreventive ? handleUpdateTaskStatus : null}
@@ -551,7 +567,7 @@ export default function PreventiveView({
                       </span>
                     </h3>
                     <p className="text-xs text-slate-500">
-                      Règles de calcul et formules automatiques synchronisées avec le modèle GMAO_Light_Template_V2
+                      Règles de calcul et formules automatiques du moteur de planification CIOB GMAO Nexus
                     </p>
                   </div>
                 </div>
@@ -624,23 +640,27 @@ export default function PreventiveView({
                 </div>
 
                 {/* Formule 4: Coût Cumulé Préventif */}
-                <div className="bg-slate-50/80 p-3.5 rounded-xl border border-slate-200/90 flex flex-col justify-between gap-2 hover:border-blue-300 transition">
-                  <div className="flex items-center justify-between gap-2">
-                    <div className="text-[11px] font-bold text-slate-700 uppercase tracking-wider flex items-center gap-1.5 truncate">
-                      <DollarSign className="w-3.5 h-3.5 text-blue-600 shrink-0" />
-                      <span className="truncate">Coût Cumulé Préventif (DH / MAD)</span>
+                {showFinance && (
+                  <div className="bg-slate-50/80 p-3.5 rounded-xl border border-slate-200/90 flex flex-col justify-between gap-2 hover:border-blue-300 transition">
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="text-[11px] font-bold text-slate-700 uppercase tracking-wider flex items-center gap-1.5 truncate">
+                        <DollarSign className="w-3.5 h-3.5 text-blue-600 shrink-0" />
+                        <span className="truncate">
+                          Coût Cumulé Préventif ({symbol} / {currencyCode})
+                        </span>
+                      </div>
+                      <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded bg-blue-100/80 text-blue-800 border border-blue-200 shrink-0">
+                        Coût ({symbol})
+                      </span>
                     </div>
-                    <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded bg-blue-100/80 text-blue-800 border border-blue-200 shrink-0">
-                      Coût (DH)
-                    </span>
+                    <div className="font-mono text-xs text-blue-800 font-bold bg-white p-2 rounded-lg border border-blue-100">
+                      =(M.O_Heures * Taux_MO) + SUM(PDR_Qté * PDR_Prix)
+                    </div>
+                    <p className="text-[10.5px] text-slate-500 leading-tight">
+                      Coût total intégrant la main d&apos;œuvre technique et les pièces détachées consommées.
+                    </p>
                   </div>
-                  <div className="font-mono text-xs text-blue-800 font-bold bg-white p-2 rounded-lg border border-blue-100">
-                    =(M.O_Heures * Taux_MO) + SUM(PDR_Qté * PDR_Prix)
-                  </div>
-                  <p className="text-[10.5px] text-slate-500 leading-tight">
-                    Coût total intégrant la main d'œuvre technique et les pièces détachées consommées.
-                  </p>
-                </div>
+                )}
               </div>
 
               {/* Footer */}
@@ -670,10 +690,10 @@ export default function PreventiveView({
                   </div>
                   <div>
                     <h3 className="text-base font-black text-slate-900 flex items-center gap-2">
-                      <span>فلسفة ودليل تشغيل الصيانة الوقائية (GMAO)</span>
+                      <span>Philosophie &amp; Manuel Opérationnel de la Maintenance Préventive</span>
                     </h3>
                     <p className="text-xs text-slate-500">
-                      Philosophie, méthodologie opérationnelle, et intégration des stocks de la GMAO
+                      Planification Calendaire &amp; Horomètres, Gouvernance Solo Expert / Équipe Complète et Gestion des Techniciens
                     </p>
                   </div>
                 </div>
@@ -687,90 +707,104 @@ export default function PreventiveView({
               </div>
 
               {/* Scrollable Content */}
-              <div className="p-5 md:p-6 overflow-y-auto space-y-6 text-slate-700 leading-relaxed text-sm" style={{ direction: 'rtl' }}>
+              <div className="p-5 md:p-6 overflow-y-auto space-y-6 text-slate-700 leading-relaxed text-sm">
                 {/* 1. Philosophy Section */}
-                <div className="space-y-3">
-                  <h4 className="text-base font-black text-slate-900 flex items-center gap-2 border-r-4 border-teal-500 pr-2.5">
-                    <Clock className="w-5 h-5 text-teal-600" />
-                    <span>1. فلسفة الصيانة الوقائية (Mieux vaut prévenir que guérir)</span>
+                <div className="space-y-2.5">
+                  <h4 className="text-sm font-black text-slate-900 flex items-center gap-2 border-l-4 border-teal-500 pl-2.5">
+                    <Clock className="w-4 h-4 text-teal-600" />
+                    <span>1. Double Déclenchement : Calendaire (S1→S52) &amp; Compteurs / Horomètres</span>
                   </h4>
                   <p className="text-xs text-slate-600 leading-relaxed">
-                    ترتكز فلسفة الصيانة الوقائية في نظامنا على مبدأ <strong>"منع حدوث العطل قبل وقوعه"</strong> لتفادي التوقفات الفجائية المكلفة للآلات. يتم تنظيم المهام بجدولة زمنية قياسية ممتدة على مدار <strong>52 أسبوعاً سنوياً (ISO 52-Week Matrix)</strong>، مما يتيح توازناً مثالياً في توزيع ضغط العمل على الفنيين وتأمين سلامة المكونات الحرجة للمصنع بشكل منظم ومدروس.
+                    Chaque tâche préventive est rattachée à une machine active enregistrée et programmée selon un cycle calendaire (<strong>Quotidien à Annuel</strong> sur la matrice ISO 52 semaines), un seuil compteur (<strong>Heures, Cycles ou Km</strong>), ou un mode <strong>Hybride</strong> (la première échéance atteinte déclenche l&apos;alerte). Les relevés manuels conditionnels (température, vibration, pression) permettent en outre de déclencher automatiquement une DI corrective en cas de dépassement de seuil critique.
                   </p>
                 </div>
 
                 {/* 2. Operational Methodology Section */}
-                <div className="space-y-3">
-                  <h4 className="text-base font-black text-slate-900 flex items-center gap-2 border-r-4 border-indigo-500 pr-2.5">
-                    <Table2 className="w-5 h-5 text-indigo-600" />
-                    <span>2. مصفوفة الـ 52 أسبوعاً والرموز التشغيلية القياسية</span>
+                <div className="space-y-2.5">
+                  <h4 className="text-sm font-black text-slate-900 flex items-center gap-2 border-l-4 border-indigo-500 pl-2.5">
+                    <Table2 className="w-4 h-4 text-indigo-600" />
+                    <span>2. Standard AFNOR des Actions Préventives</span>
                   </h4>
                   <div className="text-xs text-slate-600 space-y-2">
                     <p>
-                      تعرض المصفوفة السنوية الـ 52 عموداً، ويمثل كل عمود أسبوعاً من أسابيع السنة. يتم ترميز وتصنيف التدخلات الوقائية باختصارات قياسية معتمدة عالمياً:
+                      Les gammes de maintenance s&apos;appuient sur les 4 codes fondamentaux protégés du référentiel :
                     </p>
                     <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-1 font-mono text-[11px]">
                       <div className="p-2 rounded-lg bg-blue-50 border border-blue-200 flex items-center gap-2">
                         <span className="w-5 h-5 rounded-full bg-blue-600 text-white font-bold flex items-center justify-center text-[10px]">C</span>
-                        <strong>Contrôle (مراقبة/فحص)</strong>
+                        <strong>Contrôle</strong>
                       </div>
                       <div className="p-2 rounded-lg bg-emerald-50 border border-emerald-200 flex items-center gap-2">
                         <span className="w-5 h-5 rounded-full bg-emerald-600 text-white font-bold flex items-center justify-center text-[10px]">N</span>
-                        <strong>Nettoyage (تنظيف)</strong>
+                        <strong>Nettoyage</strong>
                       </div>
                       <div className="p-2 rounded-lg bg-amber-50 border border-amber-200 flex items-center gap-2">
                         <span className="w-5 h-5 rounded-full bg-amber-600 text-white font-bold flex items-center justify-center text-[10px]">G</span>
-                        <strong>Graissage (تشحيم)</strong>
+                        <strong>Graissage</strong>
                       </div>
                       <div className="p-2 rounded-lg bg-indigo-50 border border-indigo-200 flex items-center gap-2">
                         <span className="w-5 h-5 rounded-full bg-indigo-600 text-white font-bold flex items-center justify-center text-[10px]">V</span>
-                        <strong>Vidange (تفريغ وتغيير زيت)</strong>
+                        <strong>Vidange</strong>
                       </div>
                     </div>
                   </div>
                 </div>
 
-                {/* 3. Auto stock synchronization */}
-                <div className="space-y-3">
-                  <h4 className="text-base font-black text-slate-900 flex items-center gap-2 border-r-4 border-emerald-500 pr-2.5">
-                    <Package className="w-5 h-5 text-emerald-600" />
-                    <span>3. التكامل التلقائي مع المخزن وقطع الغيار (PDR Synchronization)</span>
+                {/* 3. Stock & Lifecycle Synchronization */}
+                <div className="space-y-2.5">
+                  <h4 className="text-sm font-black text-slate-900 flex items-center gap-2 border-l-4 border-emerald-500 pl-2.5">
+                    <Package className="w-4 h-4 text-emerald-600" />
+                    <span>3. Intégration Stock PDR &amp; Traçabilité Immuable</span>
                   </h4>
-                  <p className="text-xs text-slate-600 leading-relaxed">
-                    عند إنجاز أي مهمة صيانة وقائية تحتوي على قطع غيار مسجلة في <strong>بطاقة الإرشاد التقني (Fiches Guides)</strong>، يقوم التطبيق بتنفيذ العمليات التالية آلياً وبصمت في الخلفية:
-                  </p>
-                  <ul className="list-disc list-inside text-xs text-slate-600 pr-2 space-y-1 bg-emerald-50/40 p-3 rounded-xl border border-emerald-100">
-                    <li><strong>تسجيل حركة خروج مخزنية تلقائية:</strong> من نوع <strong>Sortie Interne</strong> تحمل رمزاً فريداً يربط العملية بنوع وتاريخ الصيانة.</li>
-                    <li><strong>تخفيض الرصيد الفعلي:</strong> تحديث كميات القطع المسحوبة مباشرة داخل واجهة المخازن لحساب مستويات التنبيه بالحدود الدنيا والطلب التلقائي فورا.</li>
-                    <li><strong>حساب التكلفة الإجمالية:</strong> دمج تكلفة قطع الغيار المستهلكة مع ساعات العمل الفنية لاحتساب دقيق للتكلفة الفعلية المباشرة.</li>
+                  <ul className="list-disc list-inside text-xs text-slate-600 space-y-1.5 bg-emerald-50/40 p-3.5 rounded-xl border border-emerald-100">
+                    <li>
+                      <strong>Journal immuable d&apos;exécutions :</strong> chaque réalisation validée est archivée dans l&apos;historique mensuel/hebdomadaire avec l&apos;exécutant, la durée réelle, les PDR consommées et la reprogrammation automatique du prochain cycle.
+                    </li>
+                    <li>
+                      <strong>Déstockage sécurisé (zéro double sortie) :</strong> seules les pièces consommables PDR approuvées génèrent une <strong>Sortie Interne</strong>, avec réconciliation automatique sur le N° de Bon Magasin pour éviter tout doublon.
+                    </li>
+                    <li>
+                      <strong>Pont Préventif → Correctif :</strong> toute anomalie constatée lors d&apos;une ronde ou d&apos;une validation permet d&apos;ouvrir immédiatement une DI / BT corrective liée à la machine.
+                    </li>
                   </ul>
                 </div>
 
-                {/* 4. Concurrency & Offline support */}
-                <div className="space-y-3">
-                  <h4 className="text-base font-black text-slate-900 flex items-center gap-2 border-r-4 border-purple-500 pr-2.5">
-                    <Clock className="w-5 h-5 text-purple-600" />
-                    <span>4. استقرار الأداء والعمل بدون إنترنت (Resilience & Caching)</span>
+                {/* 4. Solo Expert vs Full Team & Field Technicians */}
+                <div className="space-y-2.5">
+                  <h4 className="text-sm font-black text-slate-900 flex items-center gap-2 border-l-4 border-purple-500 pl-2.5">
+                    <Gauge className="w-4 h-4 text-purple-600" />
+                    <span>4. Gouvernance : Équipe Complète (Maker-Checker) vs Solo Expert</span>
                   </h4>
-                  <p className="text-xs text-slate-600 leading-relaxed">
-                    يتمتع موديول الصيانة بنظام حماية عالي الأداء:
-                    <br />
-                    • يتم ترتيب العمليات المتزامنة وحل التعارضات تلقائياً عبر <strong>طابور العمل المتسلسل (Sequential Queue)</strong> لمنع تداخل حركات المخزون المتزامنة.
-                    <br />
-                    • في حال انقطاع الشبكة، يتم تشغيل <strong>آلية المزامنة الاحتياطية (Sync Queue)</strong> لحفظ المهام محلياً وبثها فورا عند استعادة الاتصال بالشبكة.
-                  </p>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs">
+                    <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200 space-y-1">
+                      <div className="font-black text-slate-900 uppercase text-[11px]">
+                        Mode Équipe Complète (TEAM_FULL)
+                      </div>
+                      <p className="text-slate-600">
+                        Les techniciens terrain déclarent leurs interventions sur leur périmètre assigné (<strong>En attente validation</strong>) sans déstockage immédiat ; le responsable contrôle, réconcilie les PDR et approuve dans l&apos;onglet <strong>Historique</strong>.
+                      </p>
+                    </div>
+                    <div className="p-3.5 rounded-xl bg-teal-50/60 border border-teal-200 space-y-1">
+                      <div className="font-black text-teal-950 uppercase text-[11px]">
+                        Mode Solo Expert (SOLO_EXPERT)
+                      </div>
+                      <p className="text-teal-900">
+                        Un seul pilote planifie, filtre par technicien terrain, imprime les OT papier, réassigne les tâches en un clic, enregistre directement les exécutions et suit la charge horaire et la ponctualité par technicien sans surcharge financière ni double circuit de validation.
+                      </p>
+                    </div>
+                  </div>
                 </div>
               </div>
 
               {/* Footer */}
               <div className="p-5 border-t border-slate-100 flex items-center justify-between bg-slate-50/50">
-                <span className="text-[10px] font-mono text-slate-400">GMAO Light Template V2 Documentation</span>
+                <span className="text-[10px] font-mono text-slate-400">CIOB GMAO Nexus — Module Préventif</span>
                 <button
                   type="button"
                   onClick={() => setShowGuideModal(false)}
                   className="px-4 py-2 bg-slate-800 hover:bg-slate-900 text-white rounded-xl text-xs font-bold transition shadow-md cursor-pointer"
                 >
-                  فهمت، إغلاق
+                  Fermer le manuel
                 </button>
               </div>
             </div>

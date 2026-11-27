@@ -10,9 +10,12 @@ import {
   Factory,
   CheckCircle2,
   Scale,
+  Users,
 } from 'lucide-react';
 import { computePreventiveAnalytics } from '../../../../domain/preventive/preventiveAnalyticsEngine';
 import type { PreventiveExecutionRecord } from '../../../../types/preventive';
+import { useCurrency } from '../../../../utils/currencyService';
+import { useWorkspaceProfile } from '../../../../core/workspace/workspaceProfile';
 
 interface PreventiveAnalyticsViewProps {
   tasks: any[];
@@ -36,6 +39,10 @@ export default function PreventiveAnalyticsView({
   zones = [],
   actions = [],
 }: PreventiveAnalyticsViewProps) {
+  const { symbol } = useCurrency();
+  const workspaceProfile = useWorkspaceProfile();
+  const showFinance = workspaceProfile.moduleVisibility.showFinance;
+
   const report = useMemo(
     () =>
       computePreventiveAnalytics({
@@ -51,11 +58,25 @@ export default function PreventiveAnalyticsView({
     [tasks, executions, machines, stockItems, mouvements, correctiveInterventions, actions, zones]
   );
 
-  const { overview, punctuality, costs, pmCmBalance, zonesStats, actionsStats, machineRiskStats, pdrReadinessRisks } =
-    report;
+  const {
+    overview,
+    punctuality,
+    costs,
+    pmCmBalance,
+    zonesStats,
+    actionsStats,
+    machineRiskStats,
+    techniciansStats,
+    pdrReadinessRisks,
+  } = report;
 
   const topMachines = machineRiskStats.slice(0, 8);
   const totalHours = (costs.totalDurationMinutes / 60).toFixed(1);
+  const avgDurationMin =
+    punctuality.approvedExecutionsCount > 0
+      ? Math.round(costs.totalDurationMinutes / punctuality.approvedExecutionsCount)
+      : 0;
+  const totalActionTasks = actionsStats.reduce((sum, a) => sum + a.taskCount, 0);
 
   return (
     <div className="space-y-5">
@@ -144,44 +165,72 @@ export default function PreventiveAnalyticsView({
           </div>
         </div>
 
-        {/* 3. True Approved Cost Split (MO vs PDR) */}
-        <div className="bg-white border border-slate-200 rounded-2xl p-4 shadow-xs">
-          <div className="flex items-center justify-between text-[11px] font-bold uppercase tracking-wider text-slate-500">
-            <span className="flex items-center gap-1.5">
-              <DollarSign className="w-3.5 h-3.5 text-amber-600" />
-              Coût Réel Approuvé
-            </span>
-            <span className="font-mono text-[10px] px-1.5 py-0.5 rounded bg-amber-50 text-amber-800 border border-amber-200">
-              {totalHours} h MO
-            </span>
+        {/* 3. True Approved Cost Split (MO vs PDR) OR Charge Horaire in SOLO_EXPERT */}
+        {showFinance ? (
+          <div className="bg-white border border-slate-200 rounded-2xl p-4 shadow-xs">
+            <div className="flex items-center justify-between text-[11px] font-bold uppercase tracking-wider text-slate-500">
+              <span className="flex items-center gap-1.5">
+                <DollarSign className="w-3.5 h-3.5 text-amber-600" />
+                Coût Réel Approuvé
+              </span>
+              <span className="font-mono text-[10px] px-1.5 py-0.5 rounded bg-amber-50 text-amber-800 border border-amber-200">
+                {totalHours} h MO
+              </span>
+            </div>
+            <div className="mt-2 flex items-baseline gap-1.5">
+              <span className="text-2xl font-black font-mono text-slate-900">
+                {costs.totalCost.toFixed(2)}
+              </span>
+              <span className="text-xs font-bold text-slate-500">{symbol}</span>
+            </div>
+            <div className="mt-2 w-full bg-slate-100 h-1.5 rounded-full overflow-hidden flex">
+              <div
+                className="bg-indigo-500 h-full"
+                style={{ width: `${costs.laborSharePct}%` }}
+                title={`Main d'œuvre : ${costs.totalLaborCost.toFixed(2)} ${symbol}`}
+              />
+              <div
+                className="bg-amber-500 h-full"
+                style={{ width: `${costs.sparesSharePct}%` }}
+                title={`Pièces PDR : ${costs.totalSparesCost.toFixed(2)} ${symbol}`}
+              />
+            </div>
+            <div className="mt-1.5 text-[10.5px] text-slate-600 flex items-center justify-between font-mono">
+              <span>
+                MO : <b className="text-indigo-700">{costs.totalLaborCost.toFixed(0)} {symbol}</b> ({costs.laborSharePct}%)
+              </span>
+              <span>
+                PDR : <b className="text-amber-700">{costs.totalSparesCost.toFixed(0)} {symbol}</b> ({costs.sparesSharePct}%)
+              </span>
+            </div>
           </div>
-          <div className="mt-2 flex items-baseline gap-1.5">
-            <span className="text-2xl font-black font-mono text-slate-900">
-              {costs.totalCost.toFixed(2)}
-            </span>
-            <span className="text-xs font-bold text-slate-500">DH</span>
+        ) : (
+          <div className="bg-white border border-slate-200 rounded-2xl p-4 shadow-xs">
+            <div className="flex items-center justify-between text-[11px] font-bold uppercase tracking-wider text-slate-500">
+              <span className="flex items-center gap-1.5">
+                <Wrench className="w-3.5 h-3.5 text-amber-600" />
+                Charge Horaire Préventive
+              </span>
+              <span className="font-mono text-[10px] px-1.5 py-0.5 rounded bg-amber-50 text-amber-800 border border-amber-200">
+                {punctuality.approvedExecutionsCount} exéc.
+              </span>
+            </div>
+            <div className="mt-2 flex items-baseline gap-1.5">
+              <span className="text-2xl font-black font-mono text-slate-900">{totalHours}</span>
+              <span className="text-xs font-bold text-slate-500">heures</span>
+            </div>
+            <div className="mt-2 w-full bg-slate-100 h-1.5 rounded-full overflow-hidden">
+              <div
+                className="bg-amber-500 h-full rounded-full"
+                style={{ width: `${Math.min(100, overview.dynamicComplianceRate)}%` }}
+              />
+            </div>
+            <div className="mt-1.5 text-[10.5px] text-slate-600 flex items-center justify-between font-mono">
+              <span>Moy. / interv. : <b className="text-slate-800">{avgDurationMin} min</b></span>
+              <span>Techniciens : <b className="text-indigo-700">{techniciansStats.length}</b></span>
+            </div>
           </div>
-          <div className="mt-2 w-full bg-slate-100 h-1.5 rounded-full overflow-hidden flex">
-            <div
-              className="bg-indigo-500 h-full"
-              style={{ width: `${costs.laborSharePct}%` }}
-              title={`Main d'œuvre : ${costs.totalLaborCost.toFixed(2)} DH`}
-            />
-            <div
-              className="bg-amber-500 h-full"
-              style={{ width: `${costs.sparesSharePct}%` }}
-              title={`Pièces PDR : ${costs.totalSparesCost.toFixed(2)} DH`}
-            />
-          </div>
-          <div className="mt-1.5 text-[10.5px] text-slate-600 flex items-center justify-between font-mono">
-            <span>
-              MO : <b className="text-indigo-700">{costs.totalLaborCost.toFixed(0)} DH</b> ({costs.laborSharePct}%)
-            </span>
-            <span>
-              PDR : <b className="text-amber-700">{costs.totalSparesCost.toFixed(0)} DH</b> ({costs.sparesSharePct}%)
-            </span>
-          </div>
-        </div>
+        )}
 
         {/* 4. PM vs CM Balance Ratio */}
         <div className="bg-white border border-slate-200 rounded-2xl p-4 shadow-xs">
@@ -339,15 +388,19 @@ export default function PreventiveAnalyticsView({
           )}
         </div>
 
-        {/* 2. True Cost Breakdown by Action Family (MO vs PDR) */}
+        {/* 2. Breakdown by Action Family */}
         <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-xs space-y-4">
           <div className="flex items-center justify-between">
             <h3 className="text-sm font-black text-slate-900 flex items-center gap-2 uppercase tracking-wider">
               <Wrench className="w-4 h-4 text-amber-600" />
-              Coûts Approuvés par Famille d&apos;Action (MO vs PDR)
+              {showFinance
+                ? "Coûts Approuvés par Famille d'Action (MO vs PDR)"
+                : "Répartition par Famille d'Action"}
             </h3>
             <span className="text-[11px] font-mono font-bold text-slate-600">
-              {costs.totalCost.toFixed(2)} DH
+              {showFinance
+                ? `${costs.totalCost.toFixed(2)} ${symbol}`
+                : `${totalActionTasks} tâche(s)`}
             </span>
           </div>
           {actionsStats.length === 0 ? (
@@ -356,53 +409,162 @@ export default function PreventiveAnalyticsView({
             </div>
           ) : (
             <div className="space-y-3">
-              {actionsStats.map((a) => (
-                <div key={a.code} className="space-y-1">
-                  <div className="flex items-center justify-between text-xs gap-2">
-                    <div className="flex items-center gap-2 min-w-0">
-                      <span className="w-6 h-6 rounded-md bg-slate-100 border border-slate-200 font-mono font-black text-slate-800 flex items-center justify-center shrink-0">
-                        {a.code}
-                      </span>
-                      <span className="font-bold text-slate-800 truncate">{a.libelle}</span>
-                      <span className="text-[10.5px] font-mono text-slate-400 shrink-0">
-                        ({a.approvedExecCount} exéc. / {a.taskCount} tâches)
+              {actionsStats.map((a) => {
+                const taskSharePct =
+                  totalActionTasks > 0 ? Math.round((a.taskCount / totalActionTasks) * 100) : 0;
+                return (
+                  <div key={a.code} className="space-y-1">
+                    <div className="flex items-center justify-between text-xs gap-2">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <span className="w-6 h-6 rounded-md bg-slate-100 border border-slate-200 font-mono font-black text-slate-800 flex items-center justify-center shrink-0">
+                          {a.code}
+                        </span>
+                        <span className="font-bold text-slate-800 truncate">{a.libelle}</span>
+                        <span className="text-[10.5px] font-mono text-slate-400 shrink-0">
+                          ({a.approvedExecCount} exéc. / {a.taskCount} tâches)
+                        </span>
+                      </div>
+                      <span className="font-mono font-black text-slate-900 shrink-0">
+                        {showFinance ? `${a.totalCost.toFixed(2)} ${symbol}` : `${taskSharePct}%`}
                       </span>
                     </div>
-                    <span className="font-mono font-black text-slate-900 shrink-0">
-                      {a.totalCost.toFixed(2)} DH
-                    </span>
+                    {showFinance && (
+                      <div className="flex items-center justify-between text-[10.5px] font-mono text-slate-500 pl-8">
+                        <span>
+                          Main d&apos;œuvre :{' '}
+                          <b className="text-indigo-700">
+                            {a.laborCost.toFixed(2)} {symbol}
+                          </b>
+                        </span>
+                        <span>
+                          PDR :{' '}
+                          <b className="text-amber-700">
+                            {a.sparesCost.toFixed(2)} {symbol}
+                          </b>
+                        </span>
+                      </div>
+                    )}
+                    <div className="w-full bg-slate-100 h-1.5 rounded-full overflow-hidden flex">
+                      {showFinance ? (
+                        <>
+                          <div
+                            className="bg-indigo-500 h-full"
+                            style={{
+                              width: `${
+                                costs.totalCost > 0
+                                  ? Math.min(100, (a.laborCost / costs.totalCost) * 100)
+                                  : 0
+                              }%`,
+                            }}
+                          />
+                          <div
+                            className="bg-amber-500 h-full"
+                            style={{
+                              width: `${
+                                costs.totalCost > 0
+                                  ? Math.min(100, (a.sparesCost / costs.totalCost) * 100)
+                                  : 0
+                              }%`,
+                            }}
+                          />
+                        </>
+                      ) : (
+                        <div
+                          className="bg-indigo-500 h-full"
+                          style={{ width: `${taskSharePct}%` }}
+                        />
+                      )}
+                    </div>
                   </div>
-                  <div className="flex items-center justify-between text-[10.5px] font-mono text-slate-500 pl-8">
-                    <span>
-                      Main d&apos;œuvre : <b className="text-indigo-700">{a.laborCost.toFixed(2)} DH</b>
-                    </span>
-                    <span>
-                      PDR : <b className="text-amber-700">{a.sparesCost.toFixed(2)} DH</b>
-                    </span>
-                  </div>
-                  <div className="w-full bg-slate-100 h-1.5 rounded-full overflow-hidden flex">
-                    <div
-                      className="bg-indigo-500 h-full"
-                      style={{
-                        width: `${
-                          costs.totalCost > 0 ? Math.min(100, (a.laborCost / costs.totalCost) * 100) : 0
-                        }%`,
-                      }}
-                    />
-                    <div
-                      className="bg-amber-500 h-full"
-                      style={{
-                        width: `${
-                          costs.totalCost > 0 ? Math.min(100, (a.sparesCost / costs.totalCost) * 100) : 0
-                        }%`,
-                      }}
-                    />
-                  </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </div>
+      </div>
+
+      {/* TECHNICIAN WORKLOAD & COMPLIANCE TABLE (TEAM_FULL & SOLO_EXPERT FIELD TEAM) */}
+      <div className="bg-white border border-slate-200 rounded-2xl shadow-xs overflow-hidden">
+        <div className="px-5 py-3.5 border-b border-slate-100 flex items-center justify-between flex-wrap gap-2">
+          <h3 className="text-sm font-black text-slate-900 flex items-center gap-2 uppercase tracking-wider">
+            <Users className="w-4 h-4 text-teal-600" />
+            Charge &amp; Performance par Technicien
+          </h3>
+          <span className="text-[11px] font-mono text-slate-500">
+            {techniciansStats.length} technicien(s) actif(s) sur le plan
+          </span>
+        </div>
+
+        {techniciansStats.length === 0 ? (
+          <div className="py-8 text-center text-xs text-slate-400">
+            Aucune tâche ou exécution attribuée à un technicien dans ce périmètre.
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs text-left border-collapse">
+              <thead className="bg-slate-50 border-b border-slate-200 text-[10.5px] uppercase font-bold text-slate-500">
+                <tr>
+                  <th className="py-2.5 px-4">Technicien</th>
+                  <th className="py-2.5 px-4 text-center">Tâches Assignées</th>
+                  <th className="py-2.5 px-4 text-center">Conformité</th>
+                  <th className="py-2.5 px-4 text-center">Retards</th>
+                  <th className="py-2.5 px-4 text-center">Exécutions Approuvées</th>
+                  <th className="py-2.5 px-4 text-center">Temps Passé</th>
+                  {showFinance && <th className="py-2.5 px-4 text-right">Coût Réalisé</th>}
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {techniciansStats.map((t) => (
+                  <tr
+                    key={t.technicianName}
+                    className={
+                      t.overdueTasks > 0 ? 'bg-rose-50/20 hover:bg-rose-50/50' : 'hover:bg-slate-50'
+                    }
+                  >
+                    <td className="py-2.5 px-4 font-bold text-slate-900">{t.technicianName}</td>
+                    <td className="py-2.5 px-4 text-center font-mono text-slate-700">
+                      {t.totalTasks}
+                    </td>
+                    <td className="py-2.5 px-4 text-center font-mono">
+                      <span
+                        className={`px-2 py-0.5 rounded-full font-bold text-[11px] ${
+                          t.complianceRate >= 80
+                            ? 'bg-emerald-50 text-emerald-700'
+                            : t.complianceRate >= 50
+                            ? 'bg-amber-50 text-amber-800'
+                            : 'bg-rose-50 text-rose-700'
+                        }`}
+                      >
+                        {t.doneTasks}/{t.totalTasks} ({t.complianceRate}%)
+                      </span>
+                    </td>
+                    <td className="py-2.5 px-4 text-center font-mono">
+                      {t.overdueTasks > 0 ? (
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-rose-100 text-rose-800 font-black">
+                          <AlertTriangle className="w-3 h-3" />
+                          {t.overdueTasks}
+                        </span>
+                      ) : (
+                        <span className="text-emerald-600 font-bold">0</span>
+                      )}
+                    </td>
+                    <td className="py-2.5 px-4 text-center font-mono text-slate-700">
+                      {t.approvedExecs}
+                    </td>
+                    <td className="py-2.5 px-4 text-center font-mono text-indigo-700 font-bold">
+                      {(t.totalDurationMinutes / 60).toFixed(1)} h
+                    </td>
+                    {showFinance && (
+                      <td className="py-2.5 px-4 text-right font-mono font-black text-slate-900">
+                        {t.totalCost.toFixed(2)} {symbol}
+                      </td>
+                    )}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
       </div>
 
       {/* TOP RISK MACHINES TABLE (OVERDUE & COST) */}
@@ -410,11 +572,15 @@ export default function PreventiveAnalyticsView({
         <div className="px-5 py-3.5 border-b border-slate-100 flex items-center justify-between flex-wrap gap-2">
           <h3 className="text-sm font-black text-slate-900 flex items-center gap-2 uppercase tracking-wider">
             <Factory className="w-4 h-4 text-indigo-600" />
-            Priorités Parc Machines (Retards & Coût Préventif Réalisé)
+            {showFinance
+              ? 'Priorités Parc Machines (Retards & Coût Préventif Réalisé)'
+              : 'Priorités Parc Machines (Retards & Exécutions Préventives)'}
           </h3>
           <span className="text-[11px] font-mono text-slate-500 flex items-center gap-1">
             <Activity className="w-3.5 h-3.5 text-slate-400" />
-            Trié par retards puis coût total approuvé
+            {showFinance
+              ? 'Trié par retards puis coût total approuvé'
+              : 'Trié par retards puis volume de tâches'}
           </span>
         </div>
 
@@ -432,9 +598,9 @@ export default function PreventiveAnalyticsView({
                   <th className="py-2.5 px-4 text-center">Conformité</th>
                   <th className="py-2.5 px-4 text-center">Retards</th>
                   <th className="py-2.5 px-4 text-center">Exécutions</th>
-                  <th className="py-2.5 px-4 text-right">Coût MO</th>
-                  <th className="py-2.5 px-4 text-right">Coût PDR</th>
-                  <th className="py-2.5 px-4 text-right">Total Réalisé</th>
+                  {showFinance && <th className="py-2.5 px-4 text-right">Coût MO</th>}
+                  {showFinance && <th className="py-2.5 px-4 text-right">Coût PDR</th>}
+                  {showFinance && <th className="py-2.5 px-4 text-right">Total Réalisé</th>}
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
@@ -476,15 +642,21 @@ export default function PreventiveAnalyticsView({
                     <td className="py-2.5 px-4 text-center font-mono text-slate-700">
                       {m.approvedExecs}
                     </td>
-                    <td className="py-2.5 px-4 text-right font-mono text-indigo-700">
-                      {m.laborCost.toFixed(2)} DH
-                    </td>
-                    <td className="py-2.5 px-4 text-right font-mono text-amber-700">
-                      {m.sparesCost.toFixed(2)} DH
-                    </td>
-                    <td className="py-2.5 px-4 text-right font-mono font-black text-slate-900">
-                      {m.totalCost.toFixed(2)} DH
-                    </td>
+                    {showFinance && (
+                      <td className="py-2.5 px-4 text-right font-mono text-indigo-700">
+                        {m.laborCost.toFixed(2)} {symbol}
+                      </td>
+                    )}
+                    {showFinance && (
+                      <td className="py-2.5 px-4 text-right font-mono text-amber-700">
+                        {m.sparesCost.toFixed(2)} {symbol}
+                      </td>
+                    )}
+                    {showFinance && (
+                      <td className="py-2.5 px-4 text-right font-mono font-black text-slate-900">
+                        {m.totalCost.toFixed(2)} {symbol}
+                      </td>
+                    )}
                   </tr>
                 ))}
               </tbody>

@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   CheckCircle2,
   X,
@@ -6,6 +6,7 @@ import {
   Package,
   Trash2,
   Gauge,
+  Pencil,
 } from 'lucide-react';
 import PrintWorkOrderModal from './PrintWorkOrderModal';
 import SystemGeneralRoundModal, {
@@ -18,6 +19,9 @@ import SystemGeneralRoundModal, {
 import { reconcileFieldClaim } from '../../../../core/security/validationReconciliation';
 import { hasPreventiveExecutionAnomaly } from '../../../../application/services/MachineHealthPassportService';
 import { resolvePreventiveLaborRate } from '../../../../domain/preventive/preventiveScheduleEngine';
+import { useCurrency } from '../../../../utils/currencyService';
+import { useWorkspaceProfile } from '../../../../core/workspace/workspaceProfile';
+import { isArchivedPersonnel } from '../../../../application/services/ZoneOperationalAnalyticsService';
 import type {
   IMachine,
   IMouvement,
@@ -97,6 +101,10 @@ export interface TabMainModalsProps {
   handleConfirmCorrective: (e: React.FormEvent) => void;
   selectedTaskForPrint: RoundTaskEntry | null;
   setSelectedTaskForPrint: (task: RoundTaskEntry | null) => void;
+  selectedTaskForEdit?: RoundTaskEntry | null;
+  setSelectedTaskForEdit?: (task: RoundTaskEntry | null) => void;
+  handleConfirmEditTask?: (taskId: string | number, updates: Record<string, any>) => void;
+  actions?: Array<{ code: string; libelle?: string }>;
   showSystemGeneralRoundModal: boolean;
   setShowSystemGeneralRoundModal: (v: boolean) => void;
   scopedTasks: RoundTaskEntry[];
@@ -136,6 +144,10 @@ export default function TabMainModals({
   handleConfirmCorrective,
   selectedTaskForPrint,
   setSelectedTaskForPrint,
+  selectedTaskForEdit = null,
+  setSelectedTaskForEdit,
+  handleConfirmEditTask,
+  actions = [],
   showSystemGeneralRoundModal,
   setShowSystemGeneralRoundModal,
   scopedTasks,
@@ -148,6 +160,52 @@ export default function TabMainModals({
   onCreateCorrective,
   showToast,
 }: TabMainModalsProps) {
+  const { symbol } = useCurrency();
+  const workspaceProfile = useWorkspaceProfile();
+  const showFinance = workspaceProfile.moduleVisibility.showFinance;
+
+  const activeTechnicianNames = useMemo(() => {
+    const seen = new Set<string>();
+    (technicians || []).forEach((tech: ITechnician | string) => {
+      if (typeof tech === 'string') {
+        const clean = tech.trim();
+        if (clean) seen.add(clean);
+        return;
+      }
+      if (isArchivedPersonnel(tech as any)) return;
+      const fullName = tech?.nom
+        ? `${tech.nom} ${tech.prenom || ''}`.trim()
+        : String(tech?.id_technician || (tech as any)?.name || '').trim();
+      if (fullName) seen.add(fullName);
+    });
+    return Array.from(seen).sort((a, b) => a.localeCompare(b, 'fr'));
+  }, [technicians]);
+
+  const [editDraft, setEditDraft] = useState({
+    composant: '',
+    action_code: 'C',
+    frequence: 'Mensuel',
+    duree_estimee: '20 min',
+    responsable: '',
+    id_zone: '',
+    pdr_ref: '',
+    consigne: '',
+  });
+
+  useEffect(() => {
+    if (!selectedTaskForEdit) return;
+    setEditDraft({
+      composant: String(selectedTaskForEdit.composant || ''),
+      action_code: String(selectedTaskForEdit.action_code || 'C'),
+      frequence: String((selectedTaskForEdit as any).frequence || 'Mensuel'),
+      duree_estimee: String((selectedTaskForEdit as any).duree_estimee || '20 min'),
+      responsable: String((selectedTaskForEdit as any).responsable || ''),
+      id_zone: String((selectedTaskForEdit as any).id_zone || (selectedTaskForEdit as any).zone || ''),
+      pdr_ref: String((selectedTaskForEdit as any).pdr_ref || ''),
+      consigne: String((selectedTaskForEdit as any).consigne || (selectedTaskForEdit as any).observations || ''),
+    });
+  }, [selectedTaskForEdit]);
+
   return (
     <>
       {/* ========================================================================= */}
@@ -226,9 +284,11 @@ export default function TabMainModals({
                 <div>
                   <label className="flex items-center justify-between font-bold text-slate-700 uppercase mb-1">
                     <span>Technicien Réalisateur :</span>
-                    <span className="font-mono text-[10px] text-emerald-700 font-black">
-                      Taux MO : {Number(validationData.taux_horaire || 35)} DH/h
-                    </span>
+                    {showFinance && (
+                      <span className="font-mono text-[10px] text-emerald-700 font-black">
+                        Taux MO : {Number(validationData.taux_horaire || 35)} {symbol}/h
+                      </span>
+                    )}
                   </label>
                   <input
                     type="text"
@@ -256,16 +316,9 @@ export default function TabMainModals({
                   />
                   {!isTechUser && (
                     <datalist id="validation-modal-tech-list">
-                      {(technicians || []).map((tech: ITechnician | string, idx: number) => {
-                        const fullName =
-                          typeof tech === 'string'
-                            ? tech.trim()
-                            : tech?.nom
-                            ? `${tech.nom} ${tech.prenom || ''}`.trim()
-                            : String(tech?.id_technician || '').trim();
-                        if (!fullName) return null;
-                        return <option key={idx} value={fullName} />;
-                      })}
+                      {activeTechnicianNames.map((fullName) => (
+                        <option key={fullName} value={fullName} />
+                      ))}
                     </datalist>
                   )}
                 </div>
@@ -856,6 +909,222 @@ export default function TabMainModals({
         onCreateCorrective={onCreateCorrective}
         showToast={showToast}
       />
+
+      {/* ========================================================================= */}
+      {/* MODAL 5: ÉDITION / RÉAFFECTATION D'UNE TÂCHE PRÉVENTIVE */}
+      {/* ========================================================================= */}
+      {selectedTaskForEdit && setSelectedTaskForEdit && handleConfirmEditTask && (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4 overflow-y-auto">
+          <div className="bg-white rounded-3xl border border-slate-200 shadow-2xl max-w-xl w-full p-6 space-y-5 my-8">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-2xl bg-indigo-50 border border-indigo-200 flex items-center justify-center text-indigo-700">
+                  <Pencil className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-black text-slate-900">
+                    Modifier / Réaffecter la Tâche Préventive
+                  </h3>
+                  <p className="text-xs text-slate-500">
+                    {selectedTaskForEdit.id_machine} • {(selectedTaskForEdit as any).code || selectedTaskForEdit.id}
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setSelectedTaskForEdit(null)}
+                className="w-8 h-8 rounded-full hover:bg-slate-100 text-slate-400 flex items-center justify-center cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                if (!editDraft.composant.trim()) return;
+                handleConfirmEditTask(selectedTaskForEdit.id, {
+                  composant: editDraft.composant.trim(),
+                  action_code: editDraft.action_code,
+                  frequence: editDraft.frequence,
+                  duree_estimee: editDraft.duree_estimee.trim() || '20 min',
+                  responsable: editDraft.responsable.trim() || 'Non assigné',
+                  id_zone: editDraft.id_zone.trim(),
+                  pdr_ref: editDraft.pdr_ref.trim(),
+                  consigne: editDraft.consigne.trim(),
+                });
+              }}
+              className="space-y-4 text-xs"
+            >
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block font-bold text-slate-700 uppercase mb-1">
+                    Organe / Composant :
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={editDraft.composant}
+                    onChange={(e) => setEditDraft({ ...editDraft, composant: e.target.value })}
+                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:ring-2 focus:ring-indigo-500 font-semibold"
+                  />
+                </div>
+                <div>
+                  <label className="block font-bold text-slate-700 uppercase mb-1">
+                    Technicien Responsable (Actif) :
+                  </label>
+                  <select
+                    value={editDraft.responsable}
+                    onChange={(e) => setEditDraft({ ...editDraft, responsable: e.target.value })}
+                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:ring-2 focus:ring-indigo-500 font-semibold text-slate-800"
+                  >
+                    <option value="">Non assigné</option>
+                    {editDraft.responsable &&
+                      !activeTechnicianNames.includes(editDraft.responsable) && (
+                        <option value={editDraft.responsable}>{editDraft.responsable}</option>
+                      )}
+                    {activeTechnicianNames.map((name) => (
+                      <option key={name} value={name}>
+                        {name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div>
+                  <label className="block font-bold text-slate-700 uppercase mb-1">Action AFNOR :</label>
+                  <select
+                    value={editDraft.action_code}
+                    onChange={(e) => setEditDraft({ ...editDraft, action_code: e.target.value })}
+                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl font-bold text-slate-800"
+                  >
+                    {(actions && actions.length > 0
+                      ? actions
+                      : [
+                          { code: 'C', libelle: 'Contrôle' },
+                          { code: 'N', libelle: 'Nettoyage' },
+                          { code: 'G', libelle: 'Graissage' },
+                          { code: 'V', libelle: 'Vidange' },
+                        ]
+                    ).map((a) => (
+                      <option key={a.code} value={a.code}>
+                        {a.code} — {a.libelle || a.code}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block font-bold text-slate-700 uppercase mb-1">Fréquence :</label>
+                  <select
+                    value={editDraft.frequence}
+                    onChange={(e) => setEditDraft({ ...editDraft, frequence: e.target.value })}
+                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl font-bold text-slate-800"
+                  >
+                    <option value="Quotidien">Quotidien</option>
+                    <option value="Hebdo">Hebdomadaire (Hebdo)</option>
+                    <option value="Bimensuel">Bimensuel</option>
+                    <option value="Mensuel">Mensuel</option>
+                    <option value="Trimestriel">Trimestriel</option>
+                    <option value="Semestriel">Semestriel</option>
+                    <option value="Annuel">Annuel</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block font-bold text-slate-700 uppercase mb-1">Durée estimée :</label>
+                  <input
+                    type="text"
+                    value={editDraft.duree_estimee}
+                    onChange={(e) => setEditDraft({ ...editDraft, duree_estimee: e.target.value })}
+                    placeholder="Ex: 30 min"
+                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl font-mono font-semibold"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block font-bold text-slate-700 uppercase mb-1">Zone :</label>
+                  <select
+                    value={editDraft.id_zone}
+                    onChange={(e) => setEditDraft({ ...editDraft, id_zone: e.target.value })}
+                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl font-medium text-slate-800"
+                  >
+                    <option value="">-- Zone actuelle --</option>
+                    {editDraft.id_zone &&
+                      !(zones || []).some((z) => String(z.id_zone || z.nom_zone || '') === editDraft.id_zone) && (
+                        <option value={editDraft.id_zone}>{editDraft.id_zone}</option>
+                      )}
+                    {(zones || []).map((z, idx) => {
+                      const zVal = String(z.id_zone || z.nom_zone || `Z-${idx}`);
+                      return (
+                        <option key={zVal} value={zVal}>
+                          {zVal} {z.nom_zone && z.nom_zone !== zVal ? `— ${z.nom_zone}` : ''}
+                        </option>
+                      );
+                    })}
+                  </select>
+                </div>
+                <div>
+                  <label className="block font-bold text-slate-700 uppercase mb-1">
+                    PDR Requise (Stock Consommable) :
+                  </label>
+                  <select
+                    value={editDraft.pdr_ref}
+                    onChange={(e) => setEditDraft({ ...editDraft, pdr_ref: e.target.value })}
+                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl font-mono text-slate-800"
+                  >
+                    <option value="">-- Aucune pièce imposée --</option>
+                    {editDraft.pdr_ref &&
+                      !(availableInventory || []).some(
+                        (p) => String(p.reference || p.ref || '') === editDraft.pdr_ref
+                      ) && <option value={editDraft.pdr_ref}>{editDraft.pdr_ref}</option>}
+                    {(availableInventory || []).map((item, idx) => {
+                      const refCode = String(item.reference || item.ref || '');
+                      return (
+                        <option key={`${refCode}-${idx}`} value={refCode}>
+                          {refCode} — {item.designation}
+                        </option>
+                      );
+                    })}
+                  </select>
+                </div>
+              </div>
+
+              <div>
+                <label className="block font-bold text-slate-700 uppercase mb-1">
+                  Consignes &amp; Mode Opératoire :
+                </label>
+                <textarea
+                  rows={3}
+                  value={editDraft.consigne}
+                  onChange={(e) => setEditDraft({ ...editDraft, consigne: e.target.value })}
+                  className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:ring-2 focus:ring-indigo-500"
+                />
+              </div>
+
+              <div className="flex items-center justify-end gap-2.5 pt-3 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => setSelectedTaskForEdit(null)}
+                  className="px-4 py-2 text-xs font-bold text-slate-600 hover:bg-slate-100 rounded-xl cursor-pointer"
+                >
+                  Annuler
+                </button>
+                <button
+                  type="submit"
+                  className="px-5 py-2 text-xs font-black bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl shadow-xs cursor-pointer"
+                >
+                  Enregistrer les modifications
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </>
   );
 }

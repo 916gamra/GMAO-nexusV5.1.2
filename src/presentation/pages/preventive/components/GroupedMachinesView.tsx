@@ -14,8 +14,12 @@ import {
   User,
   Search,
   Wrench,
+  Pencil,
+  Trash2,
 } from 'lucide-react';
 import { computeTaskCycleStatus } from '../../../../domain/preventive/preventiveScheduleEngine';
+import { useCurrency } from '../../../../utils/currencyService';
+import { useWorkspaceProfile } from '../../../../core/workspace/workspaceProfile';
 
 const ACTION_PILL_MAP = {
   C: { bg: 'bg-blue-500/10 text-blue-800 border-blue-200/80', dot: 'bg-blue-600', label: 'Contrôle' },
@@ -38,9 +42,14 @@ export default function GroupedMachinesView({
   onOpenValidate = null,
   onOpenCorrective = null,
   onOpenPrint = null,
+  onEditTask = null,
+  onDeleteTask = null,
   _onNavigateToMachine = null,
   onSwitchView = () => {},
 }: any) {
+  const { symbol } = useCurrency();
+  const { moduleVisibility } = useWorkspaceProfile();
+  const showFinance = moduleVisibility.showFinance;
   const [expandedMachines, setExpandedMachines] = useState<Record<string, any>>({});
   const [allExpanded, setAllExpanded] = useState(false);
   const [localSearch, setLocalSearch] = useState('');
@@ -271,11 +280,11 @@ export default function GroupedMachinesView({
                           <Clock className="w-3.5 h-3.5 text-slate-400" />
                           Temps estimé : {timeFormatted}
                         </span>
-                        {group.totalCost > 0 && (
+                        {showFinance && group.totalCost > 0 && (
                           <>
                             <span>·</span>
                             <span className="text-amber-700 font-bold font-mono">
-                              {group.totalCost.toFixed(2)} DH
+                              {group.totalCost.toFixed(2)} {symbol}
                             </span>
                           </>
                         )}
@@ -485,6 +494,26 @@ export default function GroupedMachinesView({
                                     >
                                       <Wrench className="w-3 h-3" />
                                       BT
+                                    </button>
+                                  )}
+                                  {onEditTask && (
+                                    <button
+                                      type="button"
+                                      onClick={() => onEditTask(task)}
+                                      className="p-1 rounded-lg bg-slate-100 hover:bg-indigo-100 text-slate-600 hover:text-indigo-700 transition cursor-pointer"
+                                      title="Modifier ou réaffecter la tâche"
+                                    >
+                                      <Pencil className="w-3.5 h-3.5" />
+                                    </button>
+                                  )}
+                                  {onDeleteTask && (
+                                    <button
+                                      type="button"
+                                      onClick={() => onDeleteTask(task)}
+                                      className="p-1 rounded-lg bg-slate-100 hover:bg-rose-100 text-slate-500 hover:text-rose-700 transition cursor-pointer"
+                                      title="Supprimer cette tâche préventive"
+                                    >
+                                      <Trash2 className="w-3.5 h-3.5" />
                                     </button>
                                   )}
                                   {onOpenValidate && effectiveEtat !== 'En attente validation' && (

@@ -15,8 +15,10 @@ import {
 import Action3DButton from '../../../components/common/Action3DButton';
 import PageHeaderIcon from '../../../components/common/PageHeaderIcon';
 import { filterActiveMachines } from '../../../../utils/activeMachines';
-import { rankStockItemsByMachineBom } from '../../../../core/domain';
+import { buildConsumablePdrInventory, rankStockItemsByMachineBom } from '../../../../core/domain';
 import { isWarehousePart } from '../../../../core/domain/EntrepotItem';
+import { isArchivedPersonnel } from '../../../../application/services/ZoneOperationalAnalyticsService';
+import { useWorkspaceProfile } from '../../../../core/workspace/workspaceProfile';
 import { useGmaoStore } from '../../../../store/useGmaoStore';
 import { WizardShell, useWizardFeature, type WizardProfile } from '../../../components/common/wizard';
 
@@ -33,6 +35,8 @@ export default function TabPlanBuilder({
   onNavigateToMainView,
 }: any) {
   const machineElementsLedger = useGmaoStore((s) => s.machineElementsLedger);
+  const workspaceProfile = useWorkspaceProfile();
+  const showBlueprints = workspaceProfile.moduleVisibility.showBlueprintsInPrimaryNav;
   // Plan Builder State
   const [selectedMachineId, setSelectedMachineId] = useState('');
   const [targetZone, setTargetZone] = useState('');
@@ -124,7 +128,7 @@ export default function TabPlanBuilder({
                   ref: comp.id_component || comp.id || bp.id_blueprint,
                   id_composant: comp.id_component || comp.id,
                   nom_composant: compName,
-                  source: 'Blueprint Modèle',
+                  source: showBlueprints ? 'Blueprint Modèle' : 'Catalogue Modèle',
                   icon: 'blueprint',
                 });
               }
@@ -135,7 +139,7 @@ export default function TabPlanBuilder({
               compMap.set(String(bpName).toLowerCase(), {
                 nom: bpName,
                 ref: bp.ref || bp.id_blueprint,
-                source: 'Blueprint Modèle',
+                source: showBlueprints ? 'Blueprint Modèle' : 'Catalogue Modèle',
                 icon: 'blueprint',
               });
             }
@@ -145,25 +149,17 @@ export default function TabPlanBuilder({
     }
 
     return Array.from(compMap.values());
-  }, [selectedMachineId, machines, warehouseItems, blueprints]);
+  }, [selectedMachineId, machines, warehouseItems, blueprints, showBlueprints]);
 
   // 2. Strict Relational Lineage: Available PDR parts from Magasin Stock ranked by Machine/Blueprint BOM (P2)
   const availablePdrList = useMemo(() => {
-    const list = [];
-    const seen = new Set();
-    (stockItems || []).forEach((item) => {
-      const ref = String(item.ref || item.reference || item.code || '').trim();
-      if (ref && !seen.has(ref.toLowerCase())) {
-        seen.add(ref.toLowerCase());
-        list.push({
-          ref,
-          designation: item.designation || ref,
-          stockActuel: Number(item.stockActuel ?? item.stock_actuel ?? 0),
-          seuil: Number(item.seuil ?? 2),
-          unite: item.unit || item.unite || 'pcs',
-        });
-      }
-    });
+    const list = buildConsumablePdrInventory(stockItems).map((item) => ({
+      ref: item.ref,
+      designation: item.designation || item.ref,
+      stockActuel: Number(item.stockActuel ?? 0),
+      seuil: Number(item.seuil ?? 2),
+      unite: (item as any).unite || (item as any).unit || 'pcs',
+    }));
     return rankStockItemsByMachineBom(
       selectedMachineId,
       list,
@@ -197,15 +193,16 @@ export default function TabPlanBuilder({
   );
 
   const activeTechnicians = useMemo(
-    () =>
-      (technicians || []).filter(
-        (t) =>
-          t?.is_active !== false &&
-          t?.actif !== false &&
-          String(t?.statut || '').toUpperCase() !== 'ARCHIVE'
-      ),
+    () => (technicians || []).filter((t) => t && !isArchivedPersonnel(t)),
     [technicians]
   );
+
+  const formatTechFullName = (t: any): string => {
+    if (!t) return '';
+    if (typeof t === 'string') return t.trim();
+    if (t.nom) return `${t.nom} ${t.prenom || ''}`.trim();
+    return String(t.nom_technicien || t.name || t.id_technician || '').trim();
+  };
 
   // When a machine is selected, automatically discover its Zone, Technician and Components
   useEffect(() => {
@@ -218,7 +215,7 @@ export default function TabPlanBuilder({
       mach?.id_zone_default ||
       mach?.id_zone ||
       mach?.zone ||
-      (activeZones[0]?.id_zone || activeZones[0]?.code_zone || activeZones[0]?.nom || 'AFM');
+      (activeZones[0]?.id_zone || activeZones[0]?.code_zone || activeZones[0]?.nom || '');
     setTargetZone(autoZone);
 
     // 2. Auto-discover Technician assigned to this machine or active technicians table (SSOT Utilisateurs)
@@ -226,7 +223,8 @@ export default function TabPlanBuilder({
       mach?.technician ||
       mach?.technicien_responsable ||
       mach?.technicien ||
-      (activeTechnicians[0]?.nom || activeTechnicians[0]?.name || 'Technicien');
+      formatTechFullName(activeTechnicians[0]) ||
+      '';
     setTargetTechnician(autoTech);
 
     // 2b. Sync machine current horomètre and default meter unit for COMPTEUR / HYBRIDE plans
@@ -278,7 +276,8 @@ export default function TabPlanBuilder({
           nom_part: matchedCompObj?.nom_part,
           action_code: actCode,
           type_intervention: actObj?.libelle || 'Contrôle',
-          frequence: 'Mensuel',
+          frequence: frequenceGlobale,
+          _customFreq: false,
           target_week: startWeek,
           duree_estimee: fiche.duree || actObj?.duree_standard || '10 min',
           consigne: fiche.description || actObj?.description || `Effectuer ${actObj?.libelle || actCode} sur ${compName}`,
@@ -289,8 +288,8 @@ export default function TabPlanBuilder({
     });
 
     setTaskList(initialTasks);
-    // Intentionally omit `startWeek` from initialization dependencies so changing
-    // target week in Step 3 does not wipe custom tasks/PDRs configured in Step 2.
+    // Intentionally omit `startWeek` & `frequenceGlobale` from initialization dependencies so changing
+    // scheduling in Step 3 does not wipe custom tasks/PDRs configured in Step 2.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedMachineId, machines, zones, technicians, guides, actions, machineComponents]);
 
@@ -307,6 +306,18 @@ export default function TabPlanBuilder({
       return prevRef.replace(/-S\d+$/, `-${startWeek}`);
     });
   }, [startWeek, selectedMachineId]);
+
+  // Non-destructively sync `frequenceGlobale` into tasks that weren't individually overridden
+  useEffect(() => {
+    if (!selectedMachineId) return;
+    setTaskList((prev) =>
+      prev.map((task) =>
+        task._customFreq || task.frequence === frequenceGlobale
+          ? task
+          : { ...task, frequence: frequenceGlobale }
+      )
+    );
+  }, [frequenceGlobale, selectedMachineId]);
 
   // Handle adding a component with its guide actions
   const handleAddComponentWithGuide = (compName) => {
@@ -352,6 +363,9 @@ export default function TabPlanBuilder({
       prev.map((t) => {
         if (t.id_temp === idTemp) {
           const updated = { ...t, [field]: value };
+          if (field === 'frequence') {
+            updated._customFreq = true;
+          }
           if (field === 'action_code') {
             const actObj = actions.find((a) => a.code === value);
             updated.type_intervention = actObj?.libelle || value;
@@ -536,7 +550,7 @@ export default function TabPlanBuilder({
           >
             <option value="">-- Sélectionner Technicien --</option>
             {activeTechnicians.map((t) => {
-              const tName = t.nom || t.name || 'Technicien';
+              const tName = formatTechFullName(t) || 'Technicien';
               return (
                 <option key={t.id_technician || t.id || tName} value={tName}>
                   {tName} ({t.id_zone || t.zone || 'Usine'})
@@ -634,7 +648,7 @@ export default function TabPlanBuilder({
                   <p className="text-[11px] font-black text-indigo-900 uppercase tracking-wider mb-1.5 flex items-center justify-between">
                     <span>Composants de la Machine</span>
                     <span className="text-[10px] px-1.5 py-0.2 bg-indigo-50 rounded text-indigo-700 font-mono font-bold">
-                      Entrepôt / Blueprints
+                      {showBlueprints ? 'Entrepôt / Blueprints' : 'Entrepôt / Machine'}
                     </span>
                   </p>
                   <div className="space-y-1 mb-2">

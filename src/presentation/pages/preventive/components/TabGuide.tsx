@@ -134,9 +134,7 @@ export default function TabGuide({
         C: { titre: 'Contrôle visuel et jeu', description: 'Contrôler état, jeu et température.', duree: '10 min', outils: 'Thermomètre IR' },
         G: { titre: 'Graissage périodique', description: 'Injecter graisse préconisée.', duree: '10 min', outils: 'Pompe à graisse' },
       },
-      pieces_rechange: [
-        { id_article: 'PDR-GRS-01', designation: 'Graisse SKF LGMT3 (Cartouche 400g)', reference: 'SKF-LGMT3-400', quantite: 1, unite: 'Cartouche', prix_unitaire: 18.5 },
-      ],
+      pieces_rechange: [],
       consignes_securite: 'Cadenassage LOTO obligatoire avant intervention.',
     });
     setIsModalOpen(true);
@@ -191,7 +189,7 @@ export default function TabGuide({
           designation: found.designation || 'Article Stock',
           reference: found.ref || found.reference || selectedPdrId,
           quantite: 1,
-          unite: 'Pièce',
+          unite: (found as any).unite || 'Pièce',
           prix_unitaire: Number(found.prix_unitaire || 0),
         };
         setFormData({

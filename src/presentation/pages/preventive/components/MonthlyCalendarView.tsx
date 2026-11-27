@@ -16,6 +16,8 @@ import {
   DollarSign,
 } from 'lucide-react';
 import { computeTaskCycleStatus } from '../../../../domain/preventive/preventiveScheduleEngine';
+import { useCurrency } from '../../../../utils/currencyService';
+import { useWorkspaceProfile } from '../../../../core/workspace/workspaceProfile';
 
 const MONTHS_FR = [
   'Janvier',
@@ -62,6 +64,9 @@ export default function MonthlyCalendarView({
   onOpenPrint = () => {},
   onSwitchView = () => {},
 }: any) {
+  const { symbol } = useCurrency();
+  const { moduleVisibility } = useWorkspaceProfile();
+  const showFinance = moduleVisibility.showFinance;
   const [selectedYear, setSelectedYear] = useState(() => new Date().getFullYear());
   const [selectedMonth, setSelectedMonth] = useState(() => new Date().getMonth()); // 0 - 11
   const [calendarMode, setCalendarMode] = useState('month'); // 'month' | 'week'
@@ -509,11 +514,15 @@ export default function MonthlyCalendarView({
               <b className="text-indigo-900 font-mono font-bold">{monthStats.totalHours} h</b>
             </div>
 
-            <div className="flex items-center gap-1.5 font-medium text-slate-600">
-              <DollarSign className="w-3.5 h-3.5 text-amber-600" />
-              <span>Coût cumulé :</span>
-              <b className="text-amber-900 font-mono font-bold">{monthStats.totalCost} DH</b>
-            </div>
+            {showFinance && (
+              <div className="flex items-center gap-1.5 font-medium text-slate-600">
+                <DollarSign className="w-3.5 h-3.5 text-amber-600" />
+                <span>Coût cumulé :</span>
+                <b className="text-amber-900 font-mono font-bold">
+                  {monthStats.totalCost} {symbol}
+                </b>
+              </div>
+            )}
           </div>
 
           {/* Workload Legend */}
@@ -867,7 +876,8 @@ export default function MonthlyCalendarView({
                     </span>
                   </div>
                   <p className="text-xs text-slate-500 mt-0.5">
-                    Interventions programmées · Charge totale : <b>{activeDayDetail.totalEstMinutes} min</b> ({Number(activeDayDetail.totalCostDT).toFixed(2)} DH)
+                    Interventions programmées · Charge totale : <b>{activeDayDetail.totalEstMinutes} min</b>
+                    {showFinance ? ` (${Number(activeDayDetail.totalCostDT).toFixed(2)} ${symbol})` : ''}
                   </p>
                 </div>
               </div>
@@ -994,10 +1004,12 @@ export default function MonthlyCalendarView({
                                     <Clock className="w-3 h-3 text-slate-400" />
                                     {task.duree_estimee || '20 min'}
                                   </span>
-                                  <span className="flex items-center gap-1">
-                                    <DollarSign className="w-3 h-3 text-slate-400" />
-                                    {Number(task.cout_cumule || 0).toFixed(2)} DH
-                                  </span>
+                                  {showFinance && (
+                                    <span className="flex items-center gap-1">
+                                      <DollarSign className="w-3 h-3 text-slate-400" />
+                                      {Number(task.cout_cumule || 0).toFixed(2)} {symbol}
+                                    </span>
+                                  )}
                                 </div>
                               </div>
 

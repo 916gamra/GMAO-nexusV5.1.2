@@ -12,6 +12,7 @@ import {
   AlertTriangle,
   X,
   FileSpreadsheet,
+  User,
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import type { PreventiveExecutionRecord } from '../../../../types/preventive';
@@ -29,6 +30,8 @@ import {
   computeExecutionDelayDays,
 } from '../../../../domain/preventive/preventiveAnalyticsEngine';
 import { StockCalculationService } from '../../../../domain/pdr/services/StockCalculationService';
+import { useCurrency } from '../../../../utils/currencyService';
+import { useWorkspaceProfile } from '../../../../core/workspace/workspaceProfile';
 
 interface PreventiveExecutionsHistoryViewProps {
   executions: PreventiveExecutionRecord[];
@@ -51,12 +54,17 @@ export default function PreventiveExecutionsHistoryView({
 }: PreventiveExecutionsHistoryViewProps) {
   const { language } = useI18n();
   const { user } = useAuth();
+  const { symbol, currencyCode } = useCurrency();
+  const workspaceProfile = useWorkspaceProfile();
+  const showFinance = workspaceProfile.moduleVisibility.showFinance;
+  const isSoloDirect = workspaceProfile.governanceMode === 'SOLO_DIRECT';
   const canManageExecutions =
     Boolean(user) &&
     !isTechUser &&
     AuthorizationService.hasPermission(user, 'preventive.manage');
   const [periodFilter, setPeriodFilter] = useState<PeriodFilterState>({ preset: 'ALL' });
   const [validationFilter, setValidationFilter] = useState<string>('ALL');
+  const [techFilter, setTechFilter] = useState<string>('ALL');
   const [search, setSearch] = useState('');
   const [_deletingId, setDeletingId] = useState<string | null>(null);
 
@@ -108,6 +116,16 @@ export default function PreventiveExecutionsHistoryView({
     () => executions.filter((e) => e.validation_status === 'NEEDS_CLARIFICATION').length,
     [executions]
   );
+  const showValidationWorkflow = !isSoloDirect || pendingCount > 0 || clarificationCount > 0;
+
+  const availableTechnicians = useMemo(() => {
+    const names = new Set<string>();
+    executions.forEach((e) => {
+      const n = String(e.executorName || '').trim();
+      if (n) names.add(n);
+    });
+    return Array.from(names).sort((a, b) => a.localeCompare(b, 'fr'));
+  }, [executions]);
 
   const filteredExecutions = useMemo(() => {
     return executions.filter((item) => {
@@ -124,7 +142,11 @@ export default function PreventiveExecutionsHistoryView({
           return false;
         }
       }
-      // 3. Text Search
+      // 3. Technician Filter
+      if (techFilter !== 'ALL') {
+        if (String(item.executorName || '').trim() !== techFilter) return false;
+      }
+      // 4. Text Search
       if (search.trim()) {
         const q = search.toLowerCase();
         const match =
@@ -143,7 +165,7 @@ export default function PreventiveExecutionsHistoryView({
       }
       return true;
     });
-  }, [executions, periodFilter, validationFilter, search]);
+  }, [executions, periodFilter, validationFilter, techFilter, search]);
 
   // Aggregate realized metrics for filtered period (strictly APPROVED executions — excludes PENDING/REJECTED)
   const metrics = useMemo(() => {
@@ -273,7 +295,7 @@ export default function PreventiveExecutionsHistoryView({
         .map((s) => `${s.ref || s.designation} x${s.qty}`)
         .join(', ');
 
-      return {
+      const baseRow: Record<string, any> = {
         'ID Exécution': exec.id || '',
         'Date Exécution': exec.executedAt || '',
         'Période': exec.periodMonth || '',
@@ -290,13 +312,21 @@ export default function PreventiveExecutionsHistoryView({
         'Durée (min)': Number(exec.durationMinutes || 0),
         'PDR Utilisées / Proposées': sparesFormatted,
         'N° Bon': exec.num_bon_saisi_par_tech || '',
-        'Coût PDR (MAD)': Number(Number(exec.sparesCost || 0).toFixed(2)),
-        'Coût Total (MAD)': Number(Number(exec.totalCost || 0).toFixed(2)),
-        'Statut Validation': exec.validation_status || 'APPROVED',
-        'Validé Par': exec.validated_by_name || '',
-        'DI Corrective Liée': exec.generated_di_id || '',
-        'Observations': exec.notes || '',
       };
+
+      if (showFinance) {
+        baseRow[`Coût PDR (${currencyCode})`] = Number(Number(exec.sparesCost || 0).toFixed(2));
+        baseRow[`Coût Total (${currencyCode})`] = Number(Number(exec.totalCost || 0).toFixed(2));
+      }
+
+      if (showValidationWorkflow) {
+        baseRow['Statut Validation'] = exec.validation_status || 'APPROVED';
+        baseRow['Validé Par'] = exec.validated_by_name || '';
+      }
+
+      baseRow['DI Corrective Liée'] = exec.generated_di_id || '';
+      baseRow['Observations'] = exec.notes || '';
+      return baseRow;
     });
 
     const ws = XLSX.utils.json_to_sheet(rows);
@@ -323,7 +353,7 @@ export default function PreventiveExecutionsHistoryView({
         />
 
         {/* Quick Search and Statistics Cards */}
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        <div className={`grid grid-cols-2 ${showFinance ? 'sm:grid-cols-4' : 'sm:grid-cols-2'} gap-3`}>
           <div className="bg-white p-3.5 rounded-2xl border border-slate-200/90 shadow-2xs">
             <div className="text-[11px] font-bold text-slate-500 uppercase flex items-center gap-1.5">
               <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
@@ -344,68 +374,80 @@ export default function PreventiveExecutionsHistoryView({
             </div>
           </div>
 
-          <div className="bg-white p-3.5 rounded-2xl border border-slate-200/90 shadow-2xs">
-            <div className="text-[11px] font-bold text-slate-500 uppercase flex items-center gap-1.5">
-              <Package className="w-3.5 h-3.5 text-amber-600" />
-              <span>{language === 'ar' ? 'تكلفة قطع الغيار المعتمدة' : 'Coût PDR Consommée'}</span>
+          {showFinance && (
+            <div className="bg-white p-3.5 rounded-2xl border border-slate-200/90 shadow-2xs">
+              <div className="text-[11px] font-bold text-slate-500 uppercase flex items-center gap-1.5">
+                <Package className="w-3.5 h-3.5 text-amber-600" />
+                <span>{language === 'ar' ? 'تكلفة قطع الغيار المعتمدة' : 'Coût PDR Consommée'}</span>
+              </div>
+              <div className="text-xl font-extrabold text-amber-600 mt-1 font-mono">
+                {metrics.totalSparesCost.toFixed(2)}{' '}
+                <span className="text-xs font-normal text-slate-500">{symbol}</span>
+              </div>
             </div>
-            <div className="text-xl font-extrabold text-amber-600 mt-1 font-mono">
-              {metrics.totalSparesCost.toFixed(2)} <span className="text-xs font-normal text-slate-500">DH</span>
-            </div>
-          </div>
+          )}
 
-          <div className="bg-white p-3.5 rounded-2xl border border-slate-200/90 shadow-2xs">
-            <div className="text-[11px] font-bold text-slate-500 uppercase flex items-center gap-1.5">
-              <DollarSign className="w-3.5 h-3.5 text-emerald-600" />
-              <span>{language === 'ar' ? 'التكلفة الإجمالية' : 'Coût Total Préventif'}</span>
+          {showFinance && (
+            <div className="bg-white p-3.5 rounded-2xl border border-slate-200/90 shadow-2xs">
+              <div className="text-[11px] font-bold text-slate-500 uppercase flex items-center gap-1.5">
+                <DollarSign className="w-3.5 h-3.5 text-emerald-600" />
+                <span>{language === 'ar' ? 'التكلفة الإجمالية' : 'Coût Total Préventif'}</span>
+              </div>
+              <div className="text-xl font-extrabold text-slate-900 mt-1 font-mono">
+                {metrics.totalCost.toFixed(2)}{' '}
+                <span className="text-xs font-normal text-slate-500">{symbol}</span>
+              </div>
             </div>
-            <div className="text-xl font-extrabold text-slate-900 mt-1 font-mono">
-              {metrics.totalCost.toFixed(2)} <span className="text-xs font-normal text-slate-500">DH</span>
-            </div>
-          </div>
+          )}
         </div>
 
-        {/* Maker-Checker Validation Status Filter Pills */}
+        {/* Maker-Checker Validation Status Filter Pills & Excel Export */}
         <div className="flex items-center justify-between gap-2 flex-wrap">
-          <div className="flex items-center gap-1.5 flex-wrap">
-            {[
-              { key: 'ALL', label: `Toutes (${executions.length})` },
-              {
-                key: 'PENDING_VALIDATION',
-                label: `À valider (${pendingCount})`,
-                badgeClass:
-                  pendingCount > 0
-                    ? 'bg-purple-100 text-purple-900 border-purple-300 font-black animate-pulse'
-                    : '',
-              },
-              {
-                key: 'NEEDS_CLARIFICATION',
-                label: `À clarifier (${clarificationCount})`,
-                badgeClass:
-                  clarificationCount > 0
-                    ? 'bg-rose-100 text-rose-900 border-rose-300 font-black'
-                    : '',
-              },
-              { key: 'APPROVED', label: 'Approuvées & Déstockées' },
-            ].map((pill) => {
-              const active = validationFilter === pill.key;
-              return (
-                <button
-                  key={pill.key}
-                  type="button"
-                  onClick={() => setValidationFilter(pill.key)}
-                  className={`px-3 py-1.5 rounded-xl text-xs border transition cursor-pointer ${
-                    active
-                      ? 'bg-slate-900 text-white border-slate-900 font-bold shadow-2xs'
-                      : pill.badgeClass ||
-                        'bg-white text-slate-700 border-slate-200 hover:bg-slate-50 font-medium'
-                  }`}
-                >
-                  {pill.label}
-                </button>
-              );
-            })}
-          </div>
+          {showValidationWorkflow ? (
+            <div className="flex items-center gap-1.5 flex-wrap">
+              {[
+                { key: 'ALL', label: `Toutes (${executions.length})` },
+                {
+                  key: 'PENDING_VALIDATION',
+                  label: `À valider (${pendingCount})`,
+                  badgeClass:
+                    pendingCount > 0
+                      ? 'bg-purple-100 text-purple-900 border-purple-300 font-black animate-pulse'
+                      : '',
+                },
+                {
+                  key: 'NEEDS_CLARIFICATION',
+                  label: `À clarifier (${clarificationCount})`,
+                  badgeClass:
+                    clarificationCount > 0
+                      ? 'bg-rose-100 text-rose-900 border-rose-300 font-black'
+                      : '',
+                },
+                { key: 'APPROVED', label: 'Approuvées & Déstockées' },
+              ].map((pill) => {
+                const active = validationFilter === pill.key;
+                return (
+                  <button
+                    key={pill.key}
+                    type="button"
+                    onClick={() => setValidationFilter(pill.key)}
+                    className={`px-3 py-1.5 rounded-xl text-xs border transition cursor-pointer ${
+                      active
+                        ? 'bg-slate-900 text-white border-slate-900 font-bold shadow-2xs'
+                        : pill.badgeClass ||
+                          'bg-white text-slate-700 border-slate-200 hover:bg-slate-50 font-medium'
+                    }`}
+                  >
+                    {pill.label}
+                  </button>
+                );
+              })}
+            </div>
+          ) : (
+            <div className="text-xs font-semibold text-slate-500">
+              Journal direct ({filteredExecutions.length} / {executions.length} exécutions)
+            </div>
+          )}
 
           <button
             type="button"
@@ -418,20 +460,40 @@ export default function PreventiveExecutionsHistoryView({
           </button>
         </div>
 
-        {/* Search bar */}
-        <div className="relative">
-          <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
-          <input
-            type="text"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder={
-              language === 'ar'
-                ? 'بحث بالآلة أو الفني أو الكود أو الملاحظات...'
-                : 'Rechercher par machine, technicien, organe, code, N° bon...'
-            }
-            className="w-full h-10 pl-9 pr-3 rounded-xl border border-slate-200 bg-white text-xs font-medium text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
-          />
+        {/* Search bar & Technician Filter */}
+        <div className="flex flex-col sm:flex-row gap-2">
+          <div className="relative flex-1">
+            <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+            <input
+              type="text"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder={
+                language === 'ar'
+                  ? 'بحث بالآلة أو الفني أو الكود أو الملاحظات...'
+                  : 'Rechercher par machine, technicien, organe, code, N° bon...'
+              }
+              className="w-full h-10 pl-9 pr-3 rounded-xl border border-slate-200 bg-white text-xs font-medium text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
+            />
+          </div>
+          {availableTechnicians.length > 0 && (
+            <div className="relative sm:w-56 shrink-0">
+              <User className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+              <select
+                value={techFilter}
+                onChange={(e) => setTechFilter(e.target.value)}
+                aria-label="Filtrer par technicien"
+                className="w-full h-10 pl-8 pr-3 rounded-xl border border-slate-200 bg-white text-xs font-semibold text-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
+              >
+                <option value="ALL">Tous les techniciens ({availableTechnicians.length})</option>
+                {availableTechnicians.map((name) => (
+                  <option key={name} value={name}>
+                    {name}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
         </div>
       </div>
 
@@ -445,17 +507,24 @@ export default function PreventiveExecutionsHistoryView({
                 <th className="py-3 px-4">{language === 'ar' ? 'الآلة' : 'Machine'}</th>
                 <th className="py-3 px-4">{language === 'ar' ? 'المهمة والعنصر' : 'Composant & Action'}</th>
                 <th className="py-3 px-4">{language === 'ar' ? 'الفني المنفذ' : 'Technicien'}</th>
-                <th className="py-3 px-4 text-center">{language === 'ar' ? 'الاعتماد' : 'Statut Validation'}</th>
+                {showValidationWorkflow && (
+                  <th className="py-3 px-4 text-center">{language === 'ar' ? 'الاعتماد' : 'Statut Validation'}</th>
+                )}
                 <th className="py-3 px-4 text-center">{language === 'ar' ? 'المدة' : 'Durée'}</th>
                 <th className="py-3 px-4">{language === 'ar' ? 'القطع المقترحة / المعتمدة' : 'PDR (Proposée / Validée)'}</th>
-                <th className="py-3 px-4 text-right">{language === 'ar' ? 'التكلفة' : 'Coût Total'}</th>
+                {showFinance && (
+                  <th className="py-3 px-4 text-right">{language === 'ar' ? 'التكلفة' : 'Coût Total'}</th>
+                )}
                 <th className="py-3 px-4 text-right">{language === 'ar' ? 'إجراءات' : 'Actions'}</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
               {filteredExecutions.length === 0 ? (
                 <tr>
-                  <td colSpan={9} className="py-12 text-center text-slate-400">
+                  <td
+                    colSpan={7 + (showValidationWorkflow ? 1 : 0) + (showFinance ? 1 : 0)}
+                    className="py-12 text-center text-slate-400"
+                  >
                     <div className="flex flex-col items-center justify-center gap-2">
                       <AlertCircle className="w-6 h-6 text-slate-300" />
                       <span>
@@ -556,25 +625,27 @@ export default function PreventiveExecutionsHistoryView({
                           </div>
                         )}
                       </td>
-                      <td className="py-3 px-4 text-center whitespace-nowrap">
-                        {isPending ? (
-                          <span className="px-2 py-0.5 rounded-full text-[10px] font-mono font-black bg-purple-100 text-purple-900 border border-purple-300">
-                            À VALIDER
-                          </span>
-                        ) : isClarify ? (
-                          <span className="px-2 py-0.5 rounded-full text-[10px] font-mono font-black bg-rose-100 text-rose-900 border border-rose-300">
-                            À CLARIFIER
-                          </span>
-                        ) : isRejected ? (
-                          <span className="px-2 py-0.5 rounded-full text-[10px] font-mono font-black bg-slate-200 text-slate-700">
-                            REJETÉ
-                          </span>
-                        ) : (
-                          <span className="px-2 py-0.5 rounded-full text-[10px] font-mono font-bold bg-emerald-50 text-emerald-800 border border-emerald-200">
-                            APPROUVÉ
-                          </span>
-                        )}
-                      </td>
+                      {showValidationWorkflow && (
+                        <td className="py-3 px-4 text-center whitespace-nowrap">
+                          {isPending ? (
+                            <span className="px-2 py-0.5 rounded-full text-[10px] font-mono font-black bg-purple-100 text-purple-900 border border-purple-300">
+                              À VALIDER
+                            </span>
+                          ) : isClarify ? (
+                            <span className="px-2 py-0.5 rounded-full text-[10px] font-mono font-black bg-rose-100 text-rose-900 border border-rose-300">
+                              À CLARIFIER
+                            </span>
+                          ) : isRejected ? (
+                            <span className="px-2 py-0.5 rounded-full text-[10px] font-mono font-black bg-slate-200 text-slate-700">
+                              REJETÉ
+                            </span>
+                          ) : (
+                            <span className="px-2 py-0.5 rounded-full text-[10px] font-mono font-bold bg-emerald-50 text-emerald-800 border border-emerald-200">
+                              APPROUVÉ
+                            </span>
+                          )}
+                        </td>
+                      )}
                       <td className="py-3 px-4 text-center whitespace-nowrap font-mono font-medium text-slate-700">
                         {exec.durationMinutes} min
                       </td>
@@ -600,9 +671,11 @@ export default function PreventiveExecutionsHistoryView({
                           <span className="text-slate-400 text-[11px]">—</span>
                         )}
                       </td>
-                      <td className="py-3 px-4 text-right whitespace-nowrap font-mono font-extrabold text-slate-900">
-                        {exec.totalCost.toFixed(2)} DH
-                      </td>
+                      {showFinance && (
+                        <td className="py-3 px-4 text-right whitespace-nowrap font-mono font-extrabold text-slate-900">
+                          {exec.totalCost.toFixed(2)} {symbol}
+                        </td>
+                      )}
                       <td className="py-3 px-4 text-right whitespace-nowrap">
                         <div className="flex items-center justify-end gap-1.5">
                           {canManageExecutions &&

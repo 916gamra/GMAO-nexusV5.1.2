@@ -84,7 +84,7 @@ export default function TaskImportModal({ isOpen, onClose, onImportSuccess }) {
             </div>
             <div>
               <h3 className="text-base font-bold text-slate-800">
-                استيراد مهام الصيانة الوقائية (Import Tâches Machine — FK vérifiée)
+                Import de Tâches Préventives (Machines actives — FK vérifiée)
               </h3>
               <p className="text-xs text-slate-500">
                 Chaque tâche doit référencer une machine active enregistrée (ASSETS_MACHINES). Pour le catalogue Actions/Guides (Niveau 2), utilisez Paramètres ➔ PM_CATALOG (Type A).

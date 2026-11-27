@@ -72,6 +72,9 @@ import { reconcileFieldClaim } from '../../../../core/security/validationReconci
 import { hasPreventiveExecutionAnomaly } from '../../../../application/services/MachineHealthPassportService';
 import { storageService } from '../../../../utils/storageService';
 import { STORAGE_KEYS } from '../../../../infrastructure/persistence/storageKeys';
+import { useCurrency } from '../../../../utils/currencyService';
+import { useWorkspaceProfile } from '../../../../core/workspace/workspaceProfile';
+import { confirmAction } from '../../../../utils/confirmAction';
 import type { PreventiveTaskItem } from '../../../../types/store';
 
 export { buildConsumablePdrInventory };
@@ -107,15 +110,20 @@ export default function TabMainView({
   onReviewPreventiveExecution = null,
   showToast = null,
   onDeleteExecution,
-  _onDeleteTask,
+  onUpdateTask = null,
+  onDeleteTask = null,
   _onUpdateTaskCounter,
   _onUpdateTaskStatus,
-  _onNavigateToPlanBuilder,
+  onNavigateToPlanBuilder = null,
   onCreateCorrective,
-  _onNavigateToMachine,
+  onNavigateToMachine = null,
 }: any) {
   const { t } = useI18n();
   const { user } = useAuth();
+  const { symbol, currencyCode } = useCurrency();
+  const workspaceProfile = useWorkspaceProfile();
+  const showFinance = workspaceProfile.moduleVisibility.showFinance;
+  const showBlueprints = workspaceProfile.moduleVisibility.showBlueprintsInPrimaryNav;
   const isTechUser = isTechnicianRole(user);
   const canExecutePreventive =
     Boolean(user) &&
@@ -268,6 +276,7 @@ export default function TabMainView({
   const [selectedTaskForValidation, setSelectedTaskForValidation] = useState(null);
   const [selectedTaskForBT, setSelectedTaskForBT] = useState(null);
   const [selectedTaskForPrint, setSelectedTaskForPrint] = useState(null);
+  const [selectedTaskForEdit, setSelectedTaskForEdit] = useState(null);
   const [showSystemGeneralRoundModal, setShowSystemGeneralRoundModal] = useState(false);
 
   // Validation Form State with PDR & Labor & Canonical Organ IDs (P1 + V3 Maker-Checker)
@@ -908,6 +917,24 @@ export default function TabMainView({
     setSelectedTaskForBT(null);
   };
 
+  const handleConfirmEditTask = (taskId: string | number, updates: Record<string, any>) => {
+    if (!canManagePreventive || !onUpdateTask) return;
+    onUpdateTask(taskId, updates);
+    setSelectedTaskForEdit(null);
+  };
+
+  const handleRequestDeleteTask = async (task: any) => {
+    if (!canManagePreventive || !onDeleteTask || !task?.id) return;
+    const confirmed = await confirmAction({
+      title: 'Supprimer la tâche préventive',
+      message: `Supprimer définitivement la tâche "${task.composant || task.code || task.id}" (${task.id_machine || 'Machine'}) du planning préventif ? L'historique d'exécutions existant reste préservé.`,
+      variant: 'danger',
+    });
+    if (confirmed) {
+      onDeleteTask(task.id);
+    }
+  };
+
   // Export Full Matrix & Tasks to CSV / Excel
   const handleExportCSV = () => {
     const allWeeks = Array.from({ length: 52 }, (_, i) => `S${i + 1}`);
@@ -925,7 +952,7 @@ export default function TabMainView({
       'Statut',
       'Prochaine Échéance',
       'Dernière Réalisation',
-      'Coût Cumulé (MAD)',
+      ...(showFinance ? [`Coût Cumulé (${currencyCode})`] : []),
       ...allWeeks,
       'Consignes / Remarques',
     ];
@@ -946,7 +973,7 @@ export default function TabMainView({
         sanitizeCsvCell(t.etat || ''),
         sanitizeCsvCell(t.prochaine_echeance || ''),
         sanitizeCsvCell(t.derniere_realisation || ''),
-        sanitizeCsvCell(Number(t.cout_cumule || 0).toFixed(2)),
+        ...(showFinance ? [sanitizeCsvCell(Number(t.cout_cumule || 0).toFixed(2))] : []),
         ...weekCols.map((val) => sanitizeCsvCell(val)),
         sanitizeCsvCell(t.consigne || t.observations || ''),
       ];
@@ -1019,8 +1046,8 @@ export default function TabMainView({
         </div>
       )}
 
-      {/* UNIFIED 4-TIER LIGHT EXCEL KPI CARDS BAR (5-COLUMN) */}
-      <GmaoKpiGrid columns={5}>
+      {/* UNIFIED 4-TIER LIGHT EXCEL KPI CARDS BAR */}
+      <GmaoKpiGrid columns={showFinance ? 5 : 4}>
         {/* Card 1: Total Tasks */}
         <GmaoKpiCard
           title={t('preventive.kpis.total_program', 'Total Programme')}
@@ -1086,22 +1113,24 @@ export default function TabMainView({
           footerValue={t('preventive.kpis.trigger_wo', 'Déclenchement BT')}
         />
 
-        {/* Card 5: Coût Réalisé Préventif (MO + PDR) */}
-        <GmaoKpiCard
-          title={t('preventive.kpis.pdr_budget', 'Coût Réel Préventif')}
-          value={stats.totalCost.toFixed(2)}
-          unit="DH"
-          icon={DollarSign}
-          color="amber"
-          valueColored={false}
-          badgeText={`PDR ${stats.sparesCost.toFixed(0)} DH`}
-          footerLabel="Répartition :"
-          footerValue={`MO ${stats.laborCost.toFixed(0)} DH · PDR ${stats.sparesCost.toFixed(0)} DH`}
-          className="col-span-2 lg:col-span-1"
-        />
+        {/* Card 5: Coût Réalisé Préventif (MO + PDR) — Hidden in SOLO_EXPERT */}
+        {showFinance && (
+          <GmaoKpiCard
+            title={t('preventive.kpis.pdr_budget', 'Coût Réel Préventif')}
+            value={stats.totalCost.toFixed(2)}
+            unit={symbol}
+            icon={DollarSign}
+            color="amber"
+            valueColored={false}
+            badgeText={`PDR ${stats.sparesCost.toFixed(0)} ${symbol}`}
+            footerLabel="Répartition :"
+            footerValue={`MO ${stats.laborCost.toFixed(0)} ${symbol} · PDR ${stats.sparesCost.toFixed(0)} ${symbol}`}
+            className="col-span-2 lg:col-span-1"
+          />
+        )}
       </GmaoKpiGrid>
 
-      {/* PHASE C: TODAY & THIS WEEK COCKPIT (لوحة اليوم والأسبوع) */}
+      {/* PHASE C: TODAY & THIS WEEK COCKPIT */}
       <PreventiveWeeklyCockpit
         tasks={tasksWithOrphanFlag}
         machines={machines}
@@ -1113,6 +1142,7 @@ export default function TabMainView({
         onOpenValidate={canExecutePreventive ? handleOpenValidate : null}
         onQuickValidateTask={canExecutePreventive ? handleQuickValidateTask : null}
         onOpenRoundModal={canExecutePreventive ? () => setShowSystemGeneralRoundModal(true) : null}
+        onPrintWorkOrder={(task) => setSelectedTaskForPrint(task)}
         onFilterOverdue={() => {
           setSelectedStatus(selectedStatus === 'En retard' ? 'ALL' : 'En retard');
           if (!isPlanningWorkspace) setViewMode('list');
@@ -1231,10 +1261,10 @@ export default function TabMainView({
               </button>
 
               {/* Workspace 4: Plans & Guides (الخطط والأدلة) */}
-              {canManagePreventive && Boolean(_onNavigateToPlanBuilder) && (
+              {canManagePreventive && Boolean(onNavigateToPlanBuilder) && (
                 <button
                   type="button"
-                  onClick={() => _onNavigateToPlanBuilder()}
+                  onClick={() => onNavigateToPlanBuilder()}
                   className="px-3 py-1.5 rounded-lg text-xs font-black transition-all flex items-center gap-1.5 cursor-pointer text-slate-600 hover:text-indigo-900 hover:bg-white/70"
                   title="Espace 4 : Concepteur de Plans, Fiches Guides & Catalogue Actions"
                 >
@@ -1372,7 +1402,11 @@ export default function TabMainView({
                   }`}
                 >
                   <BarChart3 className="w-3.5 h-3.5" />
-                  <span>Analytics, Ponctualité &amp; Coûts (MO + PDR)</span>
+                  <span>
+                    {showFinance
+                      ? 'Analytics, Ponctualité & Coûts (MO + PDR)'
+                      : 'Analytics, Ponctualité & Charge Techniciens'}
+                  </span>
                 </button>
               )}
             </div>
@@ -1671,9 +1705,13 @@ export default function TabMainView({
           </div>
         </div>
 
-        {/* Collapsible Advanced Filters (Semaine ISO & Blueprint / Plan machine) */}
+        {/* Collapsible Advanced Filters (Semaine ISO & Optional Blueprint / Plan machine) */}
         {(showAdvancedFilters || selectedBlueprint !== 'ALL' || selectedWeek !== 'ALL') && (
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-3 border-t border-slate-100 bg-slate-50/50 p-3 rounded-xl">
+          <div
+            className={`grid grid-cols-1 ${
+              showBlueprints ? 'sm:grid-cols-2' : 'sm:grid-cols-1'
+            } gap-3 pt-3 border-t border-slate-100 bg-slate-50/50 p-3 rounded-xl`}
+          >
             {/* Semaine ISO Filter */}
             <div>
               <div className="flex items-center justify-between mb-1.5 text-[11px] font-bold uppercase tracking-wider text-slate-800">
@@ -1697,28 +1735,30 @@ export default function TabMainView({
               />
             </div>
 
-            {/* Blueprint / Plan machine Filter */}
-            <div>
-              <div className="flex items-center justify-between mb-1.5 text-[11px] font-bold uppercase tracking-wider text-slate-800">
-                <span>Blueprint / Plan machine</span>
-                <span className="px-1.5 py-0.2 rounded text-[9.5px] font-mono font-bold bg-teal-50 text-teal-700 border border-teal-200/80">
-                  BOM
-                </span>
-              </div>
-              <CustomSelect
-                value={selectedBlueprint}
-                prefixIcon={
-                  <span className="w-5 h-5 rounded-md bg-amber-100 border border-amber-300/80 flex items-center justify-center text-amber-700 shadow-2xs">
-                    <FingerprintPattern className="w-3 h-3" />
+            {/* Blueprint / Plan machine Filter (Shown only when Blueprints are enabled in profile) */}
+            {showBlueprints && (
+              <div>
+                <div className="flex items-center justify-between mb-1.5 text-[11px] font-bold uppercase tracking-wider text-slate-800">
+                  <span>Blueprint / Plan machine</span>
+                  <span className="px-1.5 py-0.2 rounded text-[9.5px] font-mono font-bold bg-teal-50 text-teal-700 border border-teal-200/80">
+                    BOM
                   </span>
-                }
-                onChange={(val) => {
-                  setSelectedBlueprint(val);
-                }}
-                options={blueprintOptions}
-                placeholder="Tous Blueprints"
-              />
-            </div>
+                </div>
+                <CustomSelect
+                  value={selectedBlueprint}
+                  prefixIcon={
+                    <span className="w-5 h-5 rounded-md bg-amber-100 border border-amber-300/80 flex items-center justify-center text-amber-700 shadow-2xs">
+                      <FingerprintPattern className="w-3 h-3" />
+                    </span>
+                  }
+                  onChange={(val) => {
+                    setSelectedBlueprint(val);
+                  }}
+                  options={blueprintOptions}
+                  placeholder="Tous Blueprints"
+                />
+              </div>
+            )}
           </div>
         )}
 
@@ -1895,7 +1935,9 @@ export default function TabMainView({
           onOpenValidate={canExecutePreventive ? handleOpenValidate : null}
           onOpenCorrective={canTriggerCorrective ? handleOpenCorrective : null}
           onOpenPrint={(task) => setSelectedTaskForPrint(task)}
-          onNavigateToMachine={_onNavigateToMachine}
+          onEditTask={canManagePreventive && onUpdateTask ? (task) => setSelectedTaskForEdit(task) : null}
+          onDeleteTask={canManagePreventive && onDeleteTask ? handleRequestDeleteTask : null}
+          onNavigateToMachine={onNavigateToMachine}
         />
       )}
 
@@ -1918,6 +1960,8 @@ export default function TabMainView({
           onOpenValidate={canExecutePreventive ? handleOpenValidate : null}
           onOpenCorrective={canTriggerCorrective ? handleOpenCorrective : null}
           onOpenPrint={(task) => setSelectedTaskForPrint(task)}
+          onEditTask={canManagePreventive && onUpdateTask ? (task) => setSelectedTaskForEdit(task) : null}
+          onDeleteTask={canManagePreventive && onDeleteTask ? handleRequestDeleteTask : null}
           hasActiveFilters={activeFiltersCount > 0}
           clearAllFilters={clearAllFilters}
         />
@@ -1947,16 +1991,19 @@ export default function TabMainView({
           onReviewPreventiveExecution={onReviewPreventiveExecution}
           showToast={showToast}
           onDeleteExecution={onDeleteExecution}
-          onNavigateToMachine={_onNavigateToMachine}
+          onNavigateToMachine={onNavigateToMachine}
         />
       )}
 
-      {/* VIEW 7: METERS & HOROMÈTRES (Integrated inside Unified Workspace Switcher) */}
+      {/* VIEW 7: METERS & HOROMÈTRES (Integrated inside Unified Workspace Switcher, R4 scopedTasks) */}
       {viewMode === 'meters' && (
         <PreventiveMetersView
           machines={machines}
-          tasks={tasks}
+          tasks={scopedTasks}
           meterReadings={meterReadings}
+          technicians={technicians}
+          canExecutePreventive={canExecutePreventive}
+          canManagePreventive={canManagePreventive}
           onRecordReading={
             onRecordReading ||
             ((payload) => useGmaoStore.getState().handleRecordMeterReading(payload))
@@ -1964,7 +2011,7 @@ export default function TabMainView({
           onBatchRecordReadings={onBatchRecordReadings}
           onMarkTaskDone={canExecutePreventive ? onMarkTaskDone : null}
           onOpenValidate={canExecutePreventive ? handleOpenValidate : null}
-          onNavigateToPlanBuilder={canManagePreventive ? _onNavigateToPlanBuilder : null}
+          onNavigateToPlanBuilder={canManagePreventive ? onNavigateToPlanBuilder : null}
           user={user}
           showToast={showToast}
         />
@@ -1996,6 +2043,10 @@ export default function TabMainView({
         handleConfirmCorrective={handleConfirmCorrective}
         selectedTaskForPrint={selectedTaskForPrint}
         setSelectedTaskForPrint={setSelectedTaskForPrint}
+        selectedTaskForEdit={selectedTaskForEdit}
+        setSelectedTaskForEdit={setSelectedTaskForEdit}
+        handleConfirmEditTask={handleConfirmEditTask}
+        actions={actions}
         showSystemGeneralRoundModal={showSystemGeneralRoundModal}
         setShowSystemGeneralRoundModal={setShowSystemGeneralRoundModal}
         scopedTasks={scopedTasks}

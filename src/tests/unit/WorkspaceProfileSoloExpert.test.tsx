@@ -383,6 +383,7 @@ describe('SOLO-EXPERT-P1 — Workspace Operating Modes, Fail-Closed SOLO_DIRECT 
     expect(soloSection?.textContent).toContain('Parc Machines');
     expect(soloSection?.textContent).toContain('Entrepôt');
     expect(soloSection?.textContent).toContain('Zones, Équipe Terrain & Utilités');
+    expect(soloSection?.textContent).toContain('Préventif, Compteurs & CBM Terrain');
 
     // Switch to SOLO_EXPERT
     React.act(() => {

@@ -23,12 +23,18 @@ import { MeterService } from '../../../../application/services/meter/MeterServic
 import type { IMeterReading, MeterUnit } from '../../../../types/meter';
 import { filterActiveMachines } from '../../../../utils/activeMachines';
 import { isTechnicianRole } from '../../../../core/security/technicianScope';
+import { AuthorizationService } from '../../../../core/security/AuthorizationService';
+import { useAuth } from '../../../../context/AuthContext';
+import { isArchivedPersonnel } from '../../../../application/services/ZoneOperationalAnalyticsService';
 import CbmIoTSensorPanel from './CbmIoTSensorPanel';
 
 interface PreventiveMetersViewProps {
   machines: any[];
   tasks: any[];
   meterReadings: IMeterReading[];
+  technicians?: any[];
+  canExecutePreventive?: boolean;
+  canManagePreventive?: boolean;
   onRecordReading: (payload: {
     machineId: string;
     valeur: number;
@@ -38,8 +44,8 @@ interface PreventiveMetersViewProps {
     source?: any;
     commentaire?: string;
     allowMeterReset?: boolean;
-  }) => void;
-  onBatchRecordReadings: (readingsPayload: any[]) => void;
+  }) => any;
+  onBatchRecordReadings: (readingsPayload: any[]) => any;
   onMarkTaskDone?: (taskId: string | number, validationData: any) => any;
   onOpenValidate?: ((task: any) => void) | null;
   onNavigateToPlanBuilder?: () => void;
@@ -51,6 +57,9 @@ export const PreventiveMetersView: React.FC<PreventiveMetersViewProps> = ({
   machines = [],
   tasks = [],
   meterReadings = [],
+  technicians = [],
+  canExecutePreventive,
+  canManagePreventive,
   onRecordReading,
   onBatchRecordReadings,
   onMarkTaskDone,
@@ -59,6 +68,14 @@ export const PreventiveMetersView: React.FC<PreventiveMetersViewProps> = ({
   user,
   showToast,
 }) => {
+  const authCtx = useAuth();
+  const effectiveUser = user ?? authCtx?.user;
+  const canExecute =
+    canExecutePreventive ?? AuthorizationService.hasPermission(effectiveUser, 'preventive.execute');
+  const canManage =
+    canManagePreventive ?? AuthorizationService.hasPermission(effectiveUser, 'preventive.manage');
+  const isTechUser = isTechnicianRole(effectiveUser);
+
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedZone, setSelectedZone] = useState('ALL');
   const [selectedStatusFilter, setSelectedStatusFilter] = useState<'ALL' | 'OVERDUE' | 'WARNING' | 'OK'>('ALL');
@@ -67,15 +84,28 @@ export const PreventiveMetersView: React.FC<PreventiveMetersViewProps> = ({
   const [singleReadingModalMachine, setSingleReadingModalMachine] = useState<any | null>(null);
   const [singleReadingValue, setSingleReadingValue] = useState<string>('');
   const [singleReadingUnit, setSingleReadingUnit] = useState<MeterUnit>('Heures');
+  const [singleReadingTech, setSingleReadingTech] = useState<string>('');
   const [singleReadingComment, setSingleReadingComment] = useState<string>('');
   const [singleReadingAllowReset, setSingleReadingAllowReset] = useState<boolean>(false);
 
   const [historyModalMachine, setHistoryModalMachine] = useState<any | null>(null);
   const [showBatchTourModal, setShowBatchTourModal] = useState(false);
   const [batchReadingsState, setBatchReadingsState] = useState<Record<string, string>>({});
+  const [batchTourTech, setBatchTourTech] = useState<string>('');
 
   // Active machines
   const activeMachines = useMemo(() => filterActiveMachines(machines), [machines]);
+
+  // Active technicians for attribution (Solo Expert / Supervisor managing field technicians)
+  const activeTechnicianNames = useMemo(() => {
+    const names = new Set<string>();
+    (technicians || []).forEach((t) => {
+      if (isArchivedPersonnel(t)) return;
+      const fullName = `${t.nom || ''} ${t.prenom || ''}`.trim() || String(t.name || t.id_tech || '').trim();
+      if (fullName) names.add(fullName);
+    });
+    return Array.from(names).sort((a, b) => a.localeCompare(b, 'fr'));
+  }, [technicians]);
 
   // Unique zones
   const zones = useMemo(() => {
@@ -211,6 +241,10 @@ export const PreventiveMetersView: React.FC<PreventiveMetersViewProps> = ({
   // Single reading submit
   const handleSaveSingleReading = (e: React.FormEvent) => {
     e.preventDefault();
+    if (!canExecute) {
+      showToast?.("Permission insuffisante : vous n'êtes pas autorisé à saisir un relevé d'horomètre.", 'error');
+      return;
+    }
     if (!singleReadingModalMachine) return;
     const val = Number(singleReadingValue);
     if (isNaN(val) || val < 0) {
@@ -226,16 +260,27 @@ export const PreventiveMetersView: React.FC<PreventiveMetersViewProps> = ({
       return;
     }
 
+    const operatorName =
+      (!isTechUser && singleReadingTech.trim()) ||
+      user?.name ||
+      user?.nom ||
+      'Technicien';
+
     try {
-      onRecordReading({
+      const result = onRecordReading({
         machineId: singleReadingModalMachine.code,
         valeur: val,
         unite: singleReadingUnit,
-        releve_par: user?.name || user?.nom || 'Technicien',
+        releve_par: operatorName,
         source: 'MANUEL',
         commentaire: singleReadingComment.trim() || undefined,
         allowMeterReset: singleReadingAllowReset || undefined,
       });
+
+      if (result === null || result === false) {
+        showToast?.("Enregistrement refusé : vérifiez vos droits d'exécution préventive.", 'error');
+        return;
+      }
 
       showToast?.(
         `Relevé enregistré pour ${singleReadingModalMachine.code}: ${val} ${singleReadingUnit}`,
@@ -255,15 +300,18 @@ export const PreventiveMetersView: React.FC<PreventiveMetersViewProps> = ({
 
   // Open single reading modal
   const openSingleReadingModal = (item: any) => {
+    if (!canExecute) return;
     setSingleReadingModalMachine(item);
     setSingleReadingValue(String(item.currentReading || ''));
     setSingleReadingUnit(item.defaultUnit || 'Heures');
+    setSingleReadingTech(item.machine?.technician || user?.name || user?.nom || '');
     setSingleReadingComment('');
     setSingleReadingAllowReset(false);
   };
 
   // Open Batch Tour Modal
   const openBatchTourModal = () => {
+    if (!canExecute) return;
     const initialValues: Record<string, string> = {};
     activeMachines.forEach((m) => {
       const code = String(m.id_machine_registered || m.id || m.code || '').trim().toUpperCase();
@@ -271,15 +319,24 @@ export const PreventiveMetersView: React.FC<PreventiveMetersViewProps> = ({
       initialValues[code] = current > 0 ? String(current) : '';
     });
     setBatchReadingsState(initialValues);
+    setBatchTourTech(user?.name || user?.nom || '');
     setShowBatchTourModal(true);
   };
 
   // Submit batch tour
   const handleSaveBatchTour = (e: React.FormEvent) => {
     e.preventDefault();
+    if (!canExecute) {
+      showToast?.("Permission insuffisante pour enregistrer une tournée d'horomètres.", 'error');
+      return;
+    }
     const payload: any[] = [];
     const nonMonotonicMachines: string[] = [];
-    const techName = user?.name || user?.nom || 'Technicien Tournée';
+    const techName =
+      (!isTechUser && batchTourTech.trim()) ||
+      user?.name ||
+      user?.nom ||
+      'Technicien Tournée';
     const today = new Date().toISOString().split('T')[0];
 
     Object.entries(batchReadingsState).forEach(([mCode, valStr]) => {
@@ -320,9 +377,14 @@ export const PreventiveMetersView: React.FC<PreventiveMetersViewProps> = ({
     }
 
     try {
-      onBatchRecordReadings(payload);
+      const res = onBatchRecordReadings(payload);
+      if (res === null || res === false || (Array.isArray(res) && res.length === 0)) {
+        showToast?.("Tournée refusée : vérifiez vos droits d'exécution préventive.", 'error');
+        return;
+      }
+      const savedCount = Array.isArray(res) ? res.length : payload.length;
       showToast?.(
-        `Tournée enregistrée avec succès (${payload.length} machines mises à jour).`,
+        `Tournée enregistrée avec succès (${savedCount} machines mises à jour).`,
         'success'
       );
       setShowBatchTourModal(false);
@@ -529,17 +591,19 @@ export const PreventiveMetersView: React.FC<PreventiveMetersViewProps> = ({
         {/* Right: Actions */}
         <div className="flex items-center gap-2 shrink-0">
           {/* Fast Batch Reading Tournee */}
-          <button
-            type="button"
-            onClick={openBatchTourModal}
-            className="px-3.5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold shadow-sm transition-colors flex items-center gap-2 cursor-pointer"
-          >
-            <Zap className="w-4 h-4 text-amber-300" />
-            <span>Tournée de Relevé Rapide</span>
-          </button>
+          {canExecute && (
+            <button
+              type="button"
+              onClick={openBatchTourModal}
+              className="px-3.5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold shadow-sm transition-colors flex items-center gap-2 cursor-pointer"
+            >
+              <Zap className="w-4 h-4 text-amber-300" />
+              <span>Tournée de Relevé Rapide</span>
+            </button>
+          )}
 
           {/* Plan Builder Shortcut */}
-          {onNavigateToPlanBuilder && (
+          {canManage && onNavigateToPlanBuilder && (
             <button
               type="button"
               onClick={onNavigateToPlanBuilder}
@@ -612,14 +676,16 @@ export const PreventiveMetersView: React.FC<PreventiveMetersViewProps> = ({
                     </div>
 
                     {/* Quick Reading Button */}
-                    <button
-                      type="button"
-                      onClick={() => openSingleReadingModal(item)}
-                      title="Saisir un nouveau relevé"
-                      className="p-1.5 rounded-lg bg-indigo-50 hover:bg-indigo-100 text-indigo-700 transition cursor-pointer"
-                    >
-                      <Plus className="w-4 h-4" />
-                    </button>
+                    {canExecute && (
+                      <button
+                        type="button"
+                        onClick={() => openSingleReadingModal(item)}
+                        title="Saisir un nouveau relevé"
+                        className="p-1.5 rounded-lg bg-indigo-50 hover:bg-indigo-100 text-indigo-700 transition cursor-pointer"
+                      >
+                        <Plus className="w-4 h-4" />
+                      </button>
+                    )}
                   </div>
 
                   {/* Main Counter Display */}
@@ -716,7 +782,8 @@ export const PreventiveMetersView: React.FC<PreventiveMetersViewProps> = ({
                             </div>
 
                             {/* Execute Trigger routed through full Maker-Checker validation modal */}
-                            {!isPendingValidation &&
+                            {canExecute &&
+                              !isPendingValidation &&
                               (evaluation.isOverdue || evaluation.isWarning) &&
                               (onOpenValidate || onMarkTaskDone) && (
                                 <button
@@ -760,16 +827,18 @@ export const PreventiveMetersView: React.FC<PreventiveMetersViewProps> = ({
                 <div className="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between text-[11px] text-slate-500">
                   <span className="flex items-center gap-1">
                     <User className="w-3 h-3 text-slate-400" />
-                    <span>{item.machine.technician || 'Technicien assigné'}</span>
+                    <span>{item.machine.technician || 'Non assigné'}</span>
                   </span>
-                  <button
-                    type="button"
-                    onClick={() => openSingleReadingModal(item)}
-                    className="text-indigo-600 hover:text-indigo-800 font-bold flex items-center gap-0.5 transition"
-                  >
-                    <span>Mettre à jour</span>
-                    <ArrowUpRight className="w-3.5 h-3.5" />
-                  </button>
+                  {canExecute && (
+                    <button
+                      type="button"
+                      onClick={() => openSingleReadingModal(item)}
+                      className="text-indigo-600 hover:text-indigo-800 font-bold flex items-center gap-0.5 transition"
+                    >
+                      <span>Mettre à jour</span>
+                      <ArrowUpRight className="w-3.5 h-3.5" />
+                    </button>
+                  )}
                 </div>
               </div>
             );
@@ -871,6 +940,30 @@ export const PreventiveMetersView: React.FC<PreventiveMetersViewProps> = ({
                   ))}
                 </div>
               </div>
+
+              {!isTechUser && activeTechnicianNames.length > 0 && (
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">
+                    Relevé effectué par (Technicien terrain)
+                  </label>
+                  <select
+                    value={singleReadingTech}
+                    onChange={(e) => setSingleReadingTech(e.target.value)}
+                    className="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs font-semibold text-slate-800 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  >
+                    <option value={user?.name || user?.nom || ''}>
+                      {user?.name || user?.nom || 'Moi-même (Session active)'}
+                    </option>
+                    {activeTechnicianNames
+                      .filter((n) => n !== (user?.name || user?.nom || ''))
+                      .map((name) => (
+                        <option key={name} value={name}>
+                          {name}
+                        </option>
+                      ))}
+                  </select>
+                </div>
+              )}
 
               <div>
                 <label className="block text-xs font-bold text-slate-700 mb-1">
@@ -1027,6 +1120,30 @@ export const PreventiveMetersView: React.FC<PreventiveMetersViewProps> = ({
             </div>
 
             <form onSubmit={handleSaveBatchTour} className="flex-1 flex flex-col min-h-0">
+              {!isTechUser && activeTechnicianNames.length > 0 && (
+                <div className="mb-2 flex items-center gap-2 bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 shrink-0">
+                  <User className="w-3.5 h-3.5 text-indigo-600 shrink-0" />
+                  <label className="text-[11px] font-bold text-slate-700 shrink-0">
+                    Relevé effectué par :
+                  </label>
+                  <select
+                    value={batchTourTech}
+                    onChange={(e) => setBatchTourTech(e.target.value)}
+                    className="flex-1 max-w-xs px-2.5 py-1 rounded-lg border border-slate-300 bg-white text-xs font-semibold text-slate-800"
+                  >
+                    <option value={user?.name || user?.nom || ''}>
+                      {user?.name || user?.nom || 'Session active'}
+                    </option>
+                    {activeTechnicianNames
+                      .filter((n) => n !== (user?.name || user?.nom || ''))
+                      .map((name) => (
+                        <option key={name} value={name}>
+                          {name}
+                        </option>
+                      ))}
+                  </select>
+                </div>
+              )}
               <div className="flex-1 overflow-y-auto space-y-2 pr-1 my-2">
                 <div className="grid grid-cols-12 gap-2 px-3 py-1.5 bg-slate-100 rounded-lg text-[10px] font-bold text-slate-500 uppercase tracking-wider">
                   <div className="col-span-3">Machine</div>
@@ -1107,7 +1224,13 @@ export const PreventiveMetersView: React.FC<PreventiveMetersViewProps> = ({
       )}
 
       {/* Optional Manual Conditional Readings (Collapsed by default at bottom) */}
-      <CbmIoTSensorPanel machines={activeMachines} showToast={showToast} defaultExpanded={false} />
+      <CbmIoTSensorPanel
+        machines={activeMachines}
+        showToast={showToast}
+        defaultExpanded={false}
+        canManage={canManage}
+        canExecute={canExecute}
+      />
     </div>
   );
 };

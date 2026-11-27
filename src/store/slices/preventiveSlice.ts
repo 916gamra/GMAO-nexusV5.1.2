@@ -1169,25 +1169,58 @@ export function createPreventiveSlice(set: StoreSet, get: StoreGet): PreventiveS
         get().setMouvements(filteredMouvements);
       }
 
-      // Recompute cumulative cost for the linked task from remaining approved executions
+      // Recompute cumulative cost, last execution date, and status for the linked task from remaining executions
       if (targetExec.taskId) {
         const targetTaskIdStr = String(targetExec.taskId);
+        const linkedRemaining = remainingExecs.filter(
+          (ex) => String(ex.taskId || '') === targetTaskIdStr
+        );
+        const remainingApproved = linkedRemaining.filter((ex) => {
+          const vStatus = String(ex.validation_status || 'APPROVED').toUpperCase();
+          return (
+            (vStatus === 'APPROVED' || vStatus === 'NONE' || vStatus === '') &&
+            ex.status !== 'SKIPPED'
+          );
+        });
+        const remainingPending = linkedRemaining.find(
+          (ex) => String(ex.validation_status || '').toUpperCase() === 'PENDING_VALIDATION'
+        );
+        const remainingClarification = linkedRemaining.find(
+          (ex) => String(ex.validation_status || '').toUpperCase() === 'NEEDS_CLARIFICATION'
+        );
+        const latestApproved = [...remainingApproved].sort((a, b) =>
+          String(b.executedAt || '').localeCompare(String(a.executedAt || ''))
+        )[0];
+
         const recomputedCost = Number(
-          remainingExecs
-            .filter((ex) => {
-              if (String(ex.taskId || '') !== targetTaskIdStr) return false;
-              const vStatus = String(ex.validation_status || 'APPROVED').toUpperCase();
-              return (vStatus === 'APPROVED' || vStatus === 'NONE' || vStatus === '') && ex.status !== 'SKIPPED';
-            })
+          remainingApproved
             .reduce((sum, ex) => sum + (Number(ex.totalCost) || 0), 0)
             .toFixed(2)
         );
         get().setPreventiveTasks((prev) =>
-          (prev || []).map((t) =>
-            String(t.id) === targetTaskIdStr
-              ? { ...t, cout_cumule: recomputedCost, updated_at: new Date().toISOString() }
-              : t
-          )
+          (prev || []).map((t) => {
+            if (String(t.id) !== targetTaskIdStr) return t;
+            const nextDerniereRealisation = latestApproved?.executedAt
+              ? String(latestApproved.executedAt).slice(0, 10)
+              : '';
+            let nextEtat = t.etat;
+            if (remainingPending) {
+              nextEtat = 'En attente validation';
+            } else if (remainingClarification) {
+              nextEtat = 'À clarifier';
+            } else if (!latestApproved) {
+              nextEtat = 'À faire';
+            } else if (t.etat === 'En attente validation' || t.etat === 'À clarifier') {
+              nextEtat = 'Fait';
+            }
+            return {
+              ...t,
+              cout_cumule: recomputedCost,
+              derniere_realisation: nextDerniereRealisation,
+              etat: nextEtat,
+              updated_at: new Date().toISOString(),
+            };
+          })
         );
       }
 
@@ -1318,6 +1351,7 @@ export function createPreventiveSlice(set: StoreSet, get: StoreGet): PreventiveS
       get().setPreventivePlans([]);
       get().setPreventiveExecutions([]);
       get().setMeterReadings([]);
+      storageService.setItem(STORAGE_KEYS.CBM_MANUAL_RULES, []);
 
       const actor = resolveActiveActorContext();
       get().appendAuditEvent({
@@ -1328,7 +1362,7 @@ export function createPreventiveSlice(set: StoreSet, get: StoreGet): PreventiveS
         entityType: 'PREVENTIVE_TASK',
         entityId: 'ALL',
         before: { tasksCount: prevCount, executionsCount: prevExecCount },
-        after: { tasksCount: 0, executionsCount: 0 },
+        after: { tasksCount: 0, executionsCount: 0, cbmRulesCount: 0 },
       });
       return { cancelled: false, clearedCount: prevCount };
     },

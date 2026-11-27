@@ -4,32 +4,35 @@ groupId: 03-preventive-meters
 groupTitle: Maintenance Préventive & Compteurs (Meter PM)
 docType: architecture
 audience: developer
-title: Architecture & Logique Métier — Groupe Maintenance Préventive & Compteurs (Meter PM)
-summary: Spécification d'ingénierie du moteur préventif hybride (Calendrier 52 semaines + Compteurs Horomètres/Cycles), mémoire temporelle immuable (PreventiveExecution), contrôle Maker-Checker et tournées Système Général.
+title: Architecture & Logique Métier — Groupe Maintenance Préventive, Compteurs & CBM (v5.1.2)
+summary: Spécification d'ingénierie du moteur préventif hybride (Calendrier 52S + Compteurs Meter PM + CBM Terrain), mémoire temporelle immuable (PreventiveExecution), analytique de charge techniciens, gouvernance Maker-Checker vs SOLO_DIRECT et isolation RBAC.
 relatedTabs:
   - preventive
   - preventive_referentiel
 ---
 
-# Architecture & Logique Métier — Groupe 03 : Maintenance Préventive & Compteurs (`Meter PM`)
+# Architecture & Logique Métier — Groupe 03 : Maintenance Préventive, Compteurs & CBM (`v5.1.2`)
 
-## 1. Philosophie du Moteur Préventif Hybride (Temps + Usage)
+## 1. Philosophie du Moteur Préventif Hybride (Temps + Usage + Conditionnel)
 
-Dans **CIOB GMAO Nexus v5.0.2**, la maintenance préventive dépasse la simple grille statique. Elle combine deux dimensions complémentaires au sein d'un moteur unifié :
+Dans **CIOB GMAO Nexus v5.1.2**, la maintenance préventive unifie trois moteurs complémentaires sur un **SSOT** unique (`useGmaoStore.ts` + `DataGateway.ts`) :
 
-1. **Maintenance Systématique Calendaire (`CALENDRIER`)** : Cadencée sur une matrice annuelle de **52 semaines (`S1` à `S52`)** et **12 mois**, avec fréquences normalisées (`Hebdomadaire`, `Mensuel`, `Trimestriel`, `Semestriel`, `Annuel`) et mode de récurrence `FIXE` ou `GLISSANT`.
-2. **Maintenance Conditionnelle par Compteurs (`COMPTEUR` / `HYBRIDE`)** : Pilotée par l'usage réel de l'équipement (`Heures` d'horomètre, `Cycles` de presse/moule, ou `Km` d'engins) via `src/application/services/meter/MeterService.ts` et `STORAGE_KEYS.METER_READINGS`.
+1. **Maintenance Systématique Calendaire (`CALENDRIER`)** : Cadencée sur une matrice annuelle de **52 semaines (`S1` à `S52`)**, une grille journalière (`J1..J31`) et un calendrier mensuel, avec fréquences normalisées (`Hebdomadaire`, `Mensuel`, `Trimestriel`, `Semestriel`, `Annuel`) et mode de récurrence `FIXE` ou `GLISSANT` (`preventiveScheduleEngine.ts`).
+2. **Maintenance par Compteurs (`COMPTEUR` / `HYBRIDE`)** : Pilotée par l'usage réel de l'équipement (`Heures`, `Cycles`, `Km`) via `src/application/services/meter/MeterService.ts` et `STORAGE_KEYS.METER_READINGS`.
+3. **Maintenance Conditionnelle Terrain (`CBM Manuel`)** : Pilotée par relevés physiques manuels (`protocol: 'MANUEL'`) via `src/domain/preventive/cbmTelemetryService.ts` et `STORAGE_KEYS.CBM_MANUAL_RULES`, avec validation des bornes physiques, hystérésis `HIGH_BAD` / `LOW_BAD` et génération dédupliquée de DI corrective en cas de dépassement `CRITICAL`.
 
 ---
 
-## 2. Mémoire Temporelle Immuable (`ExecutionService.ts` & `PREVENTIVE_EXECUTIONS`)
+## 2. Mémoire Temporelle Immuable & Cohérence de Cycle (`ExecutionService.ts` & `preventiveSlice.ts`)
 
-### 2.1 Pourquoi séparer `PreventiveTask` et `PreventiveExecution` ?
-- **`STORAGE_KEYS.PREVENTIVE_TASKS` (`tasks`)** : Représente la *définition de la gamme* planifiée sur la machine (organe, code action AFNOR, fréquence, prochain seuil compteur, état courant).
-- **`STORAGE_KEYS.PREVENTIVE_EXECUTIONS` (`executions`)** : Représente le **journal historique immuable** de chaque exécution datée (`executedAt`, `periodMonth: 'YYYY-MM'`, `periodWeek: 'SXX'`, `executorName`, `durationMinutes`, `laborRate`, `sparesUsed`, `sparesCost`, `totalCost`, `hasAnomaly`).
+### 2.1 Séparation `PreventiveTask` vs `PreventiveExecution`
+- **`STORAGE_KEYS.PREVENTIVE_TASKS` (`tasks`)** : Définition de la gamme planifiée sur une machine active (organe, code action AFNOR, fréquence, `pdr_requises` / `pdr_ref`, prochain seuil compteur, `responsable`, état courant).
+- **`STORAGE_KEYS.PREVENTIVE_EXECUTIONS` (`executions`)** : Journal historique immuable de chaque exécution datée (`executedAt`, `periodMonth: 'YYYY-MM'`, `periodWeek: 'SXX'`, `executorName`, `durationMinutes`, `laborRate`, `sparesUsed`, `sparesCost`, `totalCost`, `validation_status`, `hasAnomaly`).
+- **Recalcul d'état à la suppression (`handleDeletePreventiveExecution`) :** supprimer une exécution invalide recalcule automatiquement `derniere_realisation` et `etat` sur la tâche parente à partir des exécutions restantes (retour à `'À faire'` et `''` si aucune exécution ne subsiste).
+- **Nettoyage Usine Réelle (`handleClearPreventiveForRealFactory`) :** purge l'ensemble des collections préventives canoniques **ainsi que** `STORAGE_KEYS.CBM_MANUAL_RULES` (`[]`), garantissant `0` règle fantôme.
 
-### 2.2 Formules de Coût d'Exécution Préventive (`ExecutionService.recordExecution`)
-Lorsqu'une tâche préventive est exécutée et validée :
+### 2.2 Formules de Coût & Analytique (`ExecutionService.ts` & `preventiveAnalyticsEngine.ts`)
+Lorsqu'une exécution préventive est validée (devise dynamique via `useCurrency()`) :
 
 $$\text{Coût Main-d'Œuvre} = \left(\frac{\text{durationMinutes}}{60}\right) \times \text{laborRate}$$
 
@@ -37,57 +40,66 @@ $$\text{Coût PDR} = \sum_{i} \left(\text{qty}_i \times \text{unitPrice}_i\right
 
 $$\text{Coût Total Exécution} = \text{Coût Main-d'Œuvre} + \text{Coût PDR}$$
 
+Le moteur pur `computePreventiveAnalytics` (`src/domain/preventive/preventiveAnalyticsEngine.ts`) calcule également **`techniciansStats: TechnicianWorkloadStat[]`** (tâches assignées, terminées, en retard, taux de conformité, exécutions approuvées, temps cumulé en minutes et coût total par technicien), exploitable aussi bien en `TEAM_FULL` qu'en `SOLO_EXPERT`.
+
 ---
 
-## 3. Mathématiques des Compteurs & Horomètres (`MeterService.ts`)
+## 3. Mathématiques des Compteurs (`MeterService.ts`) & Seuils CBM (`cbmTelemetryService.ts`)
 
-### 3.1 Évaluation de Déclenchement (`MeterService.evaluateTaskTrigger`)
-Pour toute tâche ayant `type_declencheur === 'COMPTEUR' | 'HYBRIDE'` ou `compteur_seuil_intervalle > 0` :
+### 3.1 Évaluation de Déclenchement Compteur (`MeterService.evaluateTaskTrigger`)
+Pour toute tâche `COMPTEUR` / `HYBRIDE` ou `compteur_seuil_intervalle > 0` :
 - **Intervalle ($\Delta_{\text{seuil}}$)** : `interval = Number(task.compteur_seuil_intervalle || 500)`
-- **Dernier déclenchement ($C_{\text{last}}$)** : `lastTrigger = Number(task.compteur_dernier_declenchement || 0)`
 - **Prochain seuil cible ($C_{\text{target}}$)** :
   $$C_{\text{target}} = \text{task.compteur\_prochain\_declenchement} \ ?? \ (C_{\text{last}} + \Delta_{\text{seuil}})$$
-- **Marge d'alerte anticipée ($M_{\text{warn}}$)** : `margin = Number(task.compteur_marge_alerte || Math.round(interval * 0.1))` (par défaut **10% de l'intervalle**).
-- **Reliquat avant échéance ($R$)** :
-  $$R = C_{\text{target}} - C_{\text{actuel}}$$
-- **États déterministes** :
-  - **`isOverdue = true` (Échue / En retard)** si $R \le 0$ ($C_{\text{actuel}} \ge C_{\text{target}}$).
-  - **`isWarning = true` (Approche du seuil)** si $0 < R \le M_{\text{warn}}$.
-  - **Progression (%)** :
-    $$\text{percentProgress} = \min\left(100,\ \max\left(0,\ \text{round}\left(\frac{C_{\text{actuel}} - C_{\text{last}}}{\Delta_{\text{seuil}}} \times 100\right)\right)\right)$$
+- **Marge d'alerte ($M_{\text{warn}}$)** : `Math.round(interval * 0.1)` par défaut (10 %).
+- **Reliquat ($R = C_{\text{target}} - C_{\text{actuel}}$)** : `isOverdue` si $R \le 0$ ; `isWarning` si $0 < R \le M_{\text{warn}}$.
+- À chaque exécution validée au relevé $C_{\text{exec}}$, `advanceTaskCounterOnExecution` décale $C_{\text{last}} \leftarrow C_{\text{exec}}$ et $C_{\text{target}} \leftarrow C_{\text{exec}} + \Delta_{\text{seuil}}$.
 
-### 3.2 Avancement Automatique du Seuil après Exécution (`MeterService.advanceTaskCounterOnExecution`)
-Lorsqu'une tâche compteur est exécutée au relevé $C_{\text{exec}}$ :
-- $C_{\text{last}} \leftarrow C_{\text{exec}}$
-- $C_{\text{target}} \leftarrow C_{\text{exec}} + \Delta_{\text{seuil}}$
-- L'état de la tâche est réarmé pour le prochain cycle sans jamais perdre la trace de l'exécution précédente dans `PREVENTIVE_EXECUTIONS`.
+### 3.2 Validation & Hystérésis CBM Terrain (`cbmTelemetryService.ts`)
+- **`validateCbmRuleThresholds`** interdit les seuils non numériques, hors bornes physiques `[minPhysicalBound..maxPhysicalBound]`, ou inversés (`warning >= critical` en `HIGH_BAD`, `warning <= critical` en `LOW_BAD`).
+- **`evaluateSensorTelemetry`** applique une bande morte d'hystérésis (`± hyst`) pour éviter le battement d'alarmes et classe les lectures hors plage en `OUT_OF_RANGE_FAULT` sans fausse DI.
+- **`ingestTelemetryPayload`** déduplique les DI ouvertes pour le même capteur/machine, formate `≤` / *« Chute critique »* en `LOW_BAD` (et `≥` / *« Dépassement critique »* en `HIGH_BAD`), et attribue explicitement `demandeur: Relevé CBM Terrain (<operatorName>)`.
 
 ---
 
-## 4. Gouvernance Maker-Checker & Intégrité du Stock (`VAL-1..VAL-5`)
+## 4. Gouvernance `TEAM_MAKER_CHECKER` vs `SOLO_DIRECT` & Contrats UI
 
-1. **Exécution par un Technicien (`isTechnicianRole(user) === true`)** :
-   - L'exécution est enregistrée avec `validation_status: 'PENDING_VALIDATION'`, `sparesProposed: parsedSpares`, `sparesUsed: []`, et `stock_deducted: false`.
-   - **Aucun mouvement de sortie magasin n'est émis immédiatement** : les quantités proposées sont réservées via `computeReservedStockMap` jusqu'à la revue du superviseur.
-2. **Approbation par le Responsable (`handleReviewPreventiveExecution` dans `useGmaoStore.ts`)** :
-   - Dès que le superviseur approuve (`APPROVED`), le système vérifie le stock disponible, émet les mouvements `Sortie` (`MVT-PRV`), passe `stock_deducted: true`, et inscrit un événement **`VALIDATION_APPROVED`** dans `STORAGE_KEYS.AUDIT_EVENTS`.
-3. **Boucle Préventif $\rightarrow$ Correctif (`hasAnomaly` / `createFollowUpDi`)** :
-   - Si le technicien coche **« Anomalie détectée lors de la visite »**, une **Demande d'Intervention Corrective (`DI`)** est générée et liée à la machine pour traitement curatif.
+1. **Mode `TEAM_FULL` (`TEAM_MAKER_CHECKER`, `VAL-1..VAL-5`) :**
+   - Une exécution par un `TECHNICIEN` passe obligatoirement en `PENDING_VALIDATION` (`stock_deducted: false`), réservant les PDR via `computeReservedStockMap` jusqu'à approbation superviseur (`VALIDATION_APPROVED` dans `AUDIT_EVENTS`).
+2. **Mode `SOLO_EXPERT` (`SOLO_DIRECT`, fail-closed) :**
+   - `isSoloDirectAllowedForActor(role)` autorise l'exécution directe **uniquement** pour un `ADMIN` vérifié (`executionMode: 'SOLO_DIRECT'` tracé dans `AUDIT_EVENTS`).
+   - Projection d'interface via `useWorkspaceProfile()` :
+     - `showFinance === false` masque les KPI/colonnes/exports financiers (`Coût`, `P.U`), remplace la carte Coût d'Analytics par **Charge Horaire Préventive**, et conserve le tableau **Charge & Performance par Technicien**.
+     - `showBlueprintsInPrimaryNav === false` masque les filtres et sections Blueprint dans `TabMainView` et `TabPlanBuilder` sans altérer le SSOT.
+     - Dans `PreventiveExecutionsHistoryView`, les pastilles et la colonne Maker-Checker sont masquées en `SOLO_DIRECT` dès que `pendingCount === 0 && clarificationCount === 0`.
+3. **Contrat `taskHasRequiredPdr` (`PreventiveWeeklyCockpit.tsx`) :**
+   - Inspecte `pdr_requises`, `pdr_ref` et l'ancien alias `pieces_requises` afin d'empêcher la validation 1-clic de contourner la déclaration et la déduction des pièces prescrites.
 
 ---
 
-## 5. Sécurité RBAC & Cartographie des Fichiers
+## 5. Sécurité RBAC (`AuthorizationService`), Isolation R4 & Cartographie
 
-| Permission / Action | `OPERATOR` | `TECHNICIAN` | `MANAGER` | `ADMIN` |
-| :--- | :---: | :---: | :---: | :---: |
-| Exécuter une tâche / Saisir un relevé compteur (`preventive.execute`) | Non | **Oui** | **Oui** | **Oui** |
-| Créer/Modifier des Plans, Guides & Actions (`preventive.manage`) | Non | Non | **Oui** | **Oui** |
-| Approuver une exécution `PENDING_VALIDATION` (`validation.approve`) | Non | Non | **Oui** | **Oui** |
+| Permission / Action | `VIEWER` | `OPERATOR` | `TECHNICIAN` | `MANAGER` | `ADMIN` |
+| :--- | :---: | :---: | :---: | :---: | :---: |
+| Consulter planning & compteurs (`preventive.view`) | **Oui (RO)** | Non | **Périmètre R4** | **Oui** | **Oui** |
+| Exécuter tâches, relevés compteurs & CBM (`preventive.execute`) | Non | Non | **Oui (`PENDING_VALIDATION`)** | **Oui** | **Oui** |
+| Créer/Éditer/Supprimer Plans, Tâches, Guides, Actions, Règles CBM (`preventive.manage`) | Non | Non | Non | **Oui** | **Oui** |
+| Approuver exécutions `PENDING_VALIDATION` (`validation.approve`) | Non | Non | Non | **Oui** | **Oui** |
+
+- **Isolation `R4` (`scopedTasks`) :** `TabMainView` transmet strictement `tasks={scopedTasks}`, `canExecutePreventive` et `canManagePreventive` à `PreventiveMetersView` et `CbmIoTSensorPanel` — aucune fuite de tâches hors périmètre ni de boutons d'écriture pour `VIEWER`.
+- **Codes AFNOR socles protégés :** `TabActions.tsx` protège `C`, `N`, `G`, `V` contre toute suppression en vue grille et tableau.
 
 | Fichier Source | Rôle Architectural |
 | :--- | :--- |
-| `src/presentation/pages/preventive/PreventiveView.tsx` | Cockpit principal (6 vues : Matrice 52S, Par Machine, Calendrier, Liste, Analytique, Compteurs). |
-| `src/presentation/pages/preventive/components/PreventiveMetersView.tsx` | Suivi temps réel des horomètres, barres de progression vers seuils et Tournée d'Atelier groupée. |
-| `src/presentation/pages/preventive/PreventiveSecondaryView.tsx` | Ingénierie préventive : Concepteur de Plans (`TabPlanBuilder`), Guides Organes (`TabGuide`), Catalogue Actions AFNOR (`TabActions`). |
-| `src/application/services/preventive/ExecutionService.ts` | Enregistrement immuable des exécutions (`PREVENTIVE_EXECUTIONS`) et calcul des coûts MO + PDR. |
-| `src/application/services/meter/MeterService.ts` | Moteur mathématique des compteurs (`evaluateTaskTrigger`, `recordReading`, `advanceTaskCounterOnExecution`). |
+| `src/presentation/pages/preventive/PreventiveView.tsx` | Conteneur principal, modales Formules & Philosophie, câblage `handleUpdateTask` & `useCurrency`. |
+| `src/presentation/pages/preventive/components/TabMainView.tsx` | Orchestrateur des 4 espaces consolidés, isolation `scopedTasks`, édition/suppression tâches, export Type B. |
+| `src/presentation/pages/preventive/components/PreventiveWeeklyCockpit.tsx` | File prioritaire hebdomadaire, filtre technicien, garde `taskHasRequiredPdr`, bouton `OT`. |
+| `src/presentation/pages/preventive/components/PreventiveMetersView.tsx` | Horomètres, Tournée d'Atelier avec attribution technicien, RBAC et intégration CBM. |
+| `src/presentation/pages/preventive/components/CbmIoTSensorPanel.tsx` | Relevés conditionnels terrain (`MANUEL`), validation seuils, génération DI dédupliquée, RBAC. |
+| `src/presentation/pages/preventive/components/PreventiveAnalyticsView.tsx` | KPI dynamiques, ponctualité `OTCR`, `Charge & Performance par Technicien`, projection `SOLO_EXPERT`. |
+| `src/presentation/pages/preventive/components/PreventiveExecutionsHistoryView.tsx` | Historique immuable, filtre technicien, validation Maker-Checker, projection `SOLO_EXPERT`. |
+| `src/presentation/pages/preventive/components/PrintWorkOrderModal.tsx` | Impression `OT` PDF, résolution `pdr_requises`, checklist `LOTO`, lignes terrain vierges. |
+| `src/presentation/pages/preventive/PreventiveSecondaryView.tsx` | Atelier `#preventive_referentiel` (`TabPlanBuilder`, `TabGuide`, `TabActions`) gardé par `preventive.manage`. |
+| `src/domain/preventive/cbmTelemetryService.ts` | Validation seuils, évaluation hystérésis `HIGH_BAD`/`LOW_BAD` et construction DI CBM. |
+| `src/domain/preventive/preventiveAnalyticsEngine.ts` | Moteur analytique pur (`computePreventiveAnalytics`, `techniciansStats`). |
+| `src/store/slices/preventiveSlice.ts` | Store Zustand SSOT, rollback exécution, purge usine incluant `CBM_MANUAL_RULES`. |
