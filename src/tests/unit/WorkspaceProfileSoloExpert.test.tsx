@@ -382,6 +382,7 @@ describe('SOLO-EXPERT-P1 — Workspace Operating Modes, Fail-Closed SOLO_DIRECT 
     expect(badge?.textContent).toContain('TEAM_FULL');
     expect(soloSection?.textContent).toContain('Parc Machines');
     expect(soloSection?.textContent).toContain('Entrepôt');
+    expect(soloSection?.textContent).toContain('Zones, Équipe Terrain & Utilités');
 
     // Switch to SOLO_EXPERT
     React.act(() => {
@@ -394,6 +395,9 @@ describe('SOLO-EXPERT-P1 — Workspace Operating Modes, Fail-Closed SOLO_DIRECT 
       'settings_workspace_modes',
       'machines',
       'entrepot',
+      'zones',
+      'utilisateurs',
+      'equipment',
       'corrective_bt',
       'preventive',
       'sortie',

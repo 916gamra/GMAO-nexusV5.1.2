@@ -220,6 +220,11 @@ describe('Group 03 (Entrepôt — Components & Parts) Audit & SOLO_EXPERT Parity
         setSelectedDetails={vi.fn()}
         handleOpenEditModal={vi.fn()}
         setToDelete={vi.fn()}
+        onNavigateToFamily={vi.fn()}
+        onNavigateToTemplate={vi.fn()}
+        onNavigateToMachine={vi.fn()}
+        onNavigateToZone={vi.fn()}
+        handleOpenAddModal={vi.fn()}
       />
     );
     expect(container.textContent).toContain('Tech One');
@@ -239,6 +244,11 @@ describe('Group 03 (Entrepôt — Components & Parts) Audit & SOLO_EXPERT Parity
         setSelectedDetails={vi.fn()}
         handleOpenEditModal={vi.fn()}
         setToDelete={vi.fn()}
+        onNavigateToFamily={vi.fn()}
+        onNavigateToTemplate={vi.fn()}
+        onNavigateToMachine={vi.fn()}
+        onNavigateToZone={vi.fn()}
+        handleOpenAddModal={vi.fn()}
       />
     );
     expect(container.textContent).not.toContain('Tech One');

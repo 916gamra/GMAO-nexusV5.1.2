@@ -45,13 +45,13 @@ Toutes les équipes de maintenance ne travaillent pas avec la même organisation
 - **Avantage principal :** Contrôle interne rigoureux et séparation claire des responsabilités.
 
 ### 2. Solo Expert (`SOLO_EXPERT`) — *Actif & Basculable*
-- **Pour qui ?** Ingénieur maintenance terrain ou technicien expert qui pilote et exécute l'ensemble de la maintenance par lui-même.
+- **Pour qui ?** Ingénieur maintenance terrain ou chef d'atelier autonome qui pilote seul la GMAO (tout en pouvant coordonner des techniciens de terrain).
 - **Ce qu'il offre :**
   - **Exécution directe (`SOLO_DIRECT`) :** en tant qu'administrateur unique, vous créez, exécutez et clôturez directement vos interventions correctives/préventives et sorties de pièces sans étape de double validation artificielle.
-  - **Interface centrée terrain :** les pages *Finance*, *Inventaire Magasin complet*, *Centre de Validation*, *Gestion d'équipe* et *Blueprints Machine* sont masquées par défaut pour épurer le menu.
-  - **Tout le cœur technique reste actif :** Parc Machines complet (**Familles ➔ Templates ➔ Machines Registered** dans le même ordre hiérarchique), Passeport 360° (avec **ajout direct de Composants / Parts / PDR sans Blueprint requis**), Préventif & Compteurs, Correctif complet (`DI`, `BT`, `Live`, `Besoins d'achat`, `Atelier Mécanique BR/RECT`, `Clôture`, `Pareto`), Entrepôt Organes & Pièces, et Journal de retrait rapide (`Sortie Rapide`).
-  - **Affichage à la carte :** 4 interrupteurs dédiés permettent de réafficher individuellement la Finance, le Stock Magasin, les Blueprints ou la Gestion d'équipe si besoin.
-- **Avantage principal :** Toute la puissance analytique et technique de CIOB GMAO Nexus, avec la rapidité d'un outil pensé pour une seule personne sur le terrain.
+  - **Interface centrée terrain :** les pages *Finance*, *Inventaire Magasin complet*, *Centre de Validation* et *Blueprints Machine* sont masquées par défaut, tandis que les comptes de connexion multi-utilisateurs sont masqués dans `#utilisateurs` (qui reste visible en mode **Équipe Terrain & Techniciens**).
+  - **Tout le cœur technique & les référentiels d'usine restent actifs :** Parc Machines complet (**Familles ➔ Templates ➔ Machines Registered** dans le même ordre hiérarchique), Passeport 360° (avec **ajout direct de Composants / Parts / PDR sans Blueprint requis**), **Zones & Ateliers (`#zones`)**, **Équipe Terrain & Techniciens (`#utilisateurs` — annuaire, charge & transfert en 1 clic)**, **Équipements & Système Général (`#equipment`)**, Préventif & Compteurs, Correctif complet (`DI`, `BT`, `Live`, `Besoins d'achat`, `Atelier Mécanique BR/RECT`, `Clôture`, `Pareto`), Entrepôt Organes & Pièces (4 niveaux), et Journal de retrait rapide (`Sortie Rapide`).
+  - **Affichage à la carte :** 4 interrupteurs dédiés permettent de réafficher individuellement la Finance, le Stock Magasin, les Blueprints ou les Comptes & Accès Multi-Utilisateurs (`showTeamManagement`) si besoin.
+- **Avantage principal :** Toute la puissance analytique et technique de CIOB GMAO Nexus, avec la rapidité d'un outil pensé pour un pilote unique sur le terrain.
 
 ### 3. Solo Light (`SOLO_LIGHT`) — *Bientôt disponible (Verrouillé)*
 - **Statut actuel :** Visible dans les paramètres pour préparer la feuille de route, mais **volontairement verrouillé** tant que son ergonomie simplifiée n'est pas finalisée.
@@ -65,8 +65,9 @@ Toutes les équipes de maintenance ne travaillent pas avec la même organisation
 | :--- | :---: | :---: | :---: |
 | **Disponibilité** | ✅ Actif (Défaut) | ✅ Actif (Basculable) | 🔒 En conception |
 | **Validation croisée (`Maker-Checker`)** | Obligatoire | Exécution directe (`ADMIN`) | Non requise (prévu) |
-| **Machines (`Familles ➔ Templates ➔ Machines`)** | ✅ Complet + Blueprints | ✅ Même hiérarchie (sans Blueprint) + BOM directe 360° | Simplifié (prévu) |
+| **Machines (`Familles ➔ Templates ➔ Machines`)** | ✅ Complet + Blueprints | ✅ Même hiérarchie (sans Blueprint) + BOM directe 360° + Tech optionnel | Simplifié (prévu) |
 | **Entrepôt Organes & Parts (4 Niveaux)** | ✅ 7 écrans + Responsable + Coûts | ✅ Mêmes 7 écrans (sans Responsable ni coûts) | Optionnel (prévu) |
+| **Zones, Équipe Terrain & Utilités (`#zones`, `#utilisateurs`, `#equipment`)** | ✅ Complets + Comptes RBAC + Coûts 12m | ✅ **Tous visibles** : Zones (heures d'arrêt), Équipe Terrain (charge + transfert 1 clic, sans multi-comptes) & Utilités (sans coûts, Tech optionnel) | Simplifié (prévu) |
 | **Correctif (`DI / BT / Atelier / Besoins`)** | ✅ Complet | ✅ Complet (Exécution directe) | Simplifié (prévu) |
 | **Préventif & Compteurs** | ✅ Complet | ✅ Complet (Exécution directe) | Simplifié (prévu) |
 | **Journal de retrait PDR (`Sortie Rapide`)** | ✅ Actif | ✅ Actif | Simplifié (prévu) |
@@ -82,22 +83,26 @@ Toutes les équipes de maintenance ne travaillent pas avec la même organisation
 3. Repérez la carte **Modes d'Exploitation & Profil d'Espace de Travail**.
 4. Cliquez sur **Activer Solo Expert** (ou **Activer Équipe Complète** pour revenir au mode initial).
 5. Un badge discret **SOLO EXPERT** apparaît alors dans la barre supérieure pour vous rappeler le mode actif ; cliquez dessus à tout moment pour revenir rapidement au réglage.
-6. Si vous souhaitez conserver un module habituellement masqué (par exemple les *Blueprints* ou *Stock Articles*), cochez simplement son interrupteur dans **Projection Modulaire de la Navigation**.
+6. Si vous souhaitez conserver un module habituellement masqué (par exemple les *Blueprints*, *Stock Articles* ou *Comptes Multi-Utilisateurs*), cochez simplement son interrupteur dans **Projection Modulaire de la Navigation**.
 
 ---
 
-## 5. Mode d'Emploi Pas-à-Pas en `SOLO_EXPERT` (Parc Machines & Entrepôt)
+## 5. Mode d'Emploi Pas-à-Pas en `SOLO_EXPERT` (Parc Machines, Entrepôt & Zones/Équipements)
 
 Voici l'ordre logique recommandé pour exploiter toute la puissance technique du mode **Solo Expert** dès le premier jour :
 
-1. **Structurer votre Parc Machines (`#families` ➔ `#templates` ➔ `#machines`) :**
+1. **Structurer vos Zones, votre Équipe Terrain et vos Utilités (`#zones` ➔ `#utilisateurs` ➔ `#equipment`) :**
+   - Créez vos **Zones & Ateliers** (`#zones`) : le Cockpit suit les zones critiques, les zones sans technicien et les **heures d'arrêt 12m** (sans bruit financier).
+   - Référencez vos intervenants dans **Équipe Terrain & Techniciens (`#utilisateurs`)** : vous pilotez leurs fiches, leur charge réelle (`Surchargés`) et le **Transfert de Charge en 1 clic (`⇄`)** sans avoir à gérer de mots de passe ni de comptes multi-utilisateurs.
+   - Enregistrez vos compresseurs, chaudières, groupes électrogènes et organes HSE dans **Équipements & Système Général (`#equipment`)** avec Cockpit Utilités, **Pilotage Rapide** et Passeport 360° (le Technicien reste optionnel et les montants financiers sont masqués).
+2. **Structurer votre Parc Machines (`#families` ➔ `#templates` ➔ `#machines`) :**
    - Créez vos **Familles** (`FAM-01`), puis vos **Modèles / Templates** (`TPL-RCF100`), puis enregistrez vos **Machines Physiques** (`RCF100-01`).
-   - Les champs *Blueprint*, *Technicien* et *Coût d'arrêt horaire* sont masqués automatiquement pour accélérer la saisie.
+   - Les champs *Blueprint* et *Coût d'arrêt horaire* sont masqués automatiquement ; le **Technicien** reste optionnel si vous souhaitez assigner vos intervenants terrain.
    - Ouvrez le **Passeport 360°** d'une machine ➔ onglet **Organes & BOM** pour attacher directement ses `Components`, `Parts` et `PDR` sans avoir à créer de Blueprint.
-2. **Construire votre Entrepôt Technique (`#comp_groups`..`#comp_templates`, `#part_groups`..`#part_designations`, `#entrepot`) :**
+3. **Construire votre Entrepôt Technique (`#comp_groups`..`#comp_templates`, `#part_groups`..`#part_designations`, `#entrepot`) :**
    - Conservez exactement la même **double hiérarchie à 4 niveaux** qu'en mode Équipe Complète :
      - **Components :** `Groupes Organes ➔ Familles Organes ➔ Modèles Organes ➔ Entrepôt`
      - **Parts :** `Groupes Parts ➔ Types Parts ➔ Désignations Parts ➔ Entrepôt`
-   - Dans **Entrepôt (`#entrepot`)**, la colonne *Responsable* et les sélecteurs de techniciens disparaissent (chaque mouvement rapide est automatiquement attribué à votre profil actif), et la fiche détaillée affiche la **Santé Technique `/100`** sans montants financiers.
-3. **Exécuter vos Interventions & Retraits en Direct (`#corrective_bt`, `#preventive`, `#sortie`) :**
+   - Dans **Entrepôt (`#entrepot`)**, la colonne *Responsable* et les montants financiers sont masqués ; la **Santé Technique `/100`** et l'archivage sécurisé restent pleinement actifs.
+4. **Exécuter vos Interventions & Retraits en Direct (`#corrective_bt`, `#preventive`, `#sortie`) :**
    - Créez et clôturez vos **BT Correctifs**, travaux d'**Atelier Mécanique (`BR / RECT`)**, **Tâches Préventives** et **Sorties Rapides PDR** directement sans file d'attente de validation, tout en conservant le journal d'audit complet et les garde-fous `LOTO`.

@@ -194,9 +194,9 @@ const MODULE_ROADMAP: RoadmapGroupMeta[] = [
       en: 'Governance, Finance, Reports & Maker-Checker Validation',
     },
     description: {
-      fr: 'Tableau de bord exécutif, budgets & TCO, rapports vacation et direction, centre de validation Maker-Checker, utilisateurs RBAC, zones et équipements du Système Général.',
-      ar: 'لوحة القيادة التنفيذية، الميزانيات وTCO، تقارير الورديات والإدارة، مركز المصادقة، المستخدمون RBAC، المناطق والتجهيزات العامة.',
-      en: 'Executive dashboard, budgets & TCO, shift & executive reports, Maker-Checker validation center, RBAC users, zones, and General System assets.',
+      fr: 'Tableau de bord exécutif, budgets & TCO, rapports, validation Maker-Checker, et référentiels d’usine actifs en TEAM_FULL & SOLO_EXPERT : Zones & Ateliers (Cockpit), Utilisateurs / Équipe Terrain (charge & transfert 1 clic) et Équipements Système Général (Pilotage Rapide).',
+      ar: 'لوحة القيادة التنفيذية، الميزانيات وTCO، التقارير، مركز المصادقة، ومراجع المصنع النشطة في TEAM_FULL وSOLO_EXPERT: المناطق والورشات، المستخدمون/فريق الميدان (الحمولة والتحويل بنقرة) والتجهيزات العامة.',
+      en: 'Executive dashboard, budgets & TCO, reports, Maker-Checker validation, and plant references active in TEAM_FULL & SOLO_EXPERT: Zones & Workshops (Cockpit), Users / Field Team (workload & 1-click handover), and General System Equipment.',
     },
     icon: BarChart3,
     tabs: [
@@ -1367,10 +1367,10 @@ export default function GuideView({ onNavigateToTab }: GuideViewProps) {
                   </div>
                   <p className="text-[11.5px] text-slate-600 mt-0.5 leading-relaxed">
                     {langKey === 'ar'
-                      ? 'وضع Solo Expert مصمم لمهندس الصيانة الميداني المستقل: تنفيذ مباشر (SOLO_DIRECT) بدون مصادقة مزدوجة، إخفاء واجهات المالية/المخزن/الفريق وBlueprints مع الحفاظ الكامل على هرمية Parc Machines وEntrepôt (4 مستويات).'
+                      ? 'وضع Solo Expert مصمم لمهندس الصيانة الميداني المستقل: تنفيذ مباشر (SOLO_DIRECT) بدون مصادقة مزدوجة، إخفاء المالية/المخزن/حسابات الدخول المتعددة وBlueprints مع إبقاء Parc Machines وEntrepôt (4 مستويات) ومجموعة Zones وÉquipe Terrain والتجهيزات العامة نشطة بالكامل.'
                       : langKey === 'en'
-                      ? 'Solo Expert is built for autonomous field engineers: direct execution (SOLO_DIRECT) without dual approval, Finance/Stock/Team & Blueprints hidden by default, while keeping Machine Fleet and Entrepôt 4-level hierarchies 100% intact.'
-                      : 'Pensé pour l’ingénieur maintenance autonome : exécution directe (SOLO_DIRECT) sans double validation, interfaces Finance/Magasin/Équipe et Blueprints masquées par défaut, tout en conservant à l’identique la hiérarchie Parc Machines et les 4 niveaux de l’Entrepôt.'}
+                      ? 'Solo Expert is built for autonomous field engineers: direct execution (SOLO_DIRECT) without dual approval, Finance/Stock/Multi-account Auth & Blueprints hidden by default, while keeping Machine Fleet, Entrepôt (4 levels), Zones, Field Technicians Directory, and General System Equipment active.'
+                      : 'Pensé pour l’ingénieur maintenance autonome : exécution directe (SOLO_DIRECT) sans double validation, Finance/Magasin/Comptes multi-utilisateurs et Blueprints masqués par défaut, tout en gardant actifs Parc Machines, Entrepôt (4 niveaux), Zones, Équipe Terrain & Utilités.'}
                   </p>
                 </div>
               </div>
@@ -1392,7 +1392,7 @@ export default function GuideView({ onNavigateToTab }: GuideViewProps) {
               </button>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-2.5 text-[11.5px]">
+            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-2.5 text-[11.5px]">
               <div className="p-3 rounded-xl bg-white/90 border border-slate-200/80 space-y-1">
                 <div className="font-black text-slate-900 flex items-center gap-1.5">
                   <Factory className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
@@ -1406,10 +1406,10 @@ export default function GuideView({ onNavigateToTab }: GuideViewProps) {
                 </div>
                 <p className="text-slate-600 leading-relaxed">
                   {langKey === 'ar'
-                    ? 'نفس الترتيب الهرمي (Familles ➔ Templates ➔ Machines). يتم إخفاء Blueprints والتقني وتكلفة التوقف، مع إتاحة ربط Components/Parts/PDR مباشرة من تبويب BOM داخل Passeport 360°.'
+                    ? 'نفس الترتيب الهرمي (Familles ➔ Templates ➔ Machines). تُخفى Blueprints والتكاليف المالية ويبقى تعيين التقني اختيارياً، مع ربط Components/Parts/PDR مباشرة في Passeport 360°.'
                     : langKey === 'en'
-                    ? 'Same hierarchy (Families ➔ Templates ➔ Machines). Blueprints, Technician & Downtime Cost are hidden; attach Components/Parts/PDR directly in Passport 360° BOM tab.'
-                    : 'Même hiérarchie (Familles ➔ Templates ➔ Machines). Blueprints, Technicien et Coût d’arrêt sont masqués ; ajout direct de Components/Parts/PDR dans le Passeport 360° (onglet BOM).'}
+                    ? 'Same hierarchy (Families ➔ Templates ➔ Machines). Blueprints & financial costs are hidden while Technician assignment stays optional; attach Components/Parts/PDR directly in Passport 360° BOM.'
+                    : 'Même hiérarchie (Familles ➔ Templates ➔ Machines). Blueprints et coûts financiers sont masqués, le Technicien reste optionnel ; ajout direct de Components/Parts/PDR dans le Passeport 360° (BOM).'}
                 </p>
               </div>
 
@@ -1435,21 +1435,41 @@ export default function GuideView({ onNavigateToTab }: GuideViewProps) {
 
               <div className="p-3 rounded-xl bg-white/90 border border-slate-200/80 space-y-1">
                 <div className="font-black text-slate-900 flex items-center gap-1.5">
-                  <Settings className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                  <UserCheck className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
                   <span>
                     {langKey === 'ar'
-                      ? '3. التبديل الآمن والتحكم الجزئي'
+                      ? '3. المناطق وفريق الميدان والتجهيزات'
                       : langKey === 'en'
-                      ? '3. Reversible Switch & Modular Toggles'
-                      : '3. Bascule Réversible & Interrupteurs'}
+                      ? '3. Zones, Field Team & Utilities'
+                      : '3. Zones, Équipe Terrain & Utilités'}
                   </span>
                 </div>
                 <p className="text-slate-600 leading-relaxed">
                   {langKey === 'ar'
-                    ? 'من Paramètres ➔ Sécurité & Comptes يمكنك التبديل بين TEAM_FULL وSOLO_EXPERT دون فقدان أي بيانات، أو إعادة إظهار أي وحدة (Blueprints، Finance، Stock، Équipe) بشكل فردي.'
+                    ? 'المناطق (#zones) تعرض ساعات التوقف 12m؛ #utilisateurs يبقى ظاهراً كدليل لفريق الميدان (الحمولة والتحويل بنقرة بدون حسابات دخول)؛ و#equipment يدير المرافق بالتوجيه السريع بدون تكاليف.'
                     : langKey === 'en'
-                    ? 'Switch between TEAM_FULL and SOLO_EXPERT anytime in Settings ➔ Security & Accounts with zero data loss, or re-enable Blueprints, Finance, Stock, or Team individually.'
-                    : 'Basculez entre TEAM_FULL et SOLO_EXPERT dans Paramètres ➔ Sécurité & Comptes sans aucune perte de données, ou réactivez à la carte Blueprints, Finance, Stock ou Équipe.'}
+                    ? 'Zones (#zones) tracks 12m downtime hours; #utilisateurs stays visible as Field Team directory (workload & 1-click handover, no multi-login controls); #equipment manages utilities with Quick Edit and optional Technician.'
+                    : 'Zones (#zones) suit les arrêts 12m (h) ; #utilisateurs reste visible en mode Équipe Terrain (charge & transfert 1 clic, sans multi-comptes) ; #equipment pilote les utilités en Pilotage Rapide sans coûts.'}
+                </p>
+              </div>
+
+              <div className="p-3 rounded-xl bg-white/90 border border-slate-200/80 space-y-1">
+                <div className="font-black text-slate-900 flex items-center gap-1.5">
+                  <Settings className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                  <span>
+                    {langKey === 'ar'
+                      ? '4. التبديل الآمن والتحكم الجزئي'
+                      : langKey === 'en'
+                      ? '4. Reversible Switch & Modular Toggles'
+                      : '4. Bascule Réversible & Interrupteurs'}
+                  </span>
+                </div>
+                <p className="text-slate-600 leading-relaxed">
+                  {langKey === 'ar'
+                    ? 'من Paramètres ➔ Sécurité & Comptes يمكنك التبديل بين TEAM_FULL وSOLO_EXPERT دون فقدان أي بيانات، أو إعادة إظهار أي وحدة (Blueprints، Finance، Stock، Comptes Multi-Utilisateurs) بشكل فردي.'
+                    : langKey === 'en'
+                    ? 'Switch between TEAM_FULL and SOLO_EXPERT anytime in Settings ➔ Security & Accounts with zero data loss, or re-enable Blueprints, Finance, Stock, or Multi-User Accounts individually.'
+                    : 'Basculez entre TEAM_FULL et SOLO_EXPERT dans Paramètres ➔ Sécurité & Comptes sans aucune perte de données, ou réactivez à la carte Blueprints, Finance, Stock ou Comptes Multi-Utilisateurs.'}
                 </p>
               </div>
             </div>

@@ -30,6 +30,7 @@ export function useAppComplexHandlers({
   setFamilies,
   templates = [],
   setTemplates,
+  compGroups = [],
   setCompGroups,
   compFamilies = [],
   setCompFamilies,

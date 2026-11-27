@@ -17,6 +17,13 @@ import { I18nProvider } from '../../i18n/I18nContext';
 import AuthContext from '../../context/AuthContext';
 import AddMachineModal from '../../presentation/pages/machines/AddMachineModal';
 import { BlueprintFormModal } from '../../presentation/pages/machines/components/BlueprintModals';
+import type {
+  BlueprintComponentItem,
+  BlueprintPartItem,
+  BlueprintPreventiveDraft,
+  BlueprintCommonFailureDraft,
+} from '../../presentation/pages/machines/components/BlueprintInspectModal';
+import type { BlueprintPdrItem } from '../../core/domain';
 import MachinePassport360Modal from '../../presentation/pages/machines/components/MachinePassport360Modal';
 import { MachinesRegisteredModals } from '../../presentation/pages/machines/components/MachinesRegisteredModals';
 import MachineQrFieldModal from '../../presentation/pages/machines/components/MachineQrFieldModal';
@@ -266,23 +273,35 @@ describe('Group 02 (Parc Machines) — Audit Fixes, Multi-Currency & SOLO_EXPERT
         preventivePlanItems: [],
         commonFailures: [],
       });
-      const [newCompItem, setNewCompItem] = React.useState({ id_comp: '', qte: 1 });
-      const [newPartItem, setNewPartItem] = React.useState({ id_part: '', qte: 1 });
-      const [newPdrItem, setNewPdrItem] = React.useState({ ref_pdr: '', qte: 1 });
-      const [newPreventiveItem, setNewPreventiveItem] = React.useState({
+      const [newCompItem, setNewCompItem] = React.useState<BlueprintComponentItem>({
+        id_component: '',
+        qte: 1,
+      });
+      const [newPartItem, setNewPartItem] = React.useState<BlueprintPartItem>({
+        id_part: '',
+        qte: 1,
+      });
+      const [newPdrItem, setNewPdrItem] = React.useState<BlueprintPdrItem>({
+        id_pdr: '',
+        qte: 1,
+      });
+      const [newPreventiveItem, setNewPreventiveItem] = React.useState<BlueprintPreventiveDraft>({
         composant: '',
         action_code: 'I',
         frequence: 'Mensuelle',
-        duree_estimee: '30',
-        consigne: '',
-        criticality: 'NORMAL',
-      });
-      const [newCommonFailureItem, setNewCommonFailureItem] = React.useState({
-        title: '',
+        duree_min: 30,
         description: '',
-        suggestedWork: '',
-        severity: 'MEDIUM',
+        pdr_ref: '',
       });
+      const [newCommonFailureItem, setNewCommonFailureItem] =
+        React.useState<BlueprintCommonFailureDraft>({
+          title: '',
+          type_panne: '',
+          urgence: 'Moyenne',
+          recommended_action: '',
+          description: '',
+          pdr_ref: '',
+        });
 
       return (
         <BlueprintFormModal
@@ -309,7 +328,7 @@ describe('Group 02 (Parc Machines) — Audit Fixes, Multi-Currency & SOLO_EXPERT
           editModalTemplates={[]}
           compTemplates={[{ id_templates: 'COMP-MOT-15', libelle: 'Moteur Triphasé 15kW' }]}
           partTypes={[{ id_type: 'PT-ARBRE', libelle: 'Arbre Transmission' }]}
-          partDesignations={[{ id_part: 'PD-01', designation: 'Pignon Hélicoïdal Z24' }]}
+          partDesignations={[{ id_part_designation: 'PD-01', libelle: 'Pignon Hélicoïdal Z24' }]}
           machines={[]}
           stockItems={[]}
           preventiveActions={[]}
@@ -408,7 +427,7 @@ describe('Group 02 (Parc Machines) — Audit Fixes, Multi-Currency & SOLO_EXPERT
     expect(saved.parts_theoriques[0].libelle).toBe('Arbre Transmission');
   });
 
-  it('adapts MachinePassport360Modal (Overview, BOM & Corrective) to active currency in TEAM_FULL and hides finance/team/blueprint in SOLO_EXPERT while keeping Family/Template', () => {
+  it('adapts MachinePassport360Modal (Overview, BOM & Corrective) to active currency in TEAM_FULL and hides finance/blueprint in SOLO_EXPERT while keeping Family/Template and optional Technician', () => {
     const machine = {
       id_machine_registered: 'MCH-FIN-01',
       designation: 'Extrudeuse Principale',
@@ -472,7 +491,7 @@ describe('Group 02 (Parc Machines) — Audit Fixes, Multi-Currency & SOLO_EXPERT
     expect(container.textContent).toContain('€');
     expect(container.textContent).not.toMatch(/\bDH\b/);
 
-    // 2. SOLO_EXPERT -> financial, team & Blueprint chip hidden, Family & Template preserved
+    // 2. SOLO_EXPERT -> financial & Blueprint chip hidden; Family, Template & assigned Technician preserved
     React.act(() => {
       applyWorkspacePreset('SOLO_EXPERT');
       root.render(
@@ -491,9 +510,10 @@ describe('Group 02 (Parc Machines) — Audit Fixes, Multi-Currency & SOLO_EXPERT
     expect(container.textContent).toContain('Extrudeuses');
     expect(container.textContent).toContain('Template Modèle (Tier 1)');
     expect(container.textContent).toContain('Extrudeuse Bi-Vis');
+    expect(container.textContent).toContain('Technicien Assigné');
+    expect(container.textContent).toContain('Youssef (TECH-01)');
     expect(container.textContent).not.toContain('Coût Maintenance');
     expect(container.textContent).not.toContain('Valeur d\'Acquisition (RAV)');
-    expect(container.textContent).not.toContain('Technicien Assigné');
 
     // Tab 3 BOM in SOLO_EXPERT -> Blueprint chip hidden
     const bomTabBtn = Array.from(container.querySelectorAll('button')).find((b) =>

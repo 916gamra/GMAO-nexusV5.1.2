@@ -497,6 +497,33 @@ export const SOLO_EXPERT_QUICK_TRACK: readonly RoleQuickTrackStep[] = [
     },
   },
   {
+    tabId: 'zones',
+    groupId: '06-pilotage-gouvernance',
+    label: {
+      fr: 'Zones & Ateliers (Cockpit Arrêts)',
+      ar: 'المناطق والورشات (لوحة التوقفات)',
+      en: 'Zones & Workshops (Downtime Cockpit)',
+    },
+  },
+  {
+    tabId: 'utilisateurs',
+    groupId: '06-pilotage-gouvernance',
+    label: {
+      fr: 'Équipe Terrain & Techniciens (Charge & Transfert)',
+      ar: 'فريق الميدان والتقنيون (الحمولة والتحويل)',
+      en: 'Field Team & Technicians (Workload & Handover)',
+    },
+  },
+  {
+    tabId: 'equipment',
+    groupId: '06-pilotage-gouvernance',
+    label: {
+      fr: 'Équipements & Utilités (Système Général)',
+      ar: 'التجهيزات والمرافق (النظام العام)',
+      en: 'Utilities & General System Equipment',
+    },
+  },
+  {
     tabId: 'corrective_bt',
     groupId: '04-corrective-di-bt',
     label: {

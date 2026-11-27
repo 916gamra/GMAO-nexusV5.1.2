@@ -6,7 +6,7 @@ docType: architecture
 audience: developer
 tabId: equipment
 title: Spécification Technique — Équipements & Système Général (Utilités & Infrastructure)
-summary: Architecture du référentiel dédié aux équipements du Système Général (SYSTEM_GENERAL). Partage du SSOT STORAGE_KEYS.MACHINES, gouvernance exclusive de création/édition hors Parc Production, codification séquentielle par type d'utilité et Safe Archive.
+summary: Architecture du référentiel SYSTEM_GENERAL : partage SSOT STORAGE_KEYS.MACHINES, moteur analytique ZoneEquipmentPhaseCService (Cockpit & Pilotage Rapide), normalisation canonique des statuts, Passeport 360° avec garde BOM, Safe Archive et projection SOLO_EXPERT.
 relatedTabs:
   - equipment
   - machines
@@ -18,64 +18,87 @@ relatedTabs:
 # 💻 Spécification Développeur : Équipements & Système Général (`#equipment`)
 
 > **Public :** Développeurs Backend/Frontend, Architectes Logiciels & Modèles IA.  
-> **Composant source :** `src/presentation/pages/equipment/EquipmentView.tsx`  
-> **Utilitaires domaine :** `src/utils/activeMachines.ts` (`getMachineAssetClass`, `transitionMachineLifecycle`), `src/presentation/pages/machines/AddMachineModal.tsx` (`generateSystemGeneralCode`)  
-> **Clés SSOT :** `STORAGE_KEYS.MACHINES` (`gmao_machines_v2`), `STORAGE_KEYS.GENERAL_SYSTEM_TYPES` (`gmao_general_system_types_v1`).
+> **Composants sources :** `src/presentation/pages/equipment/EquipmentView.tsx`, `src/presentation/pages/equipment/components/EquipmentModals.tsx`  
+> **Services domaine :** `src/application/services/ZoneEquipmentPhaseCService.ts` (`computeEquipmentCockpitMetrics`, `buildQuickEditEquipmentUpdates`, `normalizeCanonicalEquipStatus`), `src/application/services/MachineHealthPassportService.ts`, `src/utils/activeMachines.ts`  
+> **Clés SSOT :** `STORAGE_KEYS.MACHINES` (`gmao_machines_v2`), `STORAGE_KEYS.GENERAL_SYSTEM_TYPES` (`gmao_general_system_types_v1`), `STORAGE_KEYS.AUDIT_EVENTS`.
 
 ---
 
-## 1. Philosophie Architecturale : SSOT Unique & Séparation Stricte d'Interface
+## 1. Philosophie Architecturale : SSOT Unique & Frontière d'Édition Stricte
 
-Dans **CIOB GMAO Nexus v5.0.2**, les utilités industrielles et équipements d'infrastructure (compresseurs d'air, groupes électrogènes, centrales incendie, refroidisseurs, postes HT/BT) appartiennent à la classe **`asset_class: 'SYSTEM_GENERAL'`**.
+Les utilités industrielles et équipements d'infrastructure portent le discriminant **`asset_class: 'SYSTEM_GENERAL'`** au sein de `STORAGE_KEYS.MACHINES` :
 
-### Pourquoi partager `STORAGE_KEYS.MACHINES` tout en isolant l'écran `#equipment` ?
-1. **Unicité du Référentiel Actifs (Zéro Table Dupliquée) :**
-   - Tous les moteurs transverses de la GMAO (`PreventiveService`, `MeterService`, `WorkOrderStateMachine`, `IncrementalStockIndex` / imputations magasin, `MachineHealthPassportService`) résolvent les équipements via `filterActiveMachines(machines)`.
-   - En stockant les équipements `SYSTEM_GENERAL` dans `STORAGE_KEYS.MACHINES` avec `asset_class: 'SYSTEM_GENERAL'`, ils bénéficient nativement des gammes préventives, des relevés d'horomètres, des Bons de Travail (`DI/BT`) et du calcul de `TCO` sans aucune duplication de clé étrangère.
-2. **Séparation Stricte du Cycle de Création/Édition (`EQUIPMENT-PAGE-P0`) :**
-   - Une machine de **`PRODUCTION`** exige la pyramide **Tier 1 (`Family` $\rightarrow$ `Template`) $\rightarrow$ Tier 3 (`Blueprint`)** et figure dans l'arborescence **`Nexus`**.
-   - Un équipement **`SYSTEM_GENERAL`** est classé par **Type d'Utilité (`id_general_system_type`)** sans `Family` ni `Template` de production (`id_family: ''`, `id_templates: ''`, `asset_level: 'MACHINE'`, `parent_id: null`).
-   - **Règle d'Or UI :** L'écran `EquipmentView.tsx` (`#equipment`) est le **seul point d'entrée autorisé** pour créer, modifier, archiver/restaurer les équipements `SYSTEM_GENERAL` et gérer le catalogue `GENERAL_SYSTEM_TYPES`. L'écran `MachinesRegisteredView.tsx` (`#machines`) peut les afficher en consultation mais redirige toute demande de création ou d'édition `SYSTEM_GENERAL` vers `#equipment`.
+1. **Zéro Table Dupliquée :** tous les moteurs transverses (`PreventiveService`, `MeterService`, `WorkOrderStateMachine`, `IncrementalStockIndex`, `MachineHealthPassportService`, `ZoneOperationalAnalyticsService`) résolvent les utilités via `filterActiveMachines(machines)` sans dupliquer de clés étrangères.
+2. **Séparation Stricte `EQUIPMENT-PAGE-P0` :**
+   - `EquipmentView.tsx` (`#equipment`) est l'**unique point d'entrée autorisé** pour créer, modifier, archiver/restaurer les équipements `SYSTEM_GENERAL` et gérer `GENERAL_SYSTEM_TYPES`.
+   - `MachinesRegisteredView.tsx` (`#machines`) peut les afficher en consultation mais redirige toute création/édition vers `#equipment` via la clé transitoire `gmao_equipment_focus_id` dans `localStorage`.
+   - Un équipement `SYSTEM_GENERAL` conserve strictement `id_family: ''`, `id_templates: ''`, `asset_level: 'MACHINE'`, `parent_id: null` et ne peut pas recevoir d'éléments BOM Tier 2 (`isSystemGeneralMachine()` guard dans `MachinePassport360Modal` et le store).
 
 ---
 
-## 2. Modèle de Données & Passerelle de Focus Inter-Écrans
-
-### 2.1 Structure d'un Équipement `SYSTEM_GENERAL` dans `machines`
+## 2. Modèle de Données & Normalisation de Statut
 
 ```typescript
 export interface SystemGeneralEquipmentRecord {
   id_machine_registered: string;   // Code séquentiel généré par type (ex. 'AIR-01', 'SEC-02')
-  designation: string;             // Libellé complet (ex. 'Compresseur Vis Atlas Copco GA55')
-  asset_class: 'SYSTEM_GENERAL';   // Discriminant canonique lu par getMachineAssetClass()
-  id_general_system_type: string;  // FK vers STORAGE_KEYS.GENERAL_SYSTEM_TYPES (ex. 'AIR')
-  id_family: '';                   // Toujours vide (pas de famille de production)
-  id_templates: '';                // Toujours vide (pas de template constructeur de ligne)
-  asset_level: 'MACHINE';          // Toujours un actif unitaire
-  parent_id: null;                 // Hors regroupement de ligne de production
-  id_zone_default: string;         // FK vers STORAGE_KEYS.ZONES (localisation physique)
-  technician: string;              // FK vers STORAGE_KEYS.TECHNICIENS (responsable titulaire)
-  serial_number: string;           // Numéro de série constructeur
-  date_mise_en_service: string;    // Date ISO YYYY-MM-DD
-  compteur_heures: number;         // Valeur actuelle du compteur
+  designation: string;
+  asset_class: 'SYSTEM_GENERAL';   // Discriminant lu par getMachineAssetClass()
+  id_general_system_type: string;  // FK vers STORAGE_KEYS.GENERAL_SYSTEM_TYPES
+  id_family: '';
+  id_templates: '';
+  asset_level: 'MACHINE';
+  parent_id: null;
+  id_zone_default: string;         // FK vers STORAGE_KEYS.ZONES
+  technician: string;              // FK vers STORAGE_KEYS.TECHNICIENS (optionnel en SOLO_EXPERT)
+  serial_number: string;
+  date_mise_en_service: string;
+  compteur_heures: number;
   compteur_unite_defaut: 'HEURES' | 'CYCLES' | 'TONNES' | 'KM';
-  status: 'En Service' | 'En Maintenance' | 'En Panne' | 'Arrêt' | 'ARCHIVEE';
+  regime_travail: '1x8' | '2x8' | '3x8';
+  cout_arret_horaire: number;
+  valeur_acquisition: number;
+  status: 'En Service' | 'En Maintenance' | "À l'Arrêt" | 'ARCHIVEE';
   is_active: boolean;
 }
 ```
 
-### 2.2 Redirection Contextuelle depuis `MachinesRegisteredView` (`gmao_equipment_focus_id`)
-Lorsqu'un utilisateur clique sur **« Gérer dans Système Général »** sur une ligne `SYSTEM_GENERAL` dans `MachinesRegisteredView.tsx` :
-1. `onNavigateToEquipment(machineId)` inscrit temporairement l'identifiant dans `localStorage.setItem('gmao_equipment_focus_id', machineId)` et bascule le routeur sur l'onglet `'equipment'`.
-2. Au montage de `EquipmentView.tsx`, un `useEffect` consomme et supprime `gmao_equipment_focus_id`, pré-filtre la grille sur cet équipement, adapte automatiquement le filtre de statut (`ARCHIVEE` si l'équipement est archivé) et met la ligne en surbrillance visuelle.
+- `normalizeCanonicalEquipStatus(raw)` (`ZoneEquipmentPhaseCService.ts`) unifie toutes les variantes historiques (`En Panne`, `Hors Service`, `Arrêt`, `Stopped`, `Inactive`) vers les 3 statuts actifs canoniques (`En Service`, `En Maintenance`, `À l'Arrêt`).
 
 ---
 
-## 3. Contrôle d'Accès (`RBAC`) & Intégrité Référentielle (`Safe Archive`)
+## 3. Moteur Cockpit & Mode Pilotage Rapide (`ZoneEquipmentPhaseCService.ts`)
 
-1. **Permissions dédiées dans `AuthorizationService.tsx` :**
-   - `equipment.view` : Consultation du parc `SYSTEM_GENERAL` (accordé à tous les rôles authentifiés).
-   - `equipment.create`, `equipment.edit`, `equipment.delete` : Création, modification et archivage des utilités et types de système.
-2. **Protection `Safe Archive` :**
-   - Avant toute suppression (`handleDeleteMachine`), `EquipmentView.tsx` interroge `dataIntegrityService.getMachineDependencies(id, state)`.
-   - Si l'équipement possède des bons de travail, des exécutions préventives ou des mouvements de stock liés, la suppression destructive est bloquée au profit d'une transition `transitionMachineLifecycle(equip, 'ARCHIVED')` enregistrée dans `AUDIT_EVENTS`.
+### 3.1 `computeEquipmentCockpitMetrics`
+Agrège en une passe sur les actifs `SYSTEM_GENERAL` :
+- `stoppedOrMaintCount` et `activeHourlyLossDh` (somme des `cout_arret_horaire` des utilités arrêtées/en maintenance).
+- `badActorsCount` et `badActorsEconomicImpact12m` (basés sur `computeMachineHealthPassport`).
+- `maintDueCount` et `totalOpenBtsCount` (BT ouverts non rejetés + tâches PM actives non réalisées).
+- `incompleteSetupCount` paramétré dynamiquement par le profil d'espace de travail :
+  ```typescript
+  const isIncompleteSetup =
+    !archived &&
+    (missingZone ||
+      (requireTechnician && missingTechnician) ||
+      (requireHourlyCost && missingHourlyCost));
+  ```
+
+### 3.2 `buildQuickEditEquipmentUpdates`
+Calcule le différentiel minimal des lignes modifiées en mode **Pilotage Rapide (`quickEditMode`)** :
+- Ignore les équipements archivés et les lignes non modifiées.
+- Synchronise `status` + `statut`, `technician`, `regime_travail` et `cout_arret_horaire` via `handleUpdateMachine` lors du clic sur `Enregistrer (N)`.
+
+---
+
+## 4. Projection `TEAM_FULL` vs `SOLO_EXPERT`, RBAC & Safe Archive
+
+1. **Visibilité & Projection `SOLO_EXPERT` :**
+   - `isTabVisibleInWorkspace('equipment', profile)` retourne **`true`** dans tous les modes.
+   - `EquipmentView.tsx` lit `showFinance = workspaceProfile.moduleVisibility.showFinance` et `showTeamManagement = workspaceProfile.moduleVisibility.showTeamManagement` :
+     - Passe `requireHourlyCost: showFinance` et `requireTechnician: showTeamManagement` à `computeEquipmentCockpitMetrics`.
+     - Réinitialise automatiquement `sortField` de `'tco'` vers `'id_machine_registered'` si `showFinance` passe à `false`.
+     - Masque `cout_arret_horaire`, `valeur_acquisition`, `TCO Maint. 12m`, la perte horaire du Cockpit et les colonnes monétaires de `exportTypeBWorkbook` lorsque `showFinance === false`.
+     - Conserve le sélecteur de technicien (création/édition + Pilotage Rapide) aligné sur l'annuaire `#utilisateurs`.
+2. **Permissions RBAC (`AuthorizationService.tsx`) :**
+   - `equipment.view` pour la lecture ; `equipment.create` / `equipment.edit` / `equipment.delete` (avec fallback compatible `machine.*`) pour l'écriture.
+3. **Safe Archive :**
+   - Avant suppression, `dataIntegrityService.getMachineDependencies(id, state)` vérifie la présence de BT, PM, mouvements ou sorties externes. Toute dépendance bloque la destruction au profit de `transitionMachineLifecycle(equip, 'ARCHIVED')` consigné dans `AUDIT_EVENTS`.

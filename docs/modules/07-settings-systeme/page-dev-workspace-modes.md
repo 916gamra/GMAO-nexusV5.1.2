@@ -50,15 +50,15 @@ export interface WorkspaceModuleVisibility {
 
 La projection agit **uniquement sur la couche de présentation** (`FloatingSidebar.tsx`, `MobileSidebarDrawer.tsx`, `Header.tsx`, `appearanceBootstrap.ts`) sans jamais supprimer de route dans `AppRouter` ni altérer le store Zustand :
 
-| Drapeau | Onglets projetés / masqués |
+| Drapeau | Onglets / contrôles projetés ou masqués |
 | :--- | :--- |
-| `moduleVisibility.showFinance === false` | `finance` |
-| `moduleVisibility.showStockInventory === false` | `stock` (`sortie` et les catalogues `pdr_groups`, `types`, `designations` restent accessibles) |
-| `moduleVisibility.showBlueprintsInPrimaryNav === false` | `blueprints` uniquement (`families`, `templates`, `machines` et `nexus` restent **toujours** visibles dans le même ordre hiérarchique) |
-| `moduleVisibility.showTeamManagement === false` | `utilisateurs` |
-| `governanceMode === 'SOLO_DIRECT'` | `validation_center` + `canViewMakerCheckerValidation()` retourne `false` |
+| `moduleVisibility.showFinance === false` | Masque `finance` dans la navigation + masque coûts/TCO/pertes horaires dans `ZonesView`, `EquipmentView`, `MachinesRegisteredView`, `MachinePassport360Modal` et `Entrepôt` (`requireHourlyCost: false`). |
+| `moduleVisibility.showStockInventory === false` | Masque `stock` (`sortie` et les catalogues `pdr_groups`, `types`, `designations` restent accessibles). |
+| `moduleVisibility.showBlueprintsInPrimaryNav === false` | Masque `blueprints` uniquement (`families`, `templates`, `machines` et `nexus` restent **toujours** visibles dans le même ordre hiérarchique). |
+| `moduleVisibility.showTeamManagement === false` | **Ne masque PAS `#utilisateurs`** (`isTabVisibleInWorkspace('utilisateurs') === true`) : bascule `UtilisateursView` en mode **Équipe Terrain & Techniciens** (masque la colonne `Accès GMAO`, la modale mot de passe/RBAC, l'onboarding auth et les filtres `NO_ACCOUNT`/`NO_PASSWORD`/`DISABLED`) et rend le champ `Technicien` optionnel dans les alertes `Fiches Incomplètes` (`requireTechnician: false`). |
+| `governanceMode === 'SOLO_DIRECT'` | Masque `validation_center` + `canViewMakerCheckerValidation()` retourne `false`. |
 
-Lorsque le parent `Stock PDR` est cliqué dans `FloatingSidebar.tsx` en mode `SOLO_EXPERT`, `handleSelectParent` sélectionne le premier enfant autorisé **et** visible dans le profil actif (`sortie`) au lieu de forcer `stock`.
+Lorsque le parent `Stock PDR` est cliqué dans `FloatingSidebar.tsx` en mode `SOLO_EXPERT`, `handleSelectParent` sélectionne le premier enfant autorisé **et** visible dans le profil actif (`sortie`) au lieu de forcer `stock`. Les écrans `zones`, `utilisateurs` et `equipment` demeurent toujours visibles dans la navigation.
 
 ---
 
