@@ -1,6 +1,8 @@
 import { Factory, CheckCircle2, AlertTriangle, Activity } from 'lucide-react';
 import { useI18n } from '../../../../i18n/I18nContext';
 import { GmaoKpiCard, GmaoKpiGrid } from '../../../components/common/GmaoKpiCard';
+import { useCurrency } from '../../../../utils/currencyService';
+import { useWorkspaceProfile } from '../../../../core/workspace/workspaceProfile';
 
 export default function MachinesKPIBar({
   kpis = {},
@@ -8,6 +10,9 @@ export default function MachinesKPIBar({
   setStatusFilter,
 }: any) {
   const { t } = useI18n();
+  const { formatCurrency } = useCurrency();
+  const workspaceProfile = useWorkspaceProfile();
+  const { showFinance } = workspaceProfile.moduleVisibility;
 
   const total = Number(kpis.total) || 0;
   const archivees = Number(kpis.archivees) || 0;
@@ -15,6 +20,8 @@ export default function MachinesKPIBar({
   const enService = Number(kpis.enService) || 0;
   const stoppedCount = (Number(kpis.enMaintenance) || 0) + (Number(kpis.enArret) || 0);
   const availabilityRate = activeTotal > 0 ? Math.round((enService / activeTotal) * 100) : 0;
+  const totalRealInterventions = Number(kpis.totalRealInterventions ?? kpis.totalInterventions) || 0;
+  const totalStockSorties = Number(kpis.totalStockSorties) || 0;
 
   return (
     <GmaoKpiGrid id="machines-kpis-grid" columns={4}>
@@ -35,7 +42,7 @@ export default function MachinesKPIBar({
           { count: kpis.activeFamiliesCount || 0 }
         )}
         footerLabel="Parc actif :"
-        footerValue={archivees > 0 ? `${activeTotal} actives • ${archivees} archiv.` : 'Feuille Machines'}
+        footerValue={archivees > 0 ? `${activeTotal} actives • ${archivees} archiv.` : 'Référentiel Parc'}
       />
 
       {/* Card 2: En Service */}
@@ -77,23 +84,21 @@ export default function MachinesKPIBar({
         footerValue={stoppedCount > 0 ? 'Suivi prioritaire' : '0 arrêt'}
       />
 
-      {/* Card 4: Traçabilité Sorties / Interventions */}
+      {/* Card 4: Traçabilité Interventions (BT & PM) & Sorties PDR */}
       <GmaoKpiCard
         id="machines-kpi-interventions"
         title={t('machines.kpis.registered_interventions', 'Interventions Enregistrées')}
-        value={kpis.totalInterventions || 0}
-        unit="mouvements"
+        value={totalRealInterventions}
+        unit="BT & PM"
         icon={Activity}
         color="indigo"
         valueColored={true}
-        badgeText="Historique PDR & BT"
-        footerLabel="Impact 12 mois :"
+        badgeText={`${totalStockSorties} sorties PDR`}
+        footerLabel={showFinance ? 'Impact 12 mois :' : 'Consommations PDR :'}
         footerValue={
-          Number(kpis.totalEconomicImpact12m || 0) > 0
-            ? `${Number(kpis.totalEconomicImpact12m).toLocaleString('fr-FR', {
-                maximumFractionDigits: 0,
-              })} DH`
-            : 'Traçabilité PDR & BT'
+          showFinance && Number(kpis.totalEconomicImpact12m || 0) > 0
+            ? formatCurrency(Number(kpis.totalEconomicImpact12m), { decimals: 0 })
+            : `${totalStockSorties} sortie(s) stock`
         }
       />
     </GmaoKpiGrid>

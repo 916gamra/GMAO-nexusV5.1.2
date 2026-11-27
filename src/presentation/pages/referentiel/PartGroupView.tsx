@@ -22,7 +22,6 @@ import {
   Copy,
   Check,
   FileSpreadsheet,
-  FileText,
   Hash,
   Boxes,
   FolderTree,
@@ -37,6 +36,8 @@ import {
 } from 'lucide-react';
 import type { IPartGroup, IPartType, IPartDesignation, IWarehouseItem, MaterialPolicyTag } from '../../../types/domain';
 import { getGroupId, getGroupRecordId } from '../../../domain/stock/pdrHierarchyService';
+import { isWarehousePart } from '../../../core/domain/EntrepotItem';
+import { exportTypeBCsv } from '../../../utils/safeExcelExport';
 
 const POLICY_TAG_META: Record<
   MaterialPolicyTag,
@@ -64,7 +65,7 @@ export interface PartGroupViewProps {
   partTypes?: IPartType[];
   partDesignations?: IPartDesignation[];
   warehouseItems?: IWarehouseItem[];
-  onAddPartGroup?: (grp: IPartGroup) => void;
+  onAddPartGroup?: (grp: IPartGroup) => boolean | void;
   onUpdatePartGroup?: (id: string, grp: IPartGroup) => void;
   onDeletePartGroup?: (id: string) => void;
   onNavigateToPartTypesByGroup?: (groupId: string) => void;
@@ -139,10 +140,32 @@ export default function PartGroupView({
     return () => document.removeEventListener('mousedown', handleOutsideClick);
   }, []);
 
-  const handleCopyId = (idVal: string) => {
-    navigator.clipboard.writeText(idVal);
-    setCopiedId(idVal);
-    setTimeout(() => setCopiedId(null), 1800);
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [search, statusFilter, sortField, sortOrder]);
+
+  const handleCopyId = async (idVal: string) => {
+    try {
+      if (navigator?.clipboard?.writeText) {
+        await navigator.clipboard.writeText(idVal);
+      }
+      setCopiedId(idVal);
+      setTimeout(() => setCopiedId(null), 1800);
+    } catch {
+      // Ignore clipboard failures in restricted contexts
+    }
+  };
+
+  const getNextPartGroupIndex = () => {
+    let maxNum = 0;
+    (partGroups || []).forEach((g) => {
+      const m = String(g.id || g.id_group || g.id_groupe || '').match(/(\d+)$/);
+      if (m) {
+        const n = parseInt(m[1], 10);
+        if (n > maxNum) maxNum = n;
+      }
+    });
+    return Math.max(maxNum, (partGroups || []).length) + 1;
   };
 
   // Group stats: linked PartTypes (Niv 2), PartDesignations (Niv 3), and Warehouse PART items
@@ -176,9 +199,7 @@ export default function PartGroupView({
       });
 
       const linkedWhItems = safeWh.filter((w) => {
-        const n = String(w.nature || '').toUpperCase();
-        const isPart = n === 'PART' || n.includes('PART') || n.includes('PIECE') || n.includes('PIÈCE') || Boolean(w.id_type);
-        if (!isPart) return false;
+        if (!isWarehousePart(w)) return false;
         const wGrp = getGroupId(w);
         const wType = String(w.id_type || w.id_part_type || '');
         return (
@@ -315,11 +336,20 @@ export default function PartGroupView({
       return;
     }
 
+    const nextIdx = getNextPartGroupIndex();
     const autoId =
       form.id.trim().toUpperCase() ||
-      `GRP-PRT-${cleanCode}-${String((partGroups || []).length + 1).padStart(2, '0')}`;
+      `GRP-PRT-${cleanCode}-${String(nextIdx).padStart(2, '0')}`;
 
-    onAddPartGroup?.({
+    const duplicateId = (partGroups || []).some(
+      (g) => getGroupRecordId(g).toUpperCase() === autoId
+    );
+    if (duplicateId) {
+      setFormError(`L'ID groupe "${autoId}" existe déjà dans les Groupes Parts.`);
+      return;
+    }
+
+    const created = onAddPartGroup?.({
       id: autoId,
       id_group: autoId,
       code: cleanCode,
@@ -327,10 +357,11 @@ export default function PartGroupView({
       description: form.description.trim(),
       domaine_technique: form.domaine_technique.trim().toUpperCase() || undefined,
       default_policy_tags: form.default_policy_tags,
-      sort_order: Number(form.sort_order) || (partGroups || []).length + 1,
+      sort_order: Number(form.sort_order) || nextIdx,
       is_active: form.is_active !== false,
       created_at: new Date().toISOString().slice(0, 10),
     });
+    if (created === false) return;
 
     setShowAddModal(false);
     setFormError(null);
@@ -426,16 +457,11 @@ export default function PartGroupView({
         stats.itemsCount,
       ];
     });
-    const csvContent =
-      'data:text/csv;charset=utf-8,\uFEFF' +
-      [headers.join(';'), ...rows.map((e) => e.join(';'))].join('\n');
-    const encodedUri = encodeURI(csvContent);
-    const link = document.createElement('a');
-    link.setAttribute('href', encodedUri);
-    link.setAttribute('download', `groupes_parts_entrepot_${new Date().toISOString().slice(0, 10)}.csv`);
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+    exportTypeBCsv({
+      filename: `GMAO_Groupes_Parts_TypeB_${new Date().toISOString().slice(0, 10)}.csv`,
+      headers,
+      rows,
+    });
   };
 
   const groupColumns = useMemo(
@@ -803,7 +829,7 @@ export default function PartGroupView({
               icon={Boxes}
               showAddBadge={true}
               onClick={() => {
-                const nextIdx = (partGroups || []).length + 1;
+                const nextIdx = getNextPartGroupIndex();
                 setFormError(null);
                 setForm({
                   id: `GRP-PRT-${String(nextIdx).padStart(3, '0')}`,
@@ -853,7 +879,7 @@ export default function PartGroupView({
               title="Exporter les groupes parts vers CSV/Excel — Type B : Export externe (non réimportable)"
             >
               <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-600" />
-              <span>Export Excel</span>
+              <span>Export Excel (Type B)</span>
             </button>
 
             {(search || statusFilter !== 'ALL' || sortField !== 'code' || sortOrder !== 'asc') && (
@@ -1055,7 +1081,7 @@ export default function PartGroupView({
       {/* Modal: Add / Edit Group */}
       {(showAddModal || editingGroup) && (
         <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl border border-slate-200 shadow-2xl max-w-lg w-full p-6 space-y-5 animate-in fade-in zoom-in-95 duration-200">
+          <div className="bg-white rounded-2xl border border-slate-200 shadow-2xl max-w-lg w-full max-h-[90vh] overflow-y-auto p-6 space-y-5 animate-in fade-in zoom-in-95 duration-200">
             <div className="flex items-center justify-between pb-3 border-b border-slate-100">
               <div className="flex items-center gap-3">
                 <div className="w-9 h-9 rounded-xl bg-teal-50 border border-teal-200 flex items-center justify-center text-teal-700">

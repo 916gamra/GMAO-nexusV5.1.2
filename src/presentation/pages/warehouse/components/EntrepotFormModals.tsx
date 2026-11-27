@@ -5,6 +5,7 @@ import { LayersIcon } from '../../../components/common/icons/LayersIcon';
 import { isComponentNature, isPartNature } from '../../../../core/domain/EntrepotItem';
 import { filterProductionMachines, filterActiveMachines } from '../../../../utils/activeMachines';
 import { MaterialPolicyTag } from '../../../../types/domain';
+import { useWorkspaceProfile } from '../../../../core/workspace/workspaceProfile';
 
 export interface EntrepotFormModalsProps {
   showAddModal: boolean;
@@ -69,21 +70,26 @@ export const EntrepotFormModals: React.FC<EntrepotFormModalsProps> = ({
   activeTechnicians,
   t,
 }) => {
+  const workspaceProfile = useWorkspaceProfile();
+  const showTeamUi = workspaceProfile.moduleVisibility.showTeamManagement;
+
   return (
     <>
       {/* ADD MODAL (Dual Twin Architecture) */}
       {showAddModal && (
         <div className="fixed inset-0 z-50 bg-slate-900/45 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto animate-fadeIn">
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg border border-slate-200 overflow-hidden flex flex-col">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg border border-slate-200 overflow-hidden flex flex-col max-h-[90vh]">
             {/* Header */}
-            <div className="p-4 sm:p-5 border-b border-slate-200 flex items-center justify-between bg-white">
+            <div className="p-4 sm:p-5 border-b border-slate-200 flex items-center justify-between bg-white shrink-0">
               <div className="flex items-center gap-3">
                 <div className="w-9 h-9 rounded-xl bg-teal-50 border border-teal-200 flex items-center justify-center text-teal-700 font-bold">
                   <Plus className="w-4 h-4" />
                 </div>
                 <div>
                   <h3 className="font-bold text-sm text-slate-900">
-                    {t('entrepot.modal.add_component_title')}
+                    {isComponentNature(addForm.nature)
+                      ? t('entrepot.modal.add_component_title')
+                      : t('entrepot.buttons.add_part')}
                   </h3>
                   <p className="text-xs text-slate-500">
                     {t('entrepot.modal.nature')}
@@ -100,7 +106,7 @@ export const EntrepotFormModals: React.FC<EntrepotFormModalsProps> = ({
             </div>
 
             {/* Body */}
-            <form onSubmit={onSubmitAdd} className="p-4 sm:p-5 space-y-4 text-xs">
+            <form onSubmit={onSubmitAdd} className="p-4 sm:p-5 space-y-4 text-xs overflow-y-auto">
               {/* Nature Selector (Dual Twin Toggle) */}
               <div>
                 <label className="text-[11px] font-bold text-slate-700 block mb-1.5">
@@ -194,6 +200,7 @@ export const EntrepotFormModals: React.FC<EntrepotFormModalsProps> = ({
                         onChange={(e) => onAddFamilyChange(e.target.value)}
                         className="w-full h-8 px-2.5 rounded-lg border border-slate-200 bg-white text-xs font-medium focus:border-blue-500 outline-none"
                       >
+                        <option value="">-- {t('entrepot.modal.family')} --</option>
                         {families.map((f) => (
                           <option key={f.id_family} value={f.id_family}>
                             {f.libelle} ({f.id_family})
@@ -254,10 +261,11 @@ export const EntrepotFormModals: React.FC<EntrepotFormModalsProps> = ({
                         onClick={() => {
                           onCascadeFamilyPrefixUpdate(addForm.id_family, addForm.family_prefix);
                         }}
+                        title="Enregistre ce préfixe par défaut pour les futurs composants de cette famille (sans modifier les codes existants)."
                         className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold text-blue-800 bg-blue-100 hover:bg-blue-200 border border-blue-300 transition cursor-pointer"
                       >
                         <Zap className="w-3 h-3 text-blue-600" />
-                        <span>Mettre à jour</span>
+                        <span>Enregistrer préfixe</span>
                       </button>
                     )}
                   </div>
@@ -351,6 +359,7 @@ export const EntrepotFormModals: React.FC<EntrepotFormModalsProps> = ({
                         onChange={(e) => onAddTypeChange(e.target.value)}
                         className="w-full h-8 px-2.5 rounded-lg border border-slate-200 bg-white text-xs focus:border-indigo-500 outline-none font-semibold"
                       >
+                        <option value="">-- {t('entrepot.modal.type')} --</option>
                         {types.map((tObj) => (
                           <option key={tObj.id_type} value={tObj.id_type}>
                             {tObj.libelle} ({tObj.id_type})
@@ -575,25 +584,27 @@ export const EntrepotFormModals: React.FC<EntrepotFormModalsProps> = ({
                 </div>
               )}
 
-              {/* Responsable & Remarques */}
-              <div className="grid grid-cols-2 gap-2.5">
-                <div>
-                  <label className="text-[11px] font-bold text-slate-700 block mb-1">
-                    {t('entrepot.modal.responsible')}
-                  </label>
-                  <select
-                    value={addForm.technician}
-                    onChange={(e) => setAddForm({ ...addForm, technician: e.target.value })}
-                    className="w-full h-9 px-3 rounded-xl border border-slate-200 bg-white text-xs focus:border-teal-500 outline-none"
-                  >
-                    <option value="">-- {t('entrepot.modal.responsible')} --</option>
-                    {activeTechnicians.map((tech) => (
-                      <option key={tech.id_technician || tech.nom} value={tech.nom}>
-                        {tech.nom} ({tech.id_technician})
-                      </option>
-                    ))}
-                  </select>
-                </div>
+              {/* Responsable & Seuil */}
+              <div className={showTeamUi ? 'grid grid-cols-2 gap-2.5' : 'grid grid-cols-1 gap-2.5'}>
+                {showTeamUi && (
+                  <div>
+                    <label className="text-[11px] font-bold text-slate-700 block mb-1">
+                      {t('entrepot.modal.responsible')}
+                    </label>
+                    <select
+                      value={addForm.technician}
+                      onChange={(e) => setAddForm({ ...addForm, technician: e.target.value })}
+                      className="w-full h-9 px-3 rounded-xl border border-slate-200 bg-white text-xs focus:border-teal-500 outline-none"
+                    >
+                      <option value="">-- {t('entrepot.modal.responsible')} --</option>
+                      {activeTechnicians.map((tech) => (
+                        <option key={tech.id_technician || tech.nom} value={tech.nom}>
+                          {tech.nom} ({tech.id_technician})
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
                 <div>
                   <label className="text-[11px] font-bold text-slate-700 block mb-1">
                     {t('entrepot.modal.threshold')}
@@ -698,8 +709,8 @@ export const EntrepotFormModals: React.FC<EntrepotFormModalsProps> = ({
       {/* EDIT MODAL */}
       {toEdit && (
         <div className="fixed inset-0 z-50 bg-slate-900/45 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto animate-fadeIn">
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg border border-slate-200 overflow-hidden flex flex-col">
-            <div className="p-4 sm:p-5 border-b border-slate-200 flex items-center justify-between bg-white">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg border border-slate-200 overflow-hidden flex flex-col max-h-[90vh]">
+            <div className="p-4 sm:p-5 border-b border-slate-200 flex items-center justify-between bg-white shrink-0">
               <div className="flex items-center gap-3">
                 <div className="w-9 h-9 rounded-xl bg-blue-50 border border-blue-200 flex items-center justify-center text-blue-700 font-bold">
                   <Edit2 className="w-4 h-4" />
@@ -720,7 +731,7 @@ export const EntrepotFormModals: React.FC<EntrepotFormModalsProps> = ({
               </button>
             </div>
 
-            <form onSubmit={onSubmitEdit} className="p-4 sm:p-5 space-y-4 text-xs">
+            <form onSubmit={onSubmitEdit} className="p-4 sm:p-5 space-y-4 text-xs overflow-y-auto">
               <div>
                 <label className="text-[11px] font-bold text-slate-700 block mb-1">
                   {t('entrepot.modal.designation')} *
@@ -754,6 +765,7 @@ export const EntrepotFormModals: React.FC<EntrepotFormModalsProps> = ({
                       }}
                       className="w-full h-8 px-2.5 rounded-lg border border-slate-200 bg-white text-xs font-semibold focus:border-blue-500 outline-none"
                     >
+                      <option value="">-- {t('entrepot.modal.family')} --</option>
                       {families.map((f) => (
                         <option key={f.id_family} value={f.id_family}>
                           {f.libelle} ({f.id_family})
@@ -872,6 +884,7 @@ export const EntrepotFormModals: React.FC<EntrepotFormModalsProps> = ({
                       }}
                       className="w-full h-8 px-2.5 rounded-lg border border-slate-200 bg-white text-xs font-semibold focus:border-indigo-500 outline-none"
                     >
+                      <option value="">-- {t('entrepot.modal.type')} --</option>
                       {types.map((tObj) => (
                         <option key={tObj.id_type} value={tObj.id_type}>
                           {tObj.libelle} ({tObj.id_type})
@@ -1114,24 +1127,26 @@ export const EntrepotFormModals: React.FC<EntrepotFormModalsProps> = ({
                 </div>
               )}
 
-              <div className="grid grid-cols-2 gap-2.5">
-                <div>
-                  <label className="text-[11px] font-bold text-slate-700 block mb-1">
-                    {t('entrepot.modal.responsible')}
-                  </label>
-                  <select
-                    value={editForm.technician}
-                    onChange={(e) => setEditForm({ ...editForm, technician: e.target.value })}
-                    className="w-full h-9 px-3 rounded-xl border border-slate-200 bg-white text-xs focus:border-blue-500 outline-none"
-                  >
-                    <option value="">-- {t('entrepot.modal.responsible')} --</option>
-                    {activeTechnicians.map((tech) => (
-                      <option key={tech.id_technician || tech.nom} value={tech.nom}>
-                        {tech.nom} ({tech.id_technician})
-                      </option>
-                    ))}
-                  </select>
-                </div>
+              <div className={showTeamUi ? 'grid grid-cols-2 gap-2.5' : 'grid grid-cols-1 gap-2.5'}>
+                {showTeamUi && (
+                  <div>
+                    <label className="text-[11px] font-bold text-slate-700 block mb-1">
+                      {t('entrepot.modal.responsible')}
+                    </label>
+                    <select
+                      value={editForm.technician}
+                      onChange={(e) => setEditForm({ ...editForm, technician: e.target.value })}
+                      className="w-full h-9 px-3 rounded-xl border border-slate-200 bg-white text-xs focus:border-blue-500 outline-none"
+                    >
+                      <option value="">-- {t('entrepot.modal.responsible')} --</option>
+                      {activeTechnicians.map((tech) => (
+                        <option key={tech.id_technician || tech.nom} value={tech.nom}>
+                          {tech.nom} ({tech.id_technician})
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
                 <div>
                   <label className="text-[11px] font-bold text-slate-700 block mb-1">
                     {t('entrepot.modal.threshold')}

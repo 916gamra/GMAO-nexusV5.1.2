@@ -97,18 +97,18 @@ describe('SOLO-EXPERT-P1 — Workspace Operating Modes, Fail-Closed SOLO_DIRECT 
     expect(activated.profile.preset).toBe('SOLO_EXPERT');
     expect(activated.profile.governanceMode).toBe('SOLO_DIRECT');
 
-    // Verify navigation projection in SOLO_EXPERT
+    // Verify navigation projection in SOLO_EXPERT (only Blueprints is omitted in Group 02)
     expect(isTabVisibleInWorkspace('finance', activated.profile)).toBe(false);
     expect(isTabVisibleInWorkspace('stock', activated.profile)).toBe(false);
     expect(isTabVisibleInWorkspace('blueprints', activated.profile)).toBe(false);
-    expect(isTabVisibleInWorkspace('families', activated.profile)).toBe(false);
-    expect(isTabVisibleInWorkspace('templates', activated.profile)).toBe(false);
     expect(isTabVisibleInWorkspace('utilisateurs', activated.profile)).toBe(false);
     expect(isTabVisibleInWorkspace('validation_center', activated.profile)).toBe(false);
 
-    // Core field maintenance, withdrawal log & PDR catalogs remain visible
+    // Core field maintenance, Tier 1/Tier 2 Parc hierarchy (Families -> Templates -> Machines), withdrawal log & PDR catalogs remain visible
     expect(isTabVisibleInWorkspace('dashboard', activated.profile)).toBe(true);
     expect(isTabVisibleInWorkspace('machines', activated.profile)).toBe(true);
+    expect(isTabVisibleInWorkspace('families', activated.profile)).toBe(true);
+    expect(isTabVisibleInWorkspace('templates', activated.profile)).toBe(true);
     expect(isTabVisibleInWorkspace('preventive', activated.profile)).toBe(true);
     expect(isTabVisibleInWorkspace('corrective', activated.profile)).toBe(true);
     expect(isTabVisibleInWorkspace('entrepot', activated.profile)).toBe(true);

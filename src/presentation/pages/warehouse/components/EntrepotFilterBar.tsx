@@ -38,6 +38,7 @@ export interface EntrepotFilterBarProps {
   }>;
   activeFilters: Array<{ key: string; label: string; onRemove: () => void }>;
   activeWarehouseTab: 'COMPONENTS' | 'PARTS';
+  onTabSwitch: (tab: 'COMPONENTS' | 'PARTS') => void;
   localSearch: string;
   setLocalSearch: (val: string) => void;
   setWhSearch?: (val: string) => void;
@@ -74,12 +75,13 @@ export function EntrepotFilterBar({
   presets,
   activeFilters,
   activeWarehouseTab,
+  onTabSwitch,
   localSearch,
   setLocalSearch,
   setWhSearch,
   currentNatureFilter,
-  changeNatureFilter,
-  setActiveKpiFilter,
+  changeNatureFilter: _changeNatureFilter,
+  setActiveKpiFilter: _setActiveKpiFilter,
   currentPartGroupFilter,
   changePartGroupFilter,
   effectivePartGroups,
@@ -111,7 +113,7 @@ export function EntrepotFilterBar({
       hasActiveFilters={hasActiveFilters}
       onReset={onReset}
       onExportExcel={onExportExcel}
-      exportLabel={t('entrepot.filters.export_excel')}
+      exportLabel={`${t('entrepot.filters.export_excel')} (Type B)`}
       presets={presets}
       presetsLabel={t('entrepot.filters.status_label')}
       activeFilters={activeFilters}
@@ -140,18 +142,16 @@ export function EntrepotFilterBar({
         {/* 2. Nature Twin Filter (Col. B) */}
         <FilterField label={t('entrepot.modal.nature')} colBadge="Col. B" colBadgeColor="amber">
           <CustomSelect
-            value={currentNatureFilter}
+            value={activeWarehouseTab === 'PARTS' ? 'PART' : 'COMPONENT'}
             prefixIcon={
               <span className="w-5 h-5 rounded-md bg-amber-100 border border-amber-300/80 flex items-center justify-center text-amber-700 shadow-2xs">
                 <Layers className="w-3 h-3" />
               </span>
             }
             onChange={(val) => {
-              changeNatureFilter(val);
-              setActiveKpiFilter('ALL');
+              onTabSwitch(val === 'PART' ? 'PARTS' : 'COMPONENTS');
             }}
             options={[
-              { value: 'ALL', label: t('entrepot.filters.all_statuses'), badge: '[B]', badgeColor: 'bg-teal-50 text-teal-800' },
               { value: 'COMPONENT', label: t('entrepot.modal.nature_component'), badge: '[B]', badgeColor: 'bg-blue-50 text-blue-800' },
               { value: 'PART', label: t('entrepot.modal.nature_part'), badge: '[B]', badgeColor: 'bg-indigo-50 text-indigo-800' },
             ]}

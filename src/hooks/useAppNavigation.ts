@@ -205,13 +205,15 @@ export function useAppNavigation({ setCurrentTab }) {
   };
 
   const handleNavigateToCompTemplates = (familyId) => {
+    setCompTemplateGroupFilter('');
     setCompTemplateFamilyFilter(familyId || '');
     startTransition(() => setCurrentTab('comp_templates'));
   };
 
   const handleNavigateToCompFamilies = (familyId) => {
+    setCompFamilyGroupFilter('');
     if (typeof familyId === 'string') {
-      setCompFamilyGroupFilter('');
+      setWhSearch(familyId);
     }
     startTransition(() => setCurrentTab('comp_families'));
   };
@@ -222,6 +224,7 @@ export function useAppNavigation({ setCurrentTab }) {
 
   const handleNavigateToPartTypesByGroup = (groupId) => {
     setPartTypeGroupFilter(groupId || 'ALL');
+    setWhSearch('');
     startTransition(() => setCurrentTab('part_types'));
   };
 
@@ -238,6 +241,7 @@ export function useAppNavigation({ setCurrentTab }) {
   };
 
   const handleNavigateToPartTypes = (typeId) => {
+    setPartTypeGroupFilter('ALL');
     if (typeof typeId === 'string') {
       setWhSearch(typeId);
     }

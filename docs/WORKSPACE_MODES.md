@@ -40,12 +40,12 @@ Dans l'industrie réelle, un même moteur GMAO sert trois profils très différe
 - **Public cible :** Ingénieur maintenance terrain, responsable technique autonome, chef d'atelier polyvalent qui exécute, suit et rapporte lui-même ses interventions.
 - **Gouvernance :** `SOLO_DIRECT` (**fail-closed** : autorise l'exécution/clôture directe uniquement pour un utilisateur authentifié de rôle vérifié `ADMIN` ; tout autre rôle `TECHNICIEN`, `RESPONSABLE_MAINTENANCE`, `OPERATEUR`, `VIEWER` reste bloqué en `TEAM_MAKER_CHECKER`). Chaque action directe est explicitement estampillée `executionMode: 'SOLO_DIRECT'` dans le journal d'audit immuable `AUDIT_EVENTS`.
 - **Périmètre projeté par défaut (ajustable à la carte) :**
-  - **Mis au premier plan :** Parc Machines Tier 2 (`machines`), Passeport 360° & BOM directe sans Blueprint obligatoire, Préventif & Compteurs (`preventive`, `preventive_referentiel`), Correctif complet (`DI`, `BT`, `Live`, `Besoins`, `Atelier Mécanique BR/RECT`, `Clôture`, `Pareto`), Entrepôt Organes & Pièces (`entrepot`, `comp_*`, `part_*`), Journal de retrait PDR (`sortie`), Arborescence `Nexus`, `Zones`, `Équipements Système Général`, Rapports d'exploitation & MTTR/MTBF.
-  - **Masqué par défaut de la navigation principale (sans aucune suppression) :** Finance & Budgets (`finance`), Inventaire Magasin (`stock` — tout en conservant `sortie` et les catalogues PDR), Centre de Validation (`validation_center`), Gestion d'équipe (`utilisateurs`), Ingénierie Tier 1/3 (`families`, `templates`, `blueprints`).
-  - **Personnalisation fine :** 4 interrupteurs modulaires permettent de réafficher individuellement *Finance*, *Inventaire Stock*, *Blueprints/Familles/Modèles* ou *Équipe & Validation* même en restant en `SOLO_EXPERT`.
+  - **Mis au premier plan :** Parc Machines hiérarchique complet (`families` ➔ `templates` ➔ `machines`), Passeport 360° & BOM directe sans Blueprint obligatoire, Préventif & Compteurs (`preventive`, `preventive_referentiel`), Correctif complet (`DI`, `BT`, `Live`, `Besoins`, `Atelier Mécanique BR/RECT`, `Clôture`, `Pareto`), Entrepôt Organes & Pièces (`entrepot`, `comp_*`, `part_*`), Journal de retrait PDR (`sortie`), Arborescence `Nexus`, `Zones`, `Équipements Système Général`, Rapports d'exploitation & MTTR/MTBF.
+  - **Masqué par défaut de la navigation principale (sans aucune suppression) :** Finance & Budgets (`finance`), Inventaire Magasin (`stock` — tout en conservant `sortie` et les catalogues PDR), Centre de Validation (`validation_center`), Gestion d'équipe (`utilisateurs`), Blueprints Machine Tier 3 (`blueprints`).
+  - **Personnalisation fine :** 4 interrupteurs modulaires permettent de réafficher individuellement *Finance*, *Inventaire Stock*, *Blueprints Machine (Tier 3)* ou *Équipe & Validation* même en restant en `SOLO_EXPERT`.
 - **Bénéfices clés :**
   - **Zéro friction terrain :** un seul ingénieur crée, exécute, consomme ses pièces, suit son atelier mécanique et ses besoins d'achat, puis clôture avec des statistiques MTTR/MTBF/heures de travail exactes.
-  - **Tier 2 autonome (Blueprint non bloquant) :** possibilité de rattacher directement des `COMPOSANT`, `PART` et `PDR` dans le Passeport 360° d'une machine (`machineElementsLedger`) sans avoir à créer préalablement une Famille, un Modèle ni un Blueprint.
+  - **Hiérarchie Parc préservée & Tier 2 autonome (Blueprint non bloquant) :** la classification `Familles ➔ Templates ➔ Machines Registered` fonctionne à l'identique du mode `TEAM_FULL`, tout en permettant de rattacher directement des `COMPOSANT`, `PART` et `PDR` dans le Passeport 360° (`machineElementsLedger`) sans avoir à créer de `Blueprint`.
   - **Journal de retrait préservé :** la traçabilité des pièces retirées (`Sortie Rapide`) reste active sans imposer la charge d'un inventaire magasinier complet.
 
 ---
@@ -68,8 +68,8 @@ Dans l'industrie réelle, un même moteur GMAO sert trois profils très différe
 | **Centre de Validation (`À valider`)** | Affiché & obligatoire | Masqué (exécution directe) | Masqué |
 | **Correctif (`DI / BT / Live / Atelier / Besoins`)** | Complet (multi-acteurs) | Complet (cycle autonome 1 personne) | Simplifié (prévu) |
 | **Préventif & Compteurs (`Meter PM`)** | Complet | Complet | Simplifié (prévu) |
-| **Machines Tier 2 & Passeport 360°** | Complet | Complet + BOM directe sans Blueprint | Simplifié (prévu) |
-| **Blueprints / Familles / Modèles (Tier 1/3)** | Visibles par défaut | Masqués par défaut (optionnels) | Masqués |
+| **Parc Machines (`Familles ➔ Templates ➔ Machines`)** | Complet + Passeport 360° | Complet (identique `ADMIN`) + BOM directe | Simplifié (prévu) |
+| **Blueprints Machine (Tier 3)** | Visibles par défaut | Masqués par défaut (optionnels) | Masqués |
 | **Entrepôt Organes (`Components` & `Parts`)** | Complet | Complet | Optionnel (à définir) |
 | **Journal de Retrait PDR (`Sortie Rapide`)** | Actif | Actif (traçabilité pièces) | Simplifié (prévu) |
 | **Inventaire Magasin (`Stock`, `PO`)** | Visible par défaut | Masqué par défaut (réactivable) | Masqué |

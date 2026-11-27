@@ -975,17 +975,33 @@ export function useAppComplexHandlers({
     if (newGroupId && id !== newGroupId) {
       setCompFamilies((prev) =>
         prev.map((f) =>
-          f.id_group === id || f.id_groupe === id ? { ...f, id_group: newGroupId } : f
+          f.id_group === id || f.id_groupe === id ? { ...f, id_group: newGroupId, id_groupe: newGroupId } : f
         )
       );
     }
-    showToast(`Groupe "${updatedGroup.libelle || id}" mis à jour avec succès !`);
+    appendAuditEvent?.({
+      actionType: 'COMP_GROUP_UPDATED',
+      entityType: 'COMP_GROUP',
+      entityId: String(newGroupId || id || '').trim(),
+      before: { id },
+      after: updatedGroup,
+    });
+    showToast?.(`Groupe "${updatedGroup.libelle || id}" mis à jour avec succès !`);
   };
 
   const handleDeleteCompGroup = (id) => {
-    const linkedFamilies = (compFamilies || []).filter(
-      (f) => f.id_group === id || f.id_groupe === id || f.groupe === id
-    ).length;
+    const targetGrp = (compGroups || []).find(
+      (g) => g.id === id || g.id_group === id || g.id_groupe === id || g.code === id
+    );
+    const matchKeys = new Set(
+      [id, targetGrp?.id, targetGrp?.id_group, targetGrp?.id_groupe, targetGrp?.code]
+        .map((v) => String(v || '').trim().toUpperCase())
+        .filter(Boolean)
+    );
+    const linkedFamilies = (compFamilies || []).filter((f) => {
+      const fKey = String(f.id_group || f.id_groupe || f.groupe || '').trim().toUpperCase();
+      return Boolean(fKey && matchKeys.has(fKey));
+    }).length;
     if (linkedFamilies > 0) {
       showToast?.(
         `Suppression refusée : le groupe "${id}" contient ${linkedFamilies} famille(s) d'organes.`,
@@ -996,6 +1012,13 @@ export function useAppComplexHandlers({
     setCompGroups((prev) =>
       prev.filter((g) => g.id !== id && g.id_group !== id && g.id_groupe !== id)
     );
+    appendAuditEvent?.({
+      actionType: 'COMP_GROUP_DELETED',
+      entityType: 'COMP_GROUP',
+      entityId: String(id || '').trim(),
+      before: targetGrp || { id },
+      after: null,
+    });
     showToast?.(`Groupe supprimé avec succès !`, 'info');
   };
 
@@ -1009,6 +1032,13 @@ export function useAppComplexHandlers({
         prev.map((w) => (w.id_family === id ? { ...w, id_family: updatedFam.id_family } : w))
       );
     }
+    appendAuditEvent?.({
+      actionType: 'COMP_FAMILY_UPDATED',
+      entityType: 'COMP_FAMILY',
+      entityId: String(updatedFam?.id_family || id || '').trim(),
+      before: { id_family: id },
+      after: updatedFam,
+    });
   };
   const handleDeleteCompFamily = (id) => {
     const linkedTemplates = (compTemplates || []).filter((t) => t.id_family === id).length;
@@ -1024,6 +1054,13 @@ export function useAppComplexHandlers({
       return;
     }
     setCompFamilies((prev) => prev.filter((f) => f.id_family !== id));
+    appendAuditEvent?.({
+      actionType: 'COMP_FAMILY_DELETED',
+      entityType: 'COMP_FAMILY',
+      entityId: String(id || '').trim(),
+      before: { id_family: id },
+      after: null,
+    });
     showToast?.(`Famille d'organes "${id}" supprimée.`, 'info');
   };
 
@@ -1036,6 +1073,13 @@ export function useAppComplexHandlers({
         )
       );
     }
+    appendAuditEvent?.({
+      actionType: 'COMP_TEMPLATE_UPDATED',
+      entityType: 'COMP_TEMPLATE',
+      entityId: String(updatedTpl?.id_templates || id || '').trim(),
+      before: { id_templates: id },
+      after: updatedTpl,
+    });
   };
   const handleDeleteCompTemplate = (id) => {
     const linkedWh = (warehouseItems || []).filter(
@@ -1052,6 +1096,13 @@ export function useAppComplexHandlers({
       return;
     }
     setCompTemplates((prev) => prev.filter((t) => t.id_templates !== id));
+    appendAuditEvent?.({
+      actionType: 'COMP_TEMPLATE_DELETED',
+      entityType: 'COMP_TEMPLATE',
+      entityId: String(id || '').trim(),
+      before: { id_templates: id },
+      after: null,
+    });
     showToast?.(`Modèle d'organe "${id}" supprimé.`, 'info');
   };
 
@@ -1066,15 +1117,22 @@ export function useAppComplexHandlers({
     if (newGroupId && id !== newGroupId) {
       setPartTypes?.((prev) =>
         (prev || []).map((t) =>
-          t.id_group === id || t.id_groupe === id ? { ...t, id_group: newGroupId } : t
+          t.id_group === id || t.id_groupe === id ? { ...t, id_group: newGroupId, id_groupe: newGroupId } : t
         )
       );
       setWarehouseItems?.((prev) =>
         (prev || []).map((w) =>
-          w.id_group === id || w.id_groupe === id ? { ...w, id_group: newGroupId } : w
+          w.id_group === id || w.id_groupe === id ? { ...w, id_group: newGroupId, id_groupe: newGroupId } : w
         )
       );
     }
+    appendAuditEvent?.({
+      actionType: 'PART_GROUP_UPDATED',
+      entityType: 'PART_GROUP',
+      entityId: String(newGroupId || id || '').trim(),
+      before: { id },
+      after: updatedGroup,
+    });
     showToast?.(`Groupe Part "${updatedGroup.libelle || id}" mis à jour avec succès !`);
   };
 
@@ -1093,6 +1151,13 @@ export function useAppComplexHandlers({
             : g
         )
       );
+      appendAuditEvent?.({
+        actionType: 'PART_GROUP_ARCHIVED',
+        entityType: 'PART_GROUP',
+        entityId: String(id || '').trim(),
+        before: { id, is_active: true },
+        after: { id, is_active: false, linkedTypesCount, linkedWhCount },
+      });
       showToast?.(
         `Groupe Part "${id}" désactivé (non supprimé) car lié à ${linkedTypesCount} type(s) et ${linkedWhCount} part(s) en entrepôt.`,
         'info'
@@ -1102,6 +1167,13 @@ export function useAppComplexHandlers({
     setPartGroups?.((prev) =>
       (prev || []).filter((g) => g.id !== id && g.id_groupe !== id && g.id_group !== id)
     );
+    appendAuditEvent?.({
+      actionType: 'PART_GROUP_DELETED',
+      entityType: 'PART_GROUP',
+      entityId: String(id || '').trim(),
+      before: { id },
+      after: null,
+    });
     showToast?.(`Groupe Part "${id}" supprimé avec succès !`, 'info');
   };
 
@@ -1123,6 +1195,13 @@ export function useAppComplexHandlers({
         )
       );
     }
+    appendAuditEvent?.({
+      actionType: 'PART_TYPE_UPDATED',
+      entityType: 'PART_TYPE',
+      entityId: String(updatedType?.id_type || id || '').trim(),
+      before: { id_type: id },
+      after: updatedType,
+    });
   };
   const handleDeletePartType = (id) => {
     const linkedDesig = (partDesignations || []).filter(
@@ -1142,6 +1221,13 @@ export function useAppComplexHandlers({
       return;
     }
     setPartTypes((prev) => prev.filter((t) => t.id_type !== id));
+    appendAuditEvent?.({
+      actionType: 'PART_TYPE_DELETED',
+      entityType: 'PART_TYPE',
+      entityId: String(id || '').trim(),
+      before: { id_type: id },
+      after: null,
+    });
     showToast?.(`Type de pièce "${id}" supprimé.`, 'info');
   };
 
@@ -1164,6 +1250,13 @@ export function useAppComplexHandlers({
           : w
       )
     );
+    appendAuditEvent?.({
+      actionType: 'PART_DESIGNATION_UPDATED',
+      entityType: 'PART_DESIGNATION',
+      entityId: String(updatedDesig?.ref || updatedDesig?.id_part || id || '').trim(),
+      before: { id },
+      after: updatedDesig,
+    });
   };
   const handleDeletePartDesignation = (id) => {
     const linkedWh = (warehouseItems || []).filter(
@@ -1186,6 +1279,13 @@ export function useAppComplexHandlers({
     setPartDesignations((prev) =>
       prev.filter((d) => d.id !== id && d.ref !== id && d.id_part !== id)
     );
+    appendAuditEvent?.({
+      actionType: 'PART_DESIGNATION_DELETED',
+      entityType: 'PART_DESIGNATION',
+      entityId: String(id || '').trim(),
+      before: { id },
+      after: null,
+    });
     showToast?.(`Désignation "${id}" supprimée.`, 'info');
   };
 
@@ -1711,18 +1811,83 @@ export function useAppComplexHandlers({
   };
 
   const handleAddWarehouseItem = (newItem) => {
-    setWarehouseItems((prev) => [newItem, ...prev]);
+    const codeNorm = String(newItem?.id_warehouse_item || '').trim().toUpperCase();
+    const desigClean = String(newItem?.designation || '').trim();
+    if (!codeNorm || !desigClean) {
+      showToast?.('Veuillez renseigner le code et la désignation de l’élément.', 'warning');
+      return false;
+    }
+    const exists = (warehouseItems || []).some(
+      (it) => String(it?.id_warehouse_item || it?.id || '').trim().toUpperCase() === codeNorm
+    );
+    if (exists) {
+      showToast?.(`Erreur : L’élément entrepôt "${codeNorm}" existe déjà.`, 'error');
+      return false;
+    }
+    const normalized = {
+      ...newItem,
+      id_warehouse_item: codeNorm,
+      designation: desigClean,
+    };
+    setWarehouseItems((prev) => [normalized, ...prev]);
+    appendAuditEvent?.({
+      actionType: 'WAREHOUSE_ITEM_CREATED',
+      entityType: 'WAREHOUSE_ITEM',
+      entityId: codeNorm,
+      before: null,
+      after: normalized,
+    });
+    showToast?.(`Élément "${codeNorm}" enregistré dans l’entrepôt.`, 'success');
+    return true;
   };
 
   const handleUpdateWarehouseItem = (idOrCode, updatedItem) => {
+    const beforeItem = (warehouseItems || []).find(
+      (it) => it.id_warehouse_item === idOrCode || it.id === idOrCode
+    );
     setWarehouseItems((prev) =>
       prev.map((it) => (it.id_warehouse_item === idOrCode || it.id === idOrCode ? updatedItem : it))
     );
-    if (idOrCode !== updatedItem.id_warehouse_item) {
+    if (idOrCode && updatedItem?.id_warehouse_item && idOrCode !== updatedItem.id_warehouse_item) {
+      const nextCode = updatedItem.id_warehouse_item;
       setMouvements((prev) =>
-        prev.map((m) => (m.ref === idOrCode ? { ...m, ref: updatedItem.id_warehouse_item } : m))
+        prev.map((m) => (m.ref === idOrCode ? { ...m, ref: nextCode } : m))
+      );
+      setCorrectiveInterventions?.((prev) =>
+        (prev || []).map((ci) =>
+          ci.id_composant === idOrCode
+            ? { ...ci, id_composant: nextCode }
+            : ci.id_part === idOrCode
+              ? { ...ci, id_part: nextCode }
+              : ci
+        )
+      );
+      setPreventiveTasks?.((prev) =>
+        (prev || []).map((t) =>
+          t.id_composant === idOrCode
+            ? { ...t, id_composant: nextCode }
+            : t.id_part === idOrCode
+              ? { ...t, id_part: nextCode }
+              : t
+        )
+      );
+      setPreventiveExecutions?.((prev) =>
+        (prev || []).map((pe) =>
+          pe.id_composant === idOrCode
+            ? { ...pe, id_composant: nextCode }
+            : pe.id_part === idOrCode
+              ? { ...pe, id_part: nextCode }
+              : pe
+        )
       );
     }
+    appendAuditEvent?.({
+      actionType: 'WAREHOUSE_ITEM_UPDATED',
+      entityType: 'WAREHOUSE_ITEM',
+      entityId: String(updatedItem?.id_warehouse_item || idOrCode || '').trim(),
+      before: beforeItem || { id_warehouse_item: idOrCode },
+      after: updatedItem,
+    });
   };
 
   const handleDeleteWarehouseItem = (idOrCode) => {
@@ -1761,6 +1926,7 @@ export function useAppComplexHandlers({
     const hasBobinageHistory = Array.isArray(target?.historique_bobinage) && target.historique_bobinage.length > 0;
 
     if (hasMovements || hasInterventions || hasPreventive || hasSortieExterne || hasBobinageHistory) {
+      const archiveStamp = new Date().toISOString();
       setWarehouseItems((prev) =>
         prev.map((it) =>
           it.id_warehouse_item === idOrCode || it.id === idOrCode
@@ -1770,11 +1936,18 @@ export function useAppComplexHandlers({
                 statut: 'Archivé',
                 is_active: false,
                 actif: false,
-                date_archivage: new Date().toISOString(),
+                date_archivage: archiveStamp,
               }
             : it
         )
       );
+      appendAuditEvent?.({
+        actionType: 'WAREHOUSE_ITEM_ARCHIVED',
+        entityType: 'WAREHOUSE_ITEM',
+        entityId: String(idOrCode || '').trim(),
+        before: target || { id_warehouse_item: idOrCode },
+        after: { is_active: false, statut: 'Archivé', date_archivage: archiveStamp },
+      });
       showToast?.(
         `Élément "${idOrCode}" archivé (Hors service) pour préserver l'historique des interventions et mouvements.`,
         'info'
@@ -1785,6 +1958,13 @@ export function useAppComplexHandlers({
     setWarehouseItems((prev) =>
       prev.filter((it) => it.id_warehouse_item !== idOrCode && it.id !== idOrCode)
     );
+    appendAuditEvent?.({
+      actionType: 'WAREHOUSE_ITEM_DELETED',
+      entityType: 'WAREHOUSE_ITEM',
+      entityId: String(idOrCode || '').trim(),
+      before: target || { id_warehouse_item: idOrCode },
+      after: null,
+    });
     showToast?.(`Élément "${idOrCode}" supprimé définitivement.`, 'success');
   };
 

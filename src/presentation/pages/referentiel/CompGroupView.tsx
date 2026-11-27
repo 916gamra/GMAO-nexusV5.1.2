@@ -26,9 +26,12 @@ import {
   Boxes,
   FolderTree,
   MoreVertical,
+  AlertTriangle,
 } from 'lucide-react';
 import { SpokeIcon } from '../../components/common/icons/SpokeIcon';
 import { CubeIcon } from '../../components/common/icons/CubeIcon';
+import { isWarehouseComponent } from '../../../core/domain/EntrepotItem';
+import { exportTypeBCsv } from '../../../utils/safeExcelExport';
 
 export default function CompGroupView({
   compGroups = [],
@@ -53,6 +56,7 @@ export default function CompGroupView({
   const [deletingGroup, setDeletingGroup] = useState(null);
   const [showFormulasModal, setShowFormulasModal] = useState(false);
   const [copiedId, setCopiedId] = useState(null);
+  const [formError, setFormError] = useState('');
 
   const [form, setForm] = useState({
     id: '',
@@ -60,6 +64,18 @@ export default function CompGroupView({
     libelle: '',
     description: '',
   });
+
+  const getNextCompGroupIndex = () => {
+    let maxNum = 0;
+    compGroups.forEach((g) => {
+      const m = String(g.id || g.id_groupe || '').match(/(\d+)$/);
+      if (m) {
+        const n = parseInt(m[1], 10);
+        if (n > maxNum) maxNum = n;
+      }
+    });
+    return Math.max(maxNum, compGroups.length) + 1;
+  };
 
   // Pagination & Action Popovers
   const [currentPage, setCurrentPage] = useState(1);
@@ -81,10 +97,20 @@ export default function CompGroupView({
     return () => document.removeEventListener('mousedown', handleOutsideClick);
   }, []);
 
-  const handleCopyId = (idVal) => {
-    navigator.clipboard.writeText(idVal);
-    setCopiedId(idVal);
-    setTimeout(() => setCopiedId(null), 1800);
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [search, sortField, sortOrder]);
+
+  const handleCopyId = async (idVal) => {
+    try {
+      if (navigator?.clipboard?.writeText) {
+        await navigator.clipboard.writeText(idVal);
+      }
+      setCopiedId(idVal);
+      setTimeout(() => setCopiedId(null), 1800);
+    } catch {
+      // Ignore clipboard failures in restricted contexts
+    }
   };
 
   // Group calculations (sub-family count, sub-template count, sub-item count)
@@ -105,9 +131,10 @@ export default function CompGroupView({
       const tplIds = templates.map((t) => t.id_templates);
       const items = warehouseItems.filter(
         (w) =>
-          famIds.includes(w.id_family) ||
-          tplIds.includes(w.id_templates) ||
-          w.id_groupe === gId
+          isWarehouseComponent(w) &&
+          (famIds.includes(w.id_family) ||
+            tplIds.includes(w.id_templates) ||
+            w.id_groupe === gId)
       );
       map[gId] = {
         familiesCount: families.length,
@@ -192,30 +219,60 @@ export default function CompGroupView({
   const handleAddSubmit = (e) => {
     e.preventDefault();
     if (!canCreateStock) return;
-    if (!form.code || !form.libelle) return;
+    setFormError('');
     const cleanCode = form.code.trim().toUpperCase().replace(/\s+/g, '_');
+    const cleanLibelle = form.libelle.trim();
+    if (!cleanCode || !cleanLibelle) {
+      setFormError('Le code et le libellé du groupe sont obligatoires.');
+      return;
+    }
     const autoId =
       form.id.trim().toUpperCase() ||
-      `GRP-${cleanCode}-${String(compGroups.length + 1).padStart(3, '0')}`;
+      `GRP-${cleanCode}-${String(getNextCompGroupIndex()).padStart(3, '0')}`;
 
-    onAddCompGroup({
+    const duplicate = compGroups.some(
+      (g) =>
+        String(g.id || g.id_groupe || '').trim().toUpperCase() === autoId ||
+        String(g.code || '').trim().toUpperCase() === cleanCode
+    );
+    if (duplicate) {
+      setFormError(`Un groupe avec le code "${cleanCode}" ou l'ID "${autoId}" existe déjà.`);
+      return;
+    }
+
+    const created = onAddCompGroup?.({
       id: autoId,
       id_groupe: autoId,
       code: cleanCode,
-      libelle: form.libelle.trim(),
+      libelle: cleanLibelle,
       description: form.description.trim(),
     });
+    if (created === false) return;
 
     setForm({ id: '', code: '', libelle: '', description: '' });
+    setFormError('');
     setShowAddModal(false);
   };
 
   const handleEditSubmit = (e) => {
     e.preventDefault();
     if (!canEditStock) return;
-    if (!editingGroup || !form.code || !form.libelle) return;
+    setFormError('');
+    if (!editingGroup || !form.code.trim() || !form.libelle.trim()) {
+      setFormError('Le code et le libellé du groupe sont obligatoires.');
+      return;
+    }
     const cleanCode = form.code.trim().toUpperCase().replace(/\s+/g, '_');
     const targetId = editingGroup.id || editingGroup.id_groupe;
+
+    const duplicateCode = compGroups.some((g) => {
+      const gId = g.id || g.id_groupe;
+      return gId !== targetId && String(g.code || '').trim().toUpperCase() === cleanCode;
+    });
+    if (duplicateCode) {
+      setFormError(`Le code "${cleanCode}" est déjà utilisé par un autre groupe.`);
+      return;
+    }
 
     onUpdateCompGroup(targetId, {
       ...editingGroup,
@@ -227,6 +284,7 @@ export default function CompGroupView({
     });
 
     setEditingGroup(null);
+    setFormError('');
     setForm({ id: '', code: '', libelle: '', description: '' });
   };
 
@@ -258,7 +316,7 @@ export default function CompGroupView({
       'Description',
       'Nb Familles',
       'Nb Templates',
-      'Nb Pièces Stock',
+      'Nb Composants Entrepôt',
     ];
     const rows = filtered.map((g) => {
       const gId = g.id || g.id_groupe;
@@ -273,16 +331,11 @@ export default function CompGroupView({
         stats.itemsCount || 0,
       ];
     });
-    const csvContent =
-      'data:text/csv;charset=utf-8,\uFEFF' +
-      [headers.join(';'), ...rows.map((e) => e.join(';'))].join('\n');
-    const encodedUri = encodeURI(csvContent);
-    const link = document.createElement('a');
-    link.setAttribute('href', encodedUri);
-    link.setAttribute('download', `groupes_composants_${new Date().toISOString().slice(0, 10)}.csv`);
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+    exportTypeBCsv({
+      filename: `GMAO_Groupes_Composants_TypeB_${new Date().toISOString().slice(0, 10)}.csv`,
+      headers,
+      rows,
+    });
   };
 
   const groupColumns = useMemo(
@@ -489,6 +542,7 @@ export default function CompGroupView({
                       type="button"
                       onClick={() => {
                         setActiveActionMenuId(null);
+                        setFormError('');
                         setEditingGroup(group);
                         setForm({
                           id: gId,
@@ -563,7 +617,8 @@ export default function CompGroupView({
               icon={Boxes}
               showAddBadge={true}
               onClick={() => {
-                const nextIdx = compGroups.length + 1;
+                const nextIdx = getNextCompGroupIndex();
+                setFormError('');
                 setForm({
                   id: `GRP-CMP-${String(nextIdx).padStart(3, '0')}`,
                   code: '',
@@ -609,7 +664,7 @@ export default function CompGroupView({
               title={`${t('common.export_excel_title', 'Exporter le tableau vers Excel / CSV')} — Type B : Export externe (non réimportable)`}
             >
               <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-600" />
-              <span>{t('components.group.export_excel', 'Export Excel')}</span>
+              <span>{t('components.group.export_excel', 'Export Excel')} (Type B)</span>
             </button>
 
             {/* Circular Reset Button */}
@@ -780,7 +835,7 @@ export default function CompGroupView({
       {/* Modal: Add Group */}
       {showAddModal && (
         <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl border border-slate-200 shadow-2xl max-w-lg w-full p-6 space-y-5 animate-in fade-in zoom-in-95 duration-200">
+          <div className="bg-white rounded-2xl border border-slate-200 shadow-2xl max-w-lg w-full max-h-[90vh] overflow-y-auto p-6 space-y-5 animate-in fade-in zoom-in-95 duration-200">
             <div className="flex items-center justify-between pb-3 border-b border-slate-100">
               <div className="flex items-center gap-3">
                 <div className="w-9 h-9 rounded-xl bg-indigo-50 border border-indigo-200 flex items-center justify-center text-indigo-700">
@@ -796,12 +851,22 @@ export default function CompGroupView({
                 </div>
               </div>
               <button
-                onClick={() => setShowAddModal(false)}
+                onClick={() => {
+                  setShowAddModal(false);
+                  setFormError('');
+                }}
                 className="p-1 text-slate-400 hover:text-slate-600 rounded-lg cursor-pointer"
               >
                 <X className="w-5 h-5" />
               </button>
             </div>
+
+            {formError && (
+              <div className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-xs font-semibold flex items-center gap-2">
+                <AlertTriangle className="w-4 h-4 shrink-0" />
+                <span>{formError}</span>
+              </div>
+            )}
 
             <form onSubmit={handleAddSubmit} className="space-y-4">
               <div>
@@ -884,7 +949,7 @@ export default function CompGroupView({
       {/* Modal: Edit Group */}
       {editingGroup && (
         <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl border border-slate-200 shadow-2xl max-w-lg w-full p-6 space-y-5 animate-in fade-in zoom-in-95 duration-200">
+          <div className="bg-white rounded-2xl border border-slate-200 shadow-2xl max-w-lg w-full max-h-[90vh] overflow-y-auto p-6 space-y-5 animate-in fade-in zoom-in-95 duration-200">
             <div className="flex items-center justify-between pb-3 border-b border-slate-100">
               <div className="flex items-center gap-3">
                 <div className="w-9 h-9 rounded-xl bg-indigo-50 border border-indigo-200 flex items-center justify-center text-indigo-700">
@@ -900,12 +965,22 @@ export default function CompGroupView({
                 </div>
               </div>
               <button
-                onClick={() => setEditingGroup(null)}
+                onClick={() => {
+                  setEditingGroup(null);
+                  setFormError('');
+                }}
                 className="p-1 text-slate-400 hover:text-slate-600 rounded-lg cursor-pointer"
               >
                 <X className="w-5 h-5" />
               </button>
             </div>
+
+            {formError && (
+              <div className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-xs font-semibold flex items-center gap-2">
+                <AlertTriangle className="w-4 h-4 shrink-0" />
+                <span>{formError}</span>
+              </div>
+            )}
 
             <form onSubmit={handleEditSubmit} className="space-y-4">
               <div>
@@ -967,51 +1042,70 @@ export default function CompGroupView({
       )}
 
       {/* Modal: Delete Confirmation */}
-      {deletingGroup && (
-        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl border border-rose-200 shadow-2xl max-w-md w-full p-6 space-y-4 animate-in fade-in zoom-in-95 duration-200">
-            <div className="flex items-center gap-3 text-rose-600">
-              <div className="w-10 h-10 rounded-xl bg-rose-50 border border-rose-200 flex items-center justify-center">
-                <Trash2 className="w-5 h-5" />
+      {deletingGroup && (() => {
+        const delId = deletingGroup.id || deletingGroup.id_groupe;
+        const delStats = groupStats[delId] || { familiesCount: 0, templatesCount: 0, itemsCount: 0 };
+        const hasLinks =
+          delStats.familiesCount > 0 || delStats.templatesCount > 0 || delStats.itemsCount > 0;
+        return (
+          <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
+            <div className="bg-white rounded-2xl border border-rose-200 shadow-2xl max-w-md w-full p-6 space-y-4 animate-in fade-in zoom-in-95 duration-200">
+              <div className="flex items-center gap-3 text-rose-600">
+                <div className="w-10 h-10 rounded-xl bg-rose-50 border border-rose-200 flex items-center justify-center">
+                  <Trash2 className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-black text-slate-900">
+                    {t('components.group.delete_title', 'Supprimer ce groupe de composants ?')}
+                  </h3>
+                  <p className="text-xs text-rose-600 font-bold">
+                    {deletingGroup.libelle} ({deletingGroup.code})
+                  </p>
+                </div>
               </div>
-              <div>
-                <h3 className="text-base font-black text-slate-900">
-                  {t('components.group.delete_title', 'Supprimer ce groupe de composants ?')}
-                </h3>
-                <p className="text-xs text-rose-600 font-bold">
-                  {deletingGroup.libelle} ({deletingGroup.code})
-                </p>
+
+              <p className="text-xs text-slate-500 leading-relaxed">
+                {t('components.group.delete_confirm', 'Confirmez-vous la suppression du groupe {{name}} ?', { name: deletingGroup.code })}
+              </p>
+
+              {hasLinks && (
+                <div className="p-3 rounded-xl bg-amber-50 border border-amber-200 text-amber-800 text-xs font-semibold flex items-start gap-2">
+                  <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                  <span>
+                    Suppression bloquée : {delStats.familiesCount} famille(s), {delStats.templatesCount} template(s) et {delStats.itemsCount} composant(s) en entrepôt sont rattachés à ce groupe. Détachez-les d&apos;abord.
+                  </span>
+                </div>
+              )}
+
+              <div className="flex items-center justify-end gap-2.5 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setDeletingGroup(null)}
+                  className="px-4 py-2 rounded-xl border border-slate-200 text-xs font-bold text-slate-600 hover:bg-slate-50 transition cursor-pointer"
+                >
+                  {t('common.cancel', 'Annuler')}
+                </button>
+                <button
+                  type="button"
+                  disabled={hasLinks}
+                  onClick={() => {
+                    if (!canDeleteStock || hasLinks) return;
+                    onDeleteCompGroup(delId);
+                    setDeletingGroup(null);
+                  }}
+                  className={`px-5 py-2 rounded-xl text-white text-xs font-bold transition shadow-sm ${
+                    hasLinks
+                      ? 'bg-slate-300 cursor-not-allowed'
+                      : 'bg-rose-600 hover:bg-rose-700 cursor-pointer'
+                  }`}
+                >
+                  {t('common.confirm', 'Confirmer la suppression')}
+                </button>
               </div>
-            </div>
-
-            <p className="text-xs text-slate-500 leading-relaxed">
-              {t('components.group.delete_confirm', 'Confirmez-vous la suppression du groupe {{name}} ?', { name: deletingGroup.code })}{' '}
-              {t('components.group.delete_warning', 'Cette action est irréversible et peut affecter les familles et templates rattachés.')}
-            </p>
-
-            <div className="flex items-center justify-end gap-2.5 pt-2">
-              <button
-                type="button"
-                onClick={() => setDeletingGroup(null)}
-                className="px-4 py-2 rounded-xl border border-slate-200 text-xs font-bold text-slate-600 hover:bg-slate-50 transition cursor-pointer"
-              >
-                {t('common.cancel', 'Annuler')}
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  if (!canDeleteStock) return;
-                  onDeleteCompGroup(deletingGroup.id || deletingGroup.id_groupe);
-                  setDeletingGroup(null);
-                }}
-                className="px-5 py-2 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold transition shadow-sm cursor-pointer"
-              >
-                {t('common.confirm', 'Confirmer la suppression')}
-              </button>
             </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
 
       {/* Architecture & Formulas Info Modal */}
       {showFormulasModal && (

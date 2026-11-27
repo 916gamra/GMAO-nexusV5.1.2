@@ -14,19 +14,14 @@ import MachinesKPIBar from './components/MachinesKPIBar';
 import {
   Factory, Search, MapPin, Users, CheckCircle2, AlertTriangle, Trash2, Edit2,
   ChevronLeft, ChevronRight, SlidersHorizontal, ArrowUpDown, ChevronDown, ArrowDown,
-  ArrowUp, Activity, Cpu, X, Radio, FileText, Calculator, MoreVertical, Calendar,
-  Hash, Wrench, FileSpreadsheet, RotateCcw, ShieldCheck, Clock, Sparkles, ShieldAlert,
-  Settings2, Plus, Check, QrCode, Gauge, Smartphone, Flame,
+  ArrowUp, Activity, Cpu, X, Radio, FileText, MoreVertical, Calendar,
+  Hash, Wrench, FileSpreadsheet, RotateCcw, ShieldCheck, ShieldAlert,
+  Settings2, Check, QrCode, Smartphone, Flame,
 } from 'lucide-react';
-import PreventiveService from '../../../application/services/PreventiveService';
-import { filterActiveMachines, getMachineAssetClass, isArchivedMachine } from '../../../utils/activeMachines';
+import { getMachineAssetClass, isArchivedMachine } from '../../../utils/activeMachines';
 import {
-  ASSET_HIERARCHY_LEVEL_LABELS,
   computeParentCorrectiveRollup,
-  evaluateParentArchivePolicy,
   resolveMachineHierarchyContext,
-  wouldCreateHierarchyCycle,
-  type AssetHierarchyLevel,
 } from '../../../utils/assetHierarchy';
 import { MachinesRegisteredModals } from './components/MachinesRegisteredModals';
 import MachineQrFieldModal from './components/MachineQrFieldModal';
@@ -40,11 +35,11 @@ import {
   type MachinesCockpitFilter,
 } from '../../../domain/machines/machinesCockpitService';
 import { useGmaoStore } from '../../../store/useGmaoStore';
-import { buildMachineActivityLedger } from '../../../application/services/MachineHealthPassportService';
 import { usePermission } from '../../components/common/PermissionGate';
-import { dataIntegrityService } from '../../../services/dataIntegrityService';
 import { storageService } from '../../../utils/storageService';
 import { STORAGE_KEYS } from '../../../infrastructure/persistence/storageKeys';
+import { useCurrency } from '../../../utils/currencyService';
+import { useWorkspaceProfile } from '../../../core/workspace/workspaceProfile';
 
 // Helper to retrieve real machine serial number without fabricating fake data
 export const getMachineSerialNumber = (m) => {
@@ -145,6 +140,11 @@ export default function MachinesRegisteredView({
   const canCreate = usePermission('machine.create');
   const canEdit = usePermission('machine.edit');
   const canDelete = usePermission('machine.delete');
+  const { formatCurrency, currencySymbol, currencyCode } = useCurrency();
+  const workspaceProfile = useWorkspaceProfile();
+  const { showFinance, showBlueprintsInPrimaryNav, showTeamManagement } =
+    workspaceProfile.moduleVisibility;
+  const tableColsCount = showBlueprintsInPrimaryNav ? 10 : 9;
 
   const {
     machines: dbMachines,
@@ -250,7 +250,7 @@ export default function MachinesRegisteredView({
     return relTemplates;
   }, [templates, mchFamilyFilter]);
 
-  // Calculate Interventions Count Map per Machine for high efficiency
+  // Calculate Stock Sorties Count Map per Machine
   const sortiesCountMap = useMemo(() => {
     const map: Record<string, number> = {};
     mouvements.forEach((m) => {
@@ -266,6 +266,30 @@ export default function MachinesRegisteredView({
     return map;
   }, [mouvements]);
 
+  // Calculate Real Interventions (Corrective BT + Preventive Executions) Count Map per Machine
+  const interventionsCountMap = useMemo(() => {
+    const map: Record<string, number> = {};
+    (correctiveInterventions || []).forEach((ci: any) => {
+      const rawCode = String(
+        ci?.id_machine || ci?.id_machine_registered || ci?.machine_id || ci?.machine || ''
+      ).trim();
+      if (rawCode) {
+        const normCode = rawCode.toUpperCase();
+        map[normCode] = (map[normCode] || 0) + 1;
+      }
+    });
+    (preventiveExecutions || []).forEach((pe: any) => {
+      const rawCode = String(
+        pe?.machineId || pe?.id_machine || pe?.id_machine_registered || ''
+      ).trim();
+      if (rawCode) {
+        const normCode = rawCode.toUpperCase();
+        map[normCode] = (map[normCode] || 0) + 1;
+      }
+    });
+    return map;
+  }, [correctiveInterventions, preventiveExecutions]);
+
   const cockpitMetrics = useMemo(
     () =>
       computeMachinesCockpitMetrics({
@@ -275,8 +299,19 @@ export default function MachinesRegisteredView({
         preventiveExecutions,
         sortiesExterne,
         stockItems: rawStock,
+        requireTechnician: showTeamManagement,
+        requireHourlyCost: showFinance,
       }),
-    [machines, correctiveInterventions, preventiveTasks, preventiveExecutions, sortiesExterne, rawStock]
+    [
+      machines,
+      correctiveInterventions,
+      preventiveTasks,
+      preventiveExecutions,
+      sortiesExterne,
+      rawStock,
+      showTeamManagement,
+      showFinance,
+    ]
   );
 
   const pendingQuickUpdates = useMemo(
@@ -328,7 +363,11 @@ export default function MachinesRegisteredView({
     });
 
     const activeFamiliesCount = new Set(machines.map((m) => m.id_family).filter(Boolean)).size;
-    const totalInterventions = machines.reduce((acc, m) => {
+    const totalRealInterventions = machines.reduce((acc, m) => {
+      const codeNorm = String(m?.id_machine_registered || '').trim().toUpperCase();
+      return acc + (interventionsCountMap[codeNorm] || 0);
+    }, 0);
+    const totalStockSorties = machines.reduce((acc, m) => {
       const codeNorm = String(m?.id_machine_registered || '').trim().toUpperCase();
       return acc + (sortiesCountMap[codeNorm] || 0);
     }, 0);
@@ -340,10 +379,12 @@ export default function MachinesRegisteredView({
       enArret,
       archivees,
       activeFamiliesCount,
-      totalInterventions,
+      totalRealInterventions,
+      totalStockSorties,
+      totalInterventions: totalRealInterventions,
       totalEconomicImpact12m: cockpitMetrics.totalEconomicImpact12m,
     };
-  }, [machines, sortiesCountMap, cockpitMetrics.totalEconomicImpact12m]);
+  }, [machines, interventionsCountMap, sortiesCountMap, cockpitMetrics.totalEconomicImpact12m]);
 
   // Filtering
   const filteredMachines = useMemo(() => {
@@ -443,9 +484,11 @@ export default function MachinesRegisteredView({
     if (!sortField) return filteredMachines;
     return [...filteredMachines].sort((a, b) => {
       if (sortField === 'sorties') {
-        const cntA = sortiesCountMap[String(a.id_machine_registered || '').trim().toUpperCase()] || 0;
-        const cntB = sortiesCountMap[String(b.id_machine_registered || '').trim().toUpperCase()] || 0;
-        return sortOrder === 'asc' ? cntA - cntB : cntB - cntA;
+        const codeA = String(a.id_machine_registered || '').trim().toUpperCase();
+        const codeB = String(b.id_machine_registered || '').trim().toUpperCase();
+        const scoreA = (interventionsCountMap[codeA] || 0) * 10000 + (sortiesCountMap[codeA] || 0);
+        const scoreB = (interventionsCountMap[codeB] || 0) * 10000 + (sortiesCountMap[codeB] || 0);
+        return sortOrder === 'asc' ? scoreA - scoreB : scoreB - scoreA;
       }
       if (sortField === 'serial_number') {
         const valA = (getMachineSerialNumber(a) || '').toLowerCase();
@@ -469,7 +512,7 @@ export default function MachinesRegisteredView({
       if (valA > valB) return sortOrder === 'asc' ? 1 : -1;
       return 0;
     });
-  }, [filteredMachines, sortField, sortOrder, sortiesCountMap]);
+  }, [filteredMachines, sortField, sortOrder, interventionsCountMap, sortiesCountMap]);
 
   const totalItems = sortedData.length;
   const totalPages = pageSize === 0 ? 1 : Math.ceil(totalItems / pageSize);
@@ -536,7 +579,9 @@ export default function MachinesRegisteredView({
         const famObj = families.find((f) => f.id_family === m.id_family);
         const tmplObj = templates.find((t) => t.id_templates === m.id_templates);
         const sysObj = generalSystemTypes.find((t) => t.id === m.id_general_system_type);
-        const sortiesCount = sortiesCountMap[String(m.id_machine_registered || '').trim().toUpperCase()] || 0;
+        const codeUpper = String(m.id_machine_registered || '').trim().toUpperCase();
+        const interventionsCount = interventionsCountMap[codeUpper] || 0;
+        const sortiesCount = sortiesCountMap[codeUpper] || 0;
         const mClass = getMachineAssetClass(m);
 
         return {
@@ -551,17 +596,32 @@ export default function MachinesRegisteredView({
           'Famille Libellé (D)': famObj?.libelle || m.id_family || '',
           'Template ID (E)': m.id_templates || '',
           'Template Libellé (E)': tmplObj?.libelle || m.id_templates || '',
-          'Blueprint ID': m.id_blueprint || '',
-          'Blueprint Titre': bpObj?.libelle || bpObj?.ref_plan || '',
+          ...(showBlueprintsInPrimaryNav
+            ? {
+                'Blueprint ID': m.id_blueprint || '',
+                'Blueprint Titre': bpObj?.libelle || bpObj?.ref_plan || '',
+              }
+            : {}),
           'Zone ID (F)': m.id_zone_default || '',
           'Zone Nom (F)': znObj?.libelle || m.id_zone_default || '',
-          'Technicien ID (G)': m.technician || '',
-          'Technicien Nom (G)': techObj?.nom || m.technician || '',
+          ...(showTeamManagement
+            ? {
+                'Technicien ID (G)': m.technician || '',
+                'Technicien Nom (G)': techObj?.nom || m.technician || '',
+              }
+            : {}),
           'Statut Opérationnel (H)': m.status || 'En Service',
           'Régime Travail': m.regime_travail || '2x8',
-          'Coût Arrêt Horaire (DH/h)': Number(m.cout_arret_horaire || 0),
-          'Valeur Acquisition (DH)': Number(m.valeur_acquisition ?? m.valeur_a_neuf ?? 0),
-          'Interventions / Sorties': sortiesCount,
+          ...(showFinance
+            ? {
+                [`Coût Arrêt Horaire (${currencyCode}/h)`]: Number(m.cout_arret_horaire || 0),
+                [`Valeur Acquisition (${currencyCode})`]: Number(
+                  m.valeur_acquisition ?? m.valeur_a_neuf ?? 0
+                ),
+              }
+            : {}),
+          'Interventions (BT+PM)': interventionsCount,
+          'Sorties Stock PDR': sortiesCount,
         };
       });
 
@@ -586,11 +646,17 @@ export default function MachinesRegisteredView({
               Parc Machines & Équipements Enregistrés
             </h2>
             <p className="text-xs text-slate-500 mt-1 max-w-3xl leading-relaxed">
-              Répertoire central des équipements de production et lignes industrielles. Lié dynamiquement avec{' '}
+              Répertoire central des équipements de production et lignes industrielles. Lié
+              dynamiquement avec{' '}
               <b className="text-cyan-700 font-semibold">Familles (D)</b>,{' '}
               <b className="text-amber-700 font-semibold">Templates (E)</b>,{' '}
-              <b className="text-purple-700 font-semibold">Zones (F)</b> et{' '}
-              <b className="text-blue-700 font-semibold">Techniciens (G)</b>.
+              <b className="text-purple-700 font-semibold">Zones (F)</b>
+              {showTeamManagement && (
+                <>
+                  {' '}et <b className="text-blue-700 font-semibold">Techniciens (G)</b>
+                </>
+              )}
+              .
             </p>
           </div>
         </div>
@@ -886,7 +952,7 @@ export default function MachinesRegisteredView({
           </div>
         </div>
 
-        {/* 5-Column Multi-Criteria Filter Grid */}
+        {/* Multi-Criteria Filter Grid */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3.5 items-end">
           {/* 1. Omni-Text Search */}
           <div className="w-full sm:col-span-2 lg:col-span-1">
@@ -902,7 +968,7 @@ export default function MachinesRegisteredView({
               </div>
               <input
                 type="text"
-                placeholder="Code, Nom, Zone, Tech..."
+                placeholder={showTeamManagement ? 'Code, Nom, Zone, Tech...' : 'Code, Nom, N° Série, Zone...'}
                 value={localSearch}
                 onChange={(e) => setLocalSearch(e.target.value)}
                 className="w-full h-9 pl-9 pr-7 rounded-xl border border-slate-200 bg-slate-50/70 text-xs font-semibold focus:bg-white focus:outline-none focus:ring-1 focus:ring-amber-500 transition-colors"
@@ -1057,11 +1123,13 @@ export default function MachinesRegisteredView({
                     { key: 'serial_number', label: 'Date / N° Série' },
                     { key: 'id_family', label: 'Famille' },
                     { key: 'id_templates', label: 'Template Modèle' },
-                    { key: 'id_blueprint', label: 'Blueprint / Schéma' },
+                    ...(showBlueprintsInPrimaryNav
+                      ? [{ key: 'id_blueprint', label: 'Blueprint / Schéma' }]
+                      : []),
                     { key: 'id_zone_default', label: 'Zone Défaut' },
-                    { key: 'technician', label: 'Technicien Assigné' },
+                    ...(showTeamManagement ? [{ key: 'technician', label: 'Technicien Assigné' }] : []),
                     { key: 'status', label: 'Statut Opérationnel' },
-                    { key: 'sorties', label: 'Interventions / Sorties' },
+                    { key: 'sorties', label: 'Interventions (BT/PM)' },
                   ].map((col) => (
                     <button
                       key={col.key}
@@ -1250,7 +1318,7 @@ export default function MachinesRegisteredView({
             </span>
             <div>
               <div className="font-black">
-                Mode Pilotage Terrain Actif — Modifiez Statut, Technicien, Régime et Coût d&apos;Arrêt en ligne
+                Mode Pilotage Terrain Actif — Modifiez Statut{showTeamManagement ? ', Technicien' : ''}, Régime{showFinance ? " et Coût d'Arrêt" : ''} en ligne
               </div>
               <div className="text-[11px] text-amber-800">
                 Chaque validation déclenche le workflow de cycle de vie (suspension PM si archivée) et le journal AUDIT_EVENTS.
@@ -1368,32 +1436,36 @@ export default function MachinesRegisteredView({
                 </th>
 
                 {/* BLUEPRINT (Plan / Schéma) */}
-                <th
-                  onClick={() => handleSort('id_blueprint')}
-                  className="py-3 px-3.5 cursor-pointer select-none hover:bg-slate-200/80 transition group min-w-[170px] border-r border-slate-300"
-                  title="Cliquer pour trier par Blueprint / Schéma"
-                >
-                  <div className="flex items-center gap-1.5">
-                    <FileText className="w-3.5 h-3.5 text-slate-700 shrink-0" />
-                    <span>BLUEPRINT</span>
-                    <span className="text-slate-400 font-normal text-[10px]">(Plan)</span>
-                    {renderSortIcon('id_blueprint')}
-                  </div>
-                </th>
+                {showBlueprintsInPrimaryNav && (
+                  <th
+                    onClick={() => handleSort('id_blueprint')}
+                    className="py-3 px-3.5 cursor-pointer select-none hover:bg-slate-200/80 transition group min-w-[170px] border-r border-slate-300"
+                    title="Cliquer pour trier par Blueprint / Schéma"
+                  >
+                    <div className="flex items-center gap-1.5">
+                      <FileText className="w-3.5 h-3.5 text-slate-700 shrink-0" />
+                      <span>BLUEPRINT</span>
+                      <span className="text-slate-400 font-normal text-[10px]">(Plan)</span>
+                      {renderSortIcon('id_blueprint')}
+                    </div>
+                  </th>
+                )}
 
                 {/* ZONE & TECHNICIEN (F + G) */}
                 <th
                   onClick={() => handleSort('id_zone_default')}
-                  className="py-3 px-3.5 cursor-pointer select-none hover:bg-slate-200/80 transition group min-w-[210px] border-r border-slate-300"
-                  title="Cliquer pour trier par Zone & Technicien"
+                  className="py-3 px-3.5 cursor-pointer select-none hover:bg-slate-200/80 transition group min-w-[180px] border-r border-slate-300"
+                  title={showTeamManagement ? 'Cliquer pour trier par Zone & Technicien' : 'Cliquer pour trier par Zone'}
                 >
                   <div className="flex items-center gap-1.5">
                     <div className="flex items-center -space-x-1">
                       <MapPin className="w-3.5 h-3.5 text-slate-700 shrink-0" />
-                      <Users className="w-3.5 h-3.5 text-slate-700 shrink-0" />
+                      {showTeamManagement && <Users className="w-3.5 h-3.5 text-slate-700 shrink-0" />}
                     </div>
-                    <span>ZONE & TECHNICIEN</span>
-                    <span className="text-slate-400 font-normal text-[10px]">(F+G)</span>
+                    <span>{showTeamManagement ? 'ZONE & TECHNICIEN' : 'ZONE / SECTEUR'}</span>
+                    <span className="text-slate-400 font-normal text-[10px]">
+                      {showTeamManagement ? '(F+G)' : '(F)'}
+                    </span>
                     {renderSortIcon('id_zone_default')}
                   </div>
                 </th>
@@ -1416,12 +1488,12 @@ export default function MachinesRegisteredView({
                 <th
                   onClick={() => handleSort('sorties')}
                   className="py-3 px-3 text-right cursor-pointer select-none hover:bg-slate-200/80 transition group border-r border-slate-300"
-                  title="Cliquer pour trier par Nombre d'Interventions"
+                  title="Cliquer pour trier par Nombre d'Interventions (BT & PM)"
                 >
                   <div className="flex items-center justify-end gap-1">
                     <Activity className="w-3.5 h-3.5 text-slate-700 shrink-0" />
                     <span>INTERVENTIONS</span>
-                    <span className="text-slate-400 font-normal text-[10px]">(Flux)</span>
+                    <span className="text-slate-400 font-normal text-[10px]">(BT/PM)</span>
                     {renderSortIcon('sorties')}
                   </div>
                 </th>
@@ -1434,10 +1506,10 @@ export default function MachinesRegisteredView({
             </thead>
             <tbody className="divide-y divide-slate-200/80">
               {!isTableReady ? (
-                <TableSkeletonRows cols={10} rows={7} color="emerald" />
+                <TableSkeletonRows cols={tableColsCount} rows={7} color="emerald" />
               ) : rawDisplayedData.length === 0 ? (
                 <tr>
-                  <td colSpan={10} className="py-12 text-center text-slate-500 font-medium">
+                  <td colSpan={tableColsCount} className="py-12 text-center text-slate-500 font-medium">
                     <div className="flex flex-col items-center justify-center gap-2">
                       <Factory className="w-8 h-8 text-slate-300" />
                       <span>Aucune machine ne correspond aux critères de recherche.</span>
@@ -1455,7 +1527,9 @@ export default function MachinesRegisteredView({
                   );
                   const sysType = generalSystemTypes.find((t) => t.id === m.id_general_system_type);
                   const isSysGeneral = getMachineAssetClass(m) === 'SYSTEM_GENERAL';
-                  const sortiesCount = sortiesCountMap[String(m.id_machine_registered || '').trim().toUpperCase()] || 0;
+                  const rowCodeNorm = String(m.id_machine_registered || '').trim().toUpperCase();
+                  const interventionsCount = interventionsCountMap[rowCodeNorm] || 0;
+                  const sortiesCount = sortiesCountMap[rowCodeNorm] || 0;
                   const isArchived = isArchivedMachine(m);
                   const isService =
                     !isArchived && String(m.status || 'En Service').toLowerCase().includes('service');
@@ -1539,7 +1613,7 @@ export default function MachinesRegisteredView({
                                   {rowSig.isBadActor && (
                                     <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-rose-50 text-rose-800 border border-rose-200 text-[9.5px] font-mono font-bold">
                                       <Flame className="w-2.5 h-2.5 text-rose-600" />
-                                      {rowSig.isEconomicBerExceeded
+                                      {showFinance && rowSig.isEconomicBerExceeded
                                         ? `BER ${rowSig.berRatioPercent ?? 0}%`
                                         : `Santé ${rowSig.healthScore}/100`}
                                     </span>
@@ -1584,9 +1658,9 @@ export default function MachinesRegisteredView({
                                   {parentRollup.mtbfHours !== null && (
                                     <span>• MTBF: {parentRollup.mtbfHours}h</span>
                                   )}
-                                  {parentRollup.totalDowntimeCost > 0 && (
+                                  {showFinance && parentRollup.totalDowntimeCost > 0 && (
                                     <span className="text-rose-700 font-bold">
-                                      • Perte arrêt: {parentRollup.totalDowntimeCost.toLocaleString('fr-FR')} DH
+                                      • Perte arrêt: {formatCurrency(parentRollup.totalDowntimeCost, { decimals: 0 })}
                                     </span>
                                   )}
                                 </div>
@@ -1625,30 +1699,36 @@ export default function MachinesRegisteredView({
                                 <option value="2x8">2x8</option>
                                 <option value="3x8">3x8</option>
                               </select>
-                              <input
-                                type="number"
-                                min="0"
-                                step="10"
-                                value={
-                                  quickEditDrafts[m.id_machine_registered]?.cout_arret_horaire ??
-                                  Number(m.cout_arret_horaire || 0)
-                                }
-                                onChange={(e) =>
-                                  handleStageQuickDraft(m.id_machine_registered, {
-                                    cout_arret_horaire: e.target.value,
-                                  })
-                                }
-                                className="w-20 px-1.5 py-0.5 rounded border border-amber-300 bg-white text-[10.5px] font-mono font-bold text-slate-800 text-right focus:outline-none"
-                                title="Coût d'arrêt horaire (DH/h)"
-                              />
-                              <span className="text-[10px] font-mono text-slate-500">DH/h</span>
+                              {showFinance && (
+                                <>
+                                  <input
+                                    type="number"
+                                    min="0"
+                                    step="10"
+                                    value={
+                                      quickEditDrafts[m.id_machine_registered]?.cout_arret_horaire ??
+                                      Number(m.cout_arret_horaire || 0)
+                                    }
+                                    onChange={(e) =>
+                                      handleStageQuickDraft(m.id_machine_registered, {
+                                        cout_arret_horaire: e.target.value,
+                                      })
+                                    }
+                                    className="w-20 px-1.5 py-0.5 rounded border border-amber-300 bg-white text-[10.5px] font-mono font-bold text-slate-800 text-right focus:outline-none"
+                                    title={`Coût d'arrêt horaire (${currencySymbol}/h)`}
+                                  />
+                                  <span className="text-[10px] font-mono text-slate-500">{currencySymbol}/h</span>
+                                </>
+                              )}
                             </div>
                           ) : (
-                            (Number(m.cout_arret_horaire || 0) > 0 || m.regime_travail) && (
+                            ((showFinance && Number(m.cout_arret_horaire || 0) > 0) || m.regime_travail) && (
                               <div className="inline-flex items-center gap-1.5 text-[10px] font-mono text-amber-800 bg-amber-50 px-1.5 py-0.5 rounded border border-amber-200/70">
                                 <span>{m.regime_travail || '2x8'}</span>
-                                {Number(m.cout_arret_horaire || 0) > 0 && (
-                                  <span>• {Number(m.cout_arret_horaire).toLocaleString('fr-FR')} DH/h</span>
+                                {showFinance && Number(m.cout_arret_horaire || 0) > 0 && (
+                                  <span>
+                                    • {Number(m.cout_arret_horaire).toLocaleString('fr-FR')} {currencySymbol}/h
+                                  </span>
                                 )}
                               </div>
                             )
@@ -1733,35 +1813,37 @@ export default function MachinesRegisteredView({
                       </td>
 
                       {/* Blueprint Column */}
-                      <td className="py-2.5 px-3.5 whitespace-nowrap">
-                        {m.id_blueprint ? (
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              onNavigateToBlueprints(m.id_family, m.id_templates);
-                            }}
-                            className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-teal-50 text-teal-800 border border-teal-200/80 text-[11px] font-semibold hover:bg-teal-100 hover:border-teal-300 transition cursor-pointer shadow-2xs group"
-                            title="Voir le schéma / plan technique dans Blueprints"
-                          >
-                            <FileText className="w-3.5 h-3.5 text-teal-600 shrink-0 group-hover:scale-110 transition-transform" />
-                            <span className="font-mono font-bold">{m.id_blueprint}</span>
-                            {bp?.revision && (
-                              <span className="text-[9.5px] px-1 py-0.2 bg-teal-200/60 text-teal-900 rounded font-bold font-mono">
-                                {bp.revision}
-                              </span>
-                            )}
-                            {bp?.libelle && (
-                              <span className="text-teal-700 font-normal text-[10px] max-w-[120px] truncate">
-                                • {bp.libelle}
-                              </span>
-                            )}
-                          </button>
-                        ) : (
-                          <span className="inline-flex items-center px-2 py-0.5 rounded text-slate-400 font-mono text-[11px] italic bg-slate-50 border border-slate-200/50">
-                            — Non sélectionné —
-                          </span>
-                        )}
-                      </td>
+                      {showBlueprintsInPrimaryNav && (
+                        <td className="py-2.5 px-3.5 whitespace-nowrap">
+                          {m.id_blueprint ? (
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                onNavigateToBlueprints(m.id_family, m.id_templates);
+                              }}
+                              className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-teal-50 text-teal-800 border border-teal-200/80 text-[11px] font-semibold hover:bg-teal-100 hover:border-teal-300 transition cursor-pointer shadow-2xs group"
+                              title="Voir le schéma / plan technique dans Blueprints"
+                            >
+                              <FileText className="w-3.5 h-3.5 text-teal-600 shrink-0 group-hover:scale-110 transition-transform" />
+                              <span className="font-mono font-bold">{m.id_blueprint}</span>
+                              {bp?.revision && (
+                                <span className="text-[9.5px] px-1 py-0.2 bg-teal-200/60 text-teal-900 rounded font-bold font-mono">
+                                  {bp.revision}
+                                </span>
+                              )}
+                              {bp?.libelle && (
+                                <span className="text-teal-700 font-normal text-[10px] max-w-[120px] truncate">
+                                  • {bp.libelle}
+                                </span>
+                              )}
+                            </button>
+                          ) : (
+                            <span className="inline-flex items-center px-2 py-0.5 rounded text-slate-400 font-mono text-[11px] italic bg-slate-50 border border-slate-200/50">
+                              — Non sélectionné —
+                            </span>
+                          )}
+                        </td>
+                      )}
 
                       {/* Unified Zone & Technicien (F + G) */}
                       <td className="py-2.5 px-3.5 whitespace-nowrap">
@@ -1785,39 +1867,40 @@ export default function MachinesRegisteredView({
                           </button>
 
                           {/* Technician Badge / Quick-Edit Select */}
-                          {quickEditMode && canEdit && !isArchived ? (
-                            <select
-                              value={quickEditDrafts[m.id_machine_registered]?.technician ?? (m.technician || '')}
-                              onChange={(e) =>
-                                handleStageQuickDraft(m.id_machine_registered, {
-                                  technician: e.target.value,
-                                })
-                              }
-                              className="px-2 py-1 rounded-md border border-blue-300 bg-blue-50/70 text-[11px] font-bold text-slate-800 max-w-[190px] focus:outline-none"
-                              title="Réaffecter le technicien responsable"
-                            >
-                              <option value="">— Non assigné —</option>
-                              {technicians
-                                .filter((t) => t?.is_active !== false)
-                                .map((t) => (
-                                  <option key={t.id_technician || t.nom} value={t.id_technician || t.nom}>
-                                    {t.nom} ({t.id_technician || 'TECH'})
-                                  </option>
-                                ))}
-                            </select>
-                          ) : (
-                            <div className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-blue-50 text-blue-800 border border-blue-200/70 text-[11px] font-semibold shadow-2xs">
-                              <Users className="w-3 h-3 text-blue-600 shrink-0" />
-                              <span className="font-bold text-slate-800">
-                                {tech ? tech.nom : m.technician || 'Non assigné'}
-                              </span>
-                              {tech?.id_technician && (
-                                <span className="font-mono text-[10px] text-blue-600 bg-blue-100/70 px-1 rounded">
-                                  {tech.id_technician}
+                          {showTeamManagement &&
+                            (quickEditMode && canEdit && !isArchived ? (
+                              <select
+                                value={quickEditDrafts[m.id_machine_registered]?.technician ?? (m.technician || '')}
+                                onChange={(e) =>
+                                  handleStageQuickDraft(m.id_machine_registered, {
+                                    technician: e.target.value,
+                                  })
+                                }
+                                className="px-2 py-1 rounded-md border border-blue-300 bg-blue-50/70 text-[11px] font-bold text-slate-800 max-w-[190px] focus:outline-none"
+                                title="Réaffecter le technicien responsable"
+                              >
+                                <option value="">— Non assigné —</option>
+                                {technicians
+                                  .filter((t) => t?.is_active !== false)
+                                  .map((t) => (
+                                    <option key={t.id_technician || t.nom} value={t.id_technician || t.nom}>
+                                      {t.nom} ({t.id_technician || 'TECH'})
+                                    </option>
+                                  ))}
+                              </select>
+                            ) : (
+                              <div className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-blue-50 text-blue-800 border border-blue-200/70 text-[11px] font-semibold shadow-2xs">
+                                <Users className="w-3 h-3 text-blue-600 shrink-0" />
+                                <span className="font-bold text-slate-800">
+                                  {tech ? tech.nom : m.technician || 'Non assigné'}
                                 </span>
-                              )}
-                            </div>
-                          )}
+                                {tech?.id_technician && (
+                                  <span className="font-mono text-[10px] text-blue-600 bg-blue-100/70 px-1 rounded">
+                                    {tech.id_technician}
+                                  </span>
+                                )}
+                              </div>
+                            ))}
                         </div>
                       </td>
 
@@ -1864,18 +1947,31 @@ export default function MachinesRegisteredView({
                         )}
                       </td>
 
-                      {/* Interventions Count */}
+                      {/* Real Interventions (BT/PM) & PDR Sorties Count */}
                       <td className="py-3 px-3 text-right whitespace-nowrap">
-                        <span
-                          className={`inline-flex items-center gap-1 font-mono font-bold text-xs px-2.5 py-1 rounded-lg border ${
-                            sortiesCount > 0
-                              ? 'bg-indigo-50 text-indigo-800 border-indigo-200 shadow-2xs'
-                              : 'bg-slate-50 text-slate-400 border-slate-200/60'
-                          }`}
-                        >
-                          <Activity className="w-3 h-3 text-indigo-500 shrink-0" />
-                          <span>{sortiesCount} {sortiesCount > 1 ? 'sorties' : 'sortie'}</span>
-                        </span>
+                        <div className="inline-flex flex-col items-end gap-1">
+                          <span
+                            className={`inline-flex items-center gap-1 font-mono font-bold text-xs px-2.5 py-1 rounded-lg border ${
+                              interventionsCount > 0
+                                ? 'bg-indigo-50 text-indigo-800 border-indigo-200 shadow-2xs'
+                                : 'bg-slate-50 text-slate-400 border-slate-200/60'
+                            }`}
+                            title="Interventions correctives (BT) + exécutions préventives (PM)"
+                          >
+                            <Activity className="w-3 h-3 text-indigo-500 shrink-0" />
+                            <span>
+                              {interventionsCount} {interventionsCount > 1 ? 'interv.' : 'interv.'}
+                            </span>
+                          </span>
+                          {sortiesCount > 0 && (
+                            <span
+                              className="text-[10px] font-mono font-semibold text-slate-500"
+                              title="Mouvements / sorties de stock PDR imputés à cette machine"
+                            >
+                              {sortiesCount} sortie{sortiesCount > 1 ? 's' : ''} PDR
+                            </span>
+                          )}
+                        </div>
                       </td>
 
                       {/* Actions (•••) */}
@@ -1990,7 +2086,9 @@ export default function MachinesRegisteredView({
                                 <ShieldCheck className="w-3.5 h-3.5 text-indigo-600 shrink-0" />
                                 <div className="flex flex-col items-start leading-tight">
                                   <span>Dossier Technique 360°</span>
-                                  <span className="text-[10px] text-indigo-600 font-normal">Passeport Santé, TCO & Historique</span>
+                                  <span className="text-[10px] text-indigo-600 font-normal">
+                                    {showFinance ? 'Passeport Santé, TCO & Historique' : 'Passeport Santé & Historique'}
+                                  </span>
                                 </div>
                               </button>
 
@@ -2072,7 +2170,7 @@ export default function MachinesRegisteredView({
                               )}
 
                               {/* Option 3: Consulter Blueprint si disponible */}
-                              {m.id_blueprint && (
+                              {showBlueprintsInPrimaryNav && m.id_blueprint && (
                                 <button
                                   type="button"
                                   onClick={() => {

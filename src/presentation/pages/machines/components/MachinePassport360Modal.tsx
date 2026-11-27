@@ -17,6 +17,9 @@ import { getMachineAssetClass } from '../../../../utils/activeMachines';
 import { resolveMachineHierarchyContext } from '../../../../utils/assetHierarchy';
 import { buildUnifiedMachineNexusElements } from '../../../../core/domain';
 import { computeMachineHealthPassport } from '../../../../application/services/MachineHealthPassportService';
+import { useCurrency } from '../../../../utils/currencyService';
+import { useWorkspaceProfile } from '../../../../core/workspace/workspaceProfile';
+import { APP_VERSION } from '../../../../config/appVersion';
 import { IMeterReading } from '../../../../types/meter';
 import type {
   IBlueprint,
@@ -58,6 +61,11 @@ export default function MachinePassport360Modal({
   const [bomPosition, setBomPosition] = useState('');
   const [bomNotes, setBomNotes] = useState('');
   const [bomFeedback, setBomFeedback] = useState<string | null>(null);
+
+  const { formatCurrency, currencySymbol } = useCurrency();
+  const workspaceProfile = useWorkspaceProfile();
+  const { showFinance, showBlueprintsInPrimaryNav, showTeamManagement } =
+    workspaceProfile.moduleVisibility;
 
   const machines = useGmaoStore((s) => s.machines) || [];
   const zones = useGmaoStore((s) => s.zones) || [];
@@ -327,23 +335,38 @@ export default function MachinePassport360Modal({
             </div>
           </div>
 
-          <div className="bg-white p-2.5 rounded-2xl border border-slate-200 shadow-2xs">
-            <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block">
-              Coût Maintenance & Impact 12M
-            </span>
-            <div className="text-base font-black font-mono text-indigo-700 mt-0.5">
-              {healthPassport.totalMaintenanceCost12m.toLocaleString('fr-FR')} <span className="text-xs font-sans font-normal text-slate-500">DH</span>
+          {showFinance ? (
+            <div className="bg-white p-2.5 rounded-2xl border border-slate-200 shadow-2xs">
+              <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block">
+                Coût Maintenance &amp; Impact 12M
+              </span>
+              <div className="text-base font-black font-mono text-indigo-700 mt-0.5">
+                {formatCurrency(healthPassport.totalMaintenanceCost12m, { decimals: 0 })}
+              </div>
+              {healthPassport.downtimeProductionLossCost12m > 0 ? (
+                <div className="text-[10px] font-mono text-rose-700 font-semibold mt-0.5">
+                  + {formatCurrency(healthPassport.downtimeProductionLossCost12m, { decimals: 0 })} perte arrêt (Total: {formatCurrency(healthPassport.totalEconomicImpact12m, { decimals: 0 })})
+                </div>
+              ) : healthPassport.berRatioPercent !== null ? (
+                <div className="text-[10px] font-mono text-slate-500 mt-0.5">
+                  Ratio BER : <b className={healthPassport.isEconomicBerExceeded ? 'text-rose-700' : 'text-slate-700'}>{healthPassport.berRatioPercent}%</b> de la valeur à neuf
+                </div>
+              ) : null}
             </div>
-            {healthPassport.downtimeProductionLossCost12m > 0 ? (
-              <div className="text-[10px] font-mono text-rose-700 font-semibold mt-0.5">
-                + {healthPassport.downtimeProductionLossCost12m.toLocaleString('fr-FR')} DH perte arrêt (Total: {healthPassport.totalEconomicImpact12m.toLocaleString('fr-FR')} DH)
+          ) : (
+            <div className="bg-white p-2.5 rounded-2xl border border-slate-200 shadow-2xs">
+              <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block">
+                Interventions 12M
+              </span>
+              <div className="text-base font-black font-mono text-indigo-700 mt-0.5">
+                {healthPassport.correctiveCount12m + healthPassport.preventiveCount12m}{' '}
+                <span className="text-xs font-sans font-normal text-slate-500">BT &amp; PM</span>
               </div>
-            ) : healthPassport.berRatioPercent !== null ? (
               <div className="text-[10px] font-mono text-slate-500 mt-0.5">
-                Ratio BER : <b className={healthPassport.isEconomicBerExceeded ? 'text-rose-700' : 'text-slate-700'}>{healthPassport.berRatioPercent}%</b> de la valeur à neuf
+                {healthPassport.correctiveCount12m} pannes • {healthPassport.preventiveCount12m} PM
               </div>
-            ) : null}
-          </div>
+            </div>
+          )}
 
           <div className="bg-white p-2.5 rounded-2xl border border-slate-200 shadow-2xs">
             <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block">
@@ -514,70 +537,80 @@ export default function MachinePassport360Modal({
                         : 'Machine de Production'}
                     </span>
                   </div>
-                  <div>
-                    <span className="text-[10px] text-slate-400 font-bold block">Technicien Assigné</span>
-                    <span className="font-semibold text-slate-800">
-                      {techObj ? `${techObj.nom} (${techObj.id_technician})` : machine.technician || '—'}
-                    </span>
-                  </div>
+                  {showTeamManagement && (
+                    <div>
+                      <span className="text-[10px] text-slate-400 font-bold block">Technicien Assigné</span>
+                      <span className="font-semibold text-slate-800">
+                        {techObj ? `${techObj.nom} (${techObj.id_technician})` : machine.technician || '—'}
+                      </span>
+                    </div>
+                  )}
                   <div>
                     <span className="text-[10px] text-slate-400 font-bold block">Régime d&apos;Ouverture</span>
                     <span className="font-mono font-semibold text-slate-800">
                       {healthPassport.regimeTravail} ({healthPassport.monthlyOperatingHours} h/mois)
                     </span>
                   </div>
-                  <div>
-                    <span className="text-[10px] text-slate-400 font-bold block">Coût Horaire d&apos;Arrêt</span>
-                    <span className="font-mono font-semibold text-amber-800">
-                      {healthPassport.hourlyDowntimeCost > 0
-                        ? `${healthPassport.hourlyDowntimeCost.toLocaleString('fr-FR')} DH/h`
-                        : 'Non configuré (0 DH/h)'}
-                    </span>
-                  </div>
-                  <div>
-                    <span className="text-[10px] text-slate-400 font-bold block">Valeur d&apos;Acquisition (RAV)</span>
-                    <span className="font-mono font-semibold text-slate-800">
-                      {healthPassport.acquisitionValue > 0
-                        ? `${healthPassport.acquisitionValue.toLocaleString('fr-FR')} DH`
-                        : 'Non renseignée'}
-                    </span>
-                  </div>
-                  <div>
-                    <span className="text-[10px] text-slate-400 font-bold block">Indice BER Économique (12M)</span>
-                    <span
-                      className={`font-mono font-bold ${
-                        healthPassport.isEconomicBerExceeded
-                          ? 'text-rose-700'
-                          : healthPassport.berRatioPercent !== null
-                          ? 'text-emerald-700'
-                          : 'text-slate-400'
-                      }`}
-                    >
-                      {healthPassport.berRatioPercent !== null
-                        ? `${healthPassport.berRatioPercent}% (Seuil ${healthPassport.berThresholdPercent}%)`
-                        : '—'}
-                    </span>
-                  </div>
+                  {showFinance && (
+                    <>
+                      <div>
+                        <span className="text-[10px] text-slate-400 font-bold block">Coût Horaire d&apos;Arrêt</span>
+                        <span className="font-mono font-semibold text-amber-800">
+                          {healthPassport.hourlyDowntimeCost > 0
+                            ? `${formatCurrency(healthPassport.hourlyDowntimeCost, { decimals: 0 })}/h`
+                            : `Non configuré (0 ${currencySymbol}/h)`}
+                        </span>
+                      </div>
+                      <div>
+                        <span className="text-[10px] text-slate-400 font-bold block">Valeur d&apos;Acquisition (RAV)</span>
+                        <span className="font-mono font-semibold text-slate-800">
+                          {healthPassport.acquisitionValue > 0
+                            ? formatCurrency(healthPassport.acquisitionValue, { decimals: 0 })
+                            : 'Non renseignée'}
+                        </span>
+                      </div>
+                      <div>
+                        <span className="text-[10px] text-slate-400 font-bold block">Indice BER Économique (12M)</span>
+                        <span
+                          className={`font-mono font-bold ${
+                            healthPassport.isEconomicBerExceeded
+                              ? 'text-rose-700'
+                              : healthPassport.berRatioPercent !== null
+                              ? 'text-emerald-700'
+                              : 'text-slate-400'
+                          }`}
+                        >
+                          {healthPassport.berRatioPercent !== null
+                            ? `${healthPassport.berRatioPercent}% (Seuil ${healthPassport.berThresholdPercent}%)`
+                            : '—'}
+                        </span>
+                      </div>
+                    </>
+                  )}
                 </div>
               </div>
 
               {/* Economic BER & Recurrent Organ Failure Alert Banner if any */}
-              {(healthPassport.isEconomicBerExceeded ||
+              {((showFinance && healthPassport.isEconomicBerExceeded) ||
                 healthPassport.recurrentOrganAlerts.length > 0) && (
                 <div className="p-4 rounded-2xl bg-rose-50 border border-rose-200 space-y-2">
                   <div className="flex items-center gap-2 text-rose-800 font-bold text-xs">
                     <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0" />
-                    <span>Alerte Récurrence &amp; Seuil Économique (Beyond Economical Repair - BER)</span>
+                    <span>
+                      {showFinance
+                        ? 'Alerte Récurrence & Seuil Économique (Beyond Economical Repair - BER)'
+                        : 'Alerte Récurrence Organes (Fiabilité 12M)'}
+                    </span>
                   </div>
                   <div className="space-y-1.5">
-                    {healthPassport.isEconomicBerExceeded && (
+                    {showFinance && healthPassport.isEconomicBerExceeded && (
                       <div className="text-xs bg-white/90 p-2.5 rounded-xl border border-rose-300 flex items-start justify-between gap-3">
                         <div>
                           <span className="font-bold text-rose-950 block">
                             Dépassement du Seuil BER Économique ({healthPassport.berRatioPercent}% &ge; {healthPassport.berThresholdPercent}%)
                           </span>
                           <span className="text-[11px] text-slate-600">
-                            Le coût cumulé de maintenance sur 12 mois ({healthPassport.totalMaintenanceCost12m.toLocaleString('fr-FR')} DH) dépasse {healthPassport.berThresholdPercent}% de la valeur d&apos;acquisition ({healthPassport.acquisitionValue.toLocaleString('fr-FR')} DH). Évaluer la réforme ou le remplacement de l&apos;équipement.
+                            Le coût cumulé de maintenance sur 12 mois ({formatCurrency(healthPassport.totalMaintenanceCost12m, { decimals: 0 })}) dépasse {healthPassport.berThresholdPercent}% de la valeur d&apos;acquisition ({formatCurrency(healthPassport.acquisitionValue, { decimals: 0 })}). Évaluer la réforme ou le remplacement de l&apos;équipement.
                           </span>
                         </div>
                         <span className="font-mono font-black text-rose-700 bg-rose-100 px-2 py-0.5 rounded text-[11px] shrink-0">
@@ -698,7 +731,7 @@ export default function MachinePassport360Modal({
                   <h4 className="text-xs font-black uppercase tracking-wider text-slate-500">
                     Organes &amp; Composants Enregistrés ({machineElements.length})
                   </h4>
-                  {blueprint ? (
+                  {showBlueprintsInPrimaryNav && blueprint ? (
                     <span className="text-[11px] font-mono text-indigo-700 bg-indigo-50 px-2.5 py-1 rounded-lg border border-indigo-200">
                       Blueprint : {blueprint.id_blueprint} • {blueprint.libelle || blueprint.ref_plan || ''}
                     </span>
@@ -986,38 +1019,62 @@ export default function MachinePassport360Modal({
                 </div>
               ) : (
                 <div className="divide-y divide-slate-100 rounded-2xl border border-slate-200 overflow-hidden bg-white shadow-2xs">
-                  {machineCorrective.map((ci: CorrectiveInterventionItem) => (
-                    <div key={String(ci.id)} className="p-3.5 hover:bg-slate-50 transition space-y-1.5">
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-2">
-                          <span className="font-mono font-bold text-xs text-indigo-700">
-                            {String(ci.num_bt || ci.id)}
+                  {machineCorrective.map((ci: CorrectiveInterventionItem, idx: number) => {
+                    const ciAny = ci as unknown as Record<string, unknown>;
+                    const btCode = String(ci.num_bt || ci.id || ciAny.id_intervention || `BT-${idx + 1}`);
+                    const faultTitle = String(
+                      ci.panne ||
+                        ci.anomalie ||
+                        ciAny.description_panne ||
+                        ciAny.description ||
+                        ciAny.titre ||
+                        'Dépannage'
+                    );
+                    const dateLabel = String(
+                      ci.date_cloture ||
+                        ci.date_demande ||
+                        ciAny.date_intervention ||
+                        ciAny.date_creation ||
+                        '—'
+                    );
+                    const downtimeHours = Number(ci.duree_arret_heures ?? ciAny.temps_arret_heures ?? 0);
+                    return (
+                      <div key={btCode} className="p-3.5 hover:bg-slate-50 transition space-y-1.5">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-2">
+                            <span className="font-mono font-bold text-xs text-indigo-700">
+                              {btCode}
+                            </span>
+                            <span className="font-bold text-slate-900">{faultTitle}</span>
+                          </div>
+                          <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                            ci.statut === 'CLOTURE'
+                              ? 'bg-emerald-100 text-emerald-800'
+                              : ci.statut === 'EN_COURS'
+                              ? 'bg-amber-100 text-amber-800'
+                              : 'bg-slate-100 text-slate-700'
+                          }`}>
+                            {String(ci.statut || 'EN_COURS')}
                           </span>
-                          <span className="font-bold text-slate-900">{String(ci.panne || ci.anomalie || 'Dépannage')}</span>
                         </div>
-                        <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
-                          ci.statut === 'CLOTURE'
-                            ? 'bg-emerald-100 text-emerald-800'
-                            : ci.statut === 'EN_COURS'
-                            ? 'bg-amber-100 text-amber-800'
-                            : 'bg-slate-100 text-slate-700'
-                        }`}>
-                          {String(ci.statut || 'EN_COURS')}
-                        </span>
-                      </div>
 
-                      <div className="flex items-center gap-4 text-[11px] text-slate-500 flex-wrap">
-                        <span>Date : <span className="font-semibold text-slate-700">{String(ci.date_cloture || ci.date_demande || '—')}</span></span>
-                        <span>Technicien : <span className="font-semibold text-slate-700">{String(ci.technicien || ci.intervenant || '—')}</span></span>
-                        {Boolean(ci.duree_arret_heures) && (
-                          <span className="text-amber-700 font-semibold">Arrêt : {String(ci.duree_arret_heures)}h</span>
-                        )}
-                        {Boolean(ci.cout_total) && (
-                          <span className="text-emerald-700 font-bold font-mono">Coût : {String(ci.cout_total)} DH</span>
-                        )}
+                        <div className="flex items-center gap-4 text-[11px] text-slate-500 flex-wrap">
+                          <span>Date : <span className="font-semibold text-slate-700">{dateLabel}</span></span>
+                          {showTeamManagement && (
+                            <span>Technicien : <span className="font-semibold text-slate-700">{String(ci.technicien || ci.intervenant || '—')}</span></span>
+                          )}
+                          {downtimeHours > 0 && (
+                            <span className="text-amber-700 font-semibold">Arrêt : {downtimeHours}h</span>
+                          )}
+                          {showFinance && Boolean(ci.cout_total) && (
+                            <span className="text-emerald-700 font-bold font-mono">
+                              Coût : {formatCurrency(Number(ci.cout_total), { decimals: 0 })}
+                            </span>
+                          )}
+                        </div>
                       </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               )}
             </div>
@@ -1041,27 +1098,37 @@ export default function MachinePassport360Modal({
                 </div>
               ) : (
                 <div className="divide-y divide-slate-100 rounded-2xl border border-slate-200 overflow-hidden bg-white shadow-2xs">
-                  {machineExecutions.map((ex: PreventiveExecutionItem) => (
-                    <div key={String(ex.id)} className="p-3.5 hover:bg-slate-50 transition space-y-1">
-                      <div className="flex items-center justify-between">
-                        <span className="font-bold text-slate-900 text-xs">
-                          {String(ex.taskTitle || ex.taskCode || ex.action_code || 'Visite Préventive')}
-                        </span>
-                        <span className="px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-emerald-50 text-emerald-800 border border-emerald-200">
-                          {String(ex.periodMonth || String(ex.executedAt || '').slice(0, 10))}
-                        </span>
-                      </div>
-                      <div className="text-[11px] text-slate-500 flex items-center gap-3">
-                        <span>Réalisé par : <span className="font-semibold text-slate-700">{String(ex.technicianName || ex.technicien || '—')}</span></span>
-                        {Boolean(ex.duree_reelle) && <span>Durée : {String(ex.duree_reelle)}</span>}
-                        {Boolean(ex.anomalie_detectee) && (
-                          <span className="text-rose-600 font-bold flex items-center gap-1">
-                            <AlertTriangle className="w-3.5 h-3.5" /> Anomalie constatée
+                  {machineExecutions.map((ex: PreventiveExecutionItem, idx: number) => {
+                    const exAny = ex as unknown as Record<string, unknown>;
+                    const durationText = ex.duree_reelle
+                      ? String(ex.duree_reelle)
+                      : Number(exAny.durationMinutes || 0) > 0
+                      ? `${Number(exAny.durationMinutes)} min`
+                      : '';
+                    return (
+                      <div key={String(ex.id || `exec-${idx}`)} className="p-3.5 hover:bg-slate-50 transition space-y-1">
+                        <div className="flex items-center justify-between">
+                          <span className="font-bold text-slate-900 text-xs">
+                            {String(ex.taskTitle || ex.taskCode || ex.action_code || 'Visite Préventive')}
                           </span>
-                        )}
+                          <span className="px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-emerald-50 text-emerald-800 border border-emerald-200">
+                            {String(ex.periodMonth || String(exAny.completedAt || ex.executedAt || '').slice(0, 10) || '—')}
+                          </span>
+                        </div>
+                        <div className="text-[11px] text-slate-500 flex items-center gap-3 flex-wrap">
+                          {showTeamManagement && (
+                            <span>Réalisé par : <span className="font-semibold text-slate-700">{String(ex.technicianName || ex.technicien || '—')}</span></span>
+                          )}
+                          {Boolean(durationText) && <span>Durée : {durationText}</span>}
+                          {Boolean(ex.anomalie_detectee) && (
+                            <span className="text-rose-600 font-bold flex items-center gap-1">
+                              <AlertTriangle className="w-3.5 h-3.5" /> Anomalie constatée
+                            </span>
+                          )}
+                        </div>
                       </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               )}
             </div>
@@ -1071,7 +1138,7 @@ export default function MachinePassport360Modal({
         {/* Modal Footer */}
         <div className="px-6 py-3.5 bg-slate-50 border-t border-slate-200 flex items-center justify-between shrink-0">
           <span className="text-[11px] text-slate-400 font-mono">
-            {machineCode} • Système GMAO Industrie v4
+            {machineCode} • CIOB GMAO Nexus v{APP_VERSION}
           </span>
           <button
             type="button"

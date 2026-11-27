@@ -51,29 +51,192 @@ export function useAppEntityActions({ gmaoState, showToast, setCurrentTab }) {
   } = gmaoState;
 
   const handleAddCompGroup = (newGrp) => {
-    setCompGroups((prev) => [...prev, newGrp]);
-    showToast(`Groupe "${newGrp.libelle || newGrp.code}" ajouté avec succès !`);
+    const codeNorm = String(newGrp?.code || newGrp?.id_groupe || newGrp?.id || '').trim().toUpperCase();
+    const idNorm = String(newGrp?.id || newGrp?.id_groupe || codeNorm).trim().toUpperCase();
+    const libelleClean = String(newGrp?.libelle || newGrp?.name || '').trim();
+    if (!codeNorm || !libelleClean) {
+      showToast?.('Veuillez renseigner le code et le libellé du groupe de composants.', 'warning');
+      return false;
+    }
+    const exists = (compGroups || []).some((g) => {
+      const gCode = String(g?.code || '').trim().toUpperCase();
+      const gId = String(g?.id || g?.id_groupe || g?.id_group || '').trim().toUpperCase();
+      return gCode === codeNorm || gId === idNorm;
+    });
+    if (exists) {
+      showToast?.(`Erreur : Le groupe de composants "${codeNorm}" existe déjà.`, 'error');
+      return false;
+    }
+    const normalized = {
+      ...newGrp,
+      id: idNorm,
+      id_groupe: idNorm,
+      code: codeNorm,
+      libelle: libelleClean,
+    };
+    setCompGroups((prev) => [...prev, normalized]);
+    appendAuditEvent?.({
+      actionType: 'COMP_GROUP_CREATED',
+      entityType: 'COMP_GROUP',
+      entityId: idNorm,
+      before: null,
+      after: normalized,
+    });
+    showToast?.(`Groupe "${libelleClean}" ajouté avec succès !`);
+    return true;
   };
 
   const handleAddPartGroup = (newGrp) => {
-    setPartGroups((prev) => [...(prev || []), newGrp]);
-    showToast(`Groupe Part "${newGrp.libelle || newGrp.code}" ajouté avec succès !`);
+    const codeNorm = String(newGrp?.code || newGrp?.id_group || newGrp?.id || '').trim().toUpperCase();
+    const idNorm = String(newGrp?.id || newGrp?.id_group || newGrp?.id_groupe || codeNorm).trim().toUpperCase();
+    const libelleClean = String(newGrp?.libelle || '').trim();
+    if (!codeNorm || !libelleClean) {
+      showToast?.('Veuillez renseigner le code et le libellé du groupe de parts.', 'warning');
+      return false;
+    }
+    const exists = (partGroups || []).some((g) => {
+      const gCode = String(g?.code || '').trim().toUpperCase();
+      const gId = String(g?.id || g?.id_group || g?.id_groupe || '').trim().toUpperCase();
+      return gCode === codeNorm || gId === idNorm;
+    });
+    if (exists) {
+      showToast?.(`Erreur : Le groupe de parts "${codeNorm}" existe déjà.`, 'error');
+      return false;
+    }
+    const normalized = {
+      ...newGrp,
+      id: idNorm,
+      id_group: idNorm,
+      id_groupe: idNorm,
+      code: codeNorm,
+      libelle: libelleClean,
+      is_active: newGrp?.is_active !== false,
+    };
+    setPartGroups((prev) => [...(prev || []), normalized]);
+    appendAuditEvent?.({
+      actionType: 'PART_GROUP_CREATED',
+      entityType: 'PART_GROUP',
+      entityId: idNorm,
+      before: null,
+      after: normalized,
+    });
+    showToast?.(`Groupe Part "${libelleClean}" ajouté avec succès !`);
+    return true;
   };
 
   const handleAddCompFamily = (newFam) => {
-    setCompFamilies((prev) => [...prev, newFam]);
+    const idNorm = String(newFam?.id_family || '').trim().toUpperCase();
+    const libelleClean = String(newFam?.libelle || '').trim();
+    if (!idNorm || !libelleClean) {
+      showToast?.('Veuillez renseigner le code et le libellé de la famille de composants.', 'warning');
+      return false;
+    }
+    const exists = (compFamilies || []).some(
+      (f) => String(f?.id_family || '').trim().toUpperCase() === idNorm
+    );
+    if (exists) {
+      showToast?.(`Erreur : La famille de composants "${idNorm}" existe déjà.`, 'error');
+      return false;
+    }
+    const normalized = { ...newFam, id_family: idNorm, libelle: libelleClean };
+    setCompFamilies((prev) => [...prev, normalized]);
+    appendAuditEvent?.({
+      actionType: 'COMP_FAMILY_CREATED',
+      entityType: 'COMP_FAMILY',
+      entityId: idNorm,
+      before: null,
+      after: normalized,
+    });
+    showToast?.(`Famille de composants "${idNorm}" ajoutée avec succès !`);
+    return true;
   };
 
   const handleAddCompTemplate = (newTpl) => {
-    setCompTemplates((prev) => [...prev, newTpl]);
+    const idNorm = String(newTpl?.id_templates || '').trim().toUpperCase();
+    const libelleClean = String(newTpl?.libelle || '').trim();
+    if (!idNorm || !libelleClean) {
+      showToast?.('Veuillez renseigner le code et le libellé du template de composant.', 'warning');
+      return false;
+    }
+    const exists = (compTemplates || []).some(
+      (t) => String(t?.id_templates || '').trim().toUpperCase() === idNorm
+    );
+    if (exists) {
+      showToast?.(`Erreur : Le template de composant "${idNorm}" existe déjà.`, 'error');
+      return false;
+    }
+    const normalized = { ...newTpl, id_templates: idNorm, libelle: libelleClean };
+    setCompTemplates((prev) => [...prev, normalized]);
+    appendAuditEvent?.({
+      actionType: 'COMP_TEMPLATE_CREATED',
+      entityType: 'COMP_TEMPLATE',
+      entityId: idNorm,
+      before: null,
+      after: normalized,
+    });
+    showToast?.(`Template de composant "${idNorm}" ajouté avec succès !`);
+    return true;
   };
 
   const handleAddPartType = (newType) => {
-    setPartTypes((prev) => [...prev, newType]);
+    const idNorm = String(newType?.id_type || '').trim().toUpperCase();
+    const libelleClean = String(newType?.libelle || '').trim();
+    if (!idNorm || !libelleClean) {
+      showToast?.('Veuillez renseigner le code et le libellé du type de part.', 'warning');
+      return false;
+    }
+    const exists = (partTypes || []).some(
+      (t) => String(t?.id_type || '').trim().toUpperCase() === idNorm
+    );
+    if (exists) {
+      showToast?.(`Erreur : Le type de part "${idNorm}" existe déjà.`, 'error');
+      return false;
+    }
+    const normalized = { ...newType, id_type: idNorm, libelle: libelleClean };
+    setPartTypes((prev) => [...prev, normalized]);
+    appendAuditEvent?.({
+      actionType: 'PART_TYPE_CREATED',
+      entityType: 'PART_TYPE',
+      entityId: idNorm,
+      before: null,
+      after: normalized,
+    });
+    showToast?.(`Type de part "${idNorm}" ajouté avec succès !`);
+    return true;
   };
 
   const handleAddPartDesignation = (newDesig) => {
-    setPartDesignations((prev) => [...prev, newDesig]);
+    const refNorm = String(newDesig?.ref || newDesig?.id_part || newDesig?.id || '').trim().toUpperCase();
+    const desigClean = String(newDesig?.designation || '').trim();
+    if (!refNorm || !desigClean) {
+      showToast?.('Veuillez renseigner la référence et la désignation de la part.', 'warning');
+      return false;
+    }
+    const exists = (partDesignations || []).some((d) => {
+      const k = String(d?.ref || d?.id_part || d?.id || '').trim().toUpperCase();
+      return k === refNorm;
+    });
+    if (exists) {
+      showToast?.(`Erreur : La désignation de part "${refNorm}" existe déjà.`, 'error');
+      return false;
+    }
+    const normalized = {
+      ...newDesig,
+      id: refNorm,
+      id_part: refNorm,
+      ref: refNorm,
+      designation: desigClean,
+    };
+    setPartDesignations((prev) => [...prev, normalized]);
+    appendAuditEvent?.({
+      actionType: 'PART_DESIGNATION_CREATED',
+      entityType: 'PART_DESIGNATION',
+      entityId: refNorm,
+      before: null,
+      after: normalized,
+    });
+    showToast?.(`Désignation "${refNorm}" ajoutée avec succès !`);
+    return true;
   };
 
   const handleAddType = (newType) => {

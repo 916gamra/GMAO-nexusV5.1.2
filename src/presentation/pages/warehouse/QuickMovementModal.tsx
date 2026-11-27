@@ -23,6 +23,7 @@ import SequentialCodePicker from '../../components/common/SequentialCodePicker';
 import { filterActiveMachines } from '../../../utils/activeMachines';
 import { useGmaoStore } from '../../../store/useGmaoStore';
 import { resolveActiveActorContext } from '../../../store/slices/storeBootstrapSlice';
+import { useWorkspaceProfile } from '../../../core/workspace/workspaceProfile';
 
 export default function QuickMovementModal({
   isOpen,
@@ -36,6 +37,8 @@ export default function QuickMovementModal({
   mouvements = [],
   onAddMouvement,
 }: any) {
+  const workspaceProfile = useWorkspaceProfile();
+  const showTeamUi = workspaceProfile.moduleVisibility.showTeamManagement;
   const activeMachines = useMemo(() => filterActiveMachines(machines), [machines]);
   const activeTechnicians = useMemo(
     () =>
@@ -64,10 +67,10 @@ export default function QuickMovementModal({
   const [quantite, setQuantite] = useState(1);
   const [targetStock, setTargetStock] = useState(article?.stockActuel ?? 0);
   const [adjustMode, setAdjustMode] = useState<'DIRECT' | 'DELTA'>('DIRECT');
-  const [idZone, setIdZone] = useState(zones[0]?.id_zone || '');
+  const [idZone, setIdZone] = useState('');
   const [idMachine, setIdMachine] = useState(activeMachines[0]?.id_machine_registered || '');
-  const [technicien, setTechnicien] = useState(activeTechnicians[0]?.nom || '');
-  const [fournisseur, setFournisseur] = useState('Fournisseur Central Industriel');
+  const [technicien, setTechnicien] = useState(showTeamUi ? activeTechnicians[0]?.nom || '' : '');
+  const [fournisseur, setFournisseur] = useState('');
   const [commentaire, setCommentaire] = useState('');
   const [validationError, setValidationError] = useState<string | null>(null);
 
@@ -96,18 +99,35 @@ export default function QuickMovementModal({
 
   // Synchronize when initialFlow or article changes
   useEffect(() => {
-    if (article) {
+    if (isOpen && article) {
       const normFlow = normalizeFlow(initialFlow);
       setFlowType(normFlow);
       setActionId(normalizeAction(initialAction, normFlow));
       setQuantite(1);
-      setTargetStock(article.stockActuel ?? 0);
+      setTargetStock(article.stockActuel ?? article.stockInitial ?? 0);
       setAdjustMode(normFlow === 'Ajustement' ? 'DIRECT' : 'DELTA');
       setCommentaire('');
+      setFournisseur('');
       setValidationError(null);
       setCodeBon(autoBonCode);
+
+      const mountedMachineId = String(article.id_machine_registered || article.id_machine || '').trim();
+      const matchedMachine = mountedMachineId
+        ? activeMachines.find((m) => m.id_machine_registered === mountedMachineId)
+        : null;
+      const preferredZone = String(matchedMachine?.id_zone_default || article.id_zone || '').trim();
+      setIdZone(preferredZone);
+      if (matchedMachine) {
+        setIdMachine(matchedMachine.id_machine_registered);
+      } else if (preferredZone) {
+        const zoneMachines = activeMachines.filter((m) => m.id_zone_default === preferredZone);
+        setIdMachine(zoneMachines[0]?.id_machine_registered || activeMachines[0]?.id_machine_registered || '');
+      } else {
+        setIdMachine(activeMachines[0]?.id_machine_registered || '');
+      }
+      setTechnicien(showTeamUi ? activeTechnicians[0]?.nom || '' : '');
     }
-  }, [initialFlow, initialAction, article, autoBonCode]);
+  }, [isOpen, initialFlow, initialAction, article, autoBonCode, activeMachines, activeTechnicians, showTeamUi]);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -143,7 +163,8 @@ export default function QuickMovementModal({
     : activeMachines;
 
   const currentStock = Number(article.stockActuel ?? article.stockInitial ?? 0);
-  const articleRef = String(article.ref || article.id_warehouse_item || article.code || '').trim();
+  // Prefer id_warehouse_item so Entrepôt Components/Parts align with useAppCalculations stock index; Stock PDR items fall back to article.ref
+  const articleRef = String(article.id_warehouse_item || article.ref || article.code || '').trim();
   const isDeltaOut =
     flowType === 'Sortie Interne' ||
     (flowType === 'Ajustement' && adjustMode === 'DELTA' && actionId === 'AJUSTEMENT_SORTIE');
@@ -183,9 +204,14 @@ export default function QuickMovementModal({
     const timeStr = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
     const actualCodeBon = codeBon || autoBonCode;
     const actor = resolveActiveActorContext();
-    const isFieldOnlyRole = actor.actorRole === 'TECHNICIEN' || actor.actorRole === 'OPERATEUR';
+    const isFieldOnlyRole =
+      workspaceProfile.governanceMode !== 'SOLO_DIRECT' &&
+      (actor.actorRole === 'TECHNICIEN' || actor.actorRole === 'OPERATEUR');
+    const resolvedTechnician = showTeamUi
+      ? technicien || actor.actorName || ''
+      : actor.actorName || 'ADMIN';
 
-    // Maker-Checker enforcement: if a field technician submits a Sortie Interne, route through SortieDemand
+    // Maker-Checker enforcement: if a field technician submits a Sortie Interne in TEAM mode, route through SortieDemand
     if (isFieldOnlyRole && flowType === 'Sortie Interne') {
       const store = useGmaoStore.getState();
       if (typeof store.handleSubmitSortieDemand === 'function') {
@@ -193,9 +219,9 @@ export default function QuickMovementModal({
           code_bon_tech: actualCodeBon,
           type: 'Sortie Interne',
           date: dateStr,
-          technicien: technicien || actor.actorName,
+          technicien: resolvedTechnician,
           submitted_by_id: actor.actorId,
-          submitted_by_name: technicien || actor.actorName,
+          submitted_by_name: resolvedTechnician,
           id_machine_registered: idMachine,
           id_zone: idZone,
           notes: commentaire || `Sortie rapide (${actionId})`,
@@ -235,7 +261,7 @@ export default function QuickMovementModal({
         stock_apres: clampedTarget,
         type: mvtType,
         action_id: 'INVENTAIRE',
-        technicien: technicien || actor.actorName || 'Magasinier Central',
+        technicien: resolvedTechnician || 'Magasinier Central',
         id_zone: idZone || '',
         id_machine_registered: '',
         commentaire: commentaire
@@ -288,8 +314,8 @@ export default function QuickMovementModal({
         id_zone: flowType.includes('Entrée') || flowType === 'Ajustement' ? '' : idZone,
         id_machine_registered:
           flowType.includes('Entrée') || flowType === 'Ajustement' ? '' : idMachine,
-        technicien: technicien || actor.actorName || 'Technicien Intervenant',
-        fournisseur: flowType === 'Entrée Externe' ? fournisseur : '',
+        technicien: resolvedTechnician || 'Technicien Intervenant',
+        fournisseur: flowType === 'Entrée Externe' ? fournisseur.trim() : '',
         emplacement_reception: article.emplacement || '',
         commentaire:
           commentaire ||
@@ -341,7 +367,7 @@ export default function QuickMovementModal({
               <div className="flex items-center gap-2">
                 <h3 className="font-bold text-base text-slate-900">Action & Flux Rapide</h3>
                 <span className="font-mono text-xs font-bold px-2 py-0.5 rounded bg-slate-100 border border-slate-200 text-slate-700">
-                  {article.ref}
+                  {articleRef}
                 </span>
               </div>
               <p className="text-xs text-slate-500 truncate max-w-xs">{article.designation}</p>
@@ -703,10 +729,15 @@ export default function QuickMovementModal({
                   value={idZone}
                   onChange={(val) => {
                     setIdZone(val);
-                    const relMch = activeMachines.filter((m) => m.id_zone_default === val);
+                    const relMch = val
+                      ? activeMachines.filter((m) => m.id_zone_default === val)
+                      : activeMachines;
                     setIdMachine(relMch[0]?.id_machine_registered || '');
                   }}
-                  options={zones.map((z) => ({ value: z.id_zone, label: `${z.libelle} (${z.id_zone})` }))}
+                  options={[
+                    { value: '', label: 'Toutes les zones' },
+                    ...zones.map((z) => ({ value: z.id_zone, label: `${z.libelle} (${z.id_zone})` })),
+                  ]}
                 />
               </div>
 
@@ -742,18 +773,20 @@ export default function QuickMovementModal({
             </div>
           )}
 
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="text-[11px] font-bold text-slate-600 block mb-1 flex items-center gap-1">
-                <Users className="w-3 h-3 text-blue-600" />
-                <span>Intervenant / Technicien</span>
-              </label>
-              <CustomSelect
-                value={technicien}
-                onChange={(val) => setTechnicien(val)}
-                options={activeTechnicians.map((t) => ({ value: t.nom, label: `${t.nom} (${t.id_technician})` }))}
-              />
-            </div>
+          <div className={showTeamUi ? 'grid grid-cols-2 gap-3' : 'grid grid-cols-1 gap-3'}>
+            {showTeamUi && (
+              <div>
+                <label className="text-[11px] font-bold text-slate-600 block mb-1 flex items-center gap-1">
+                  <Users className="w-3 h-3 text-blue-600" />
+                  <span>Intervenant / Technicien</span>
+                </label>
+                <CustomSelect
+                  value={technicien}
+                  onChange={(val) => setTechnicien(val)}
+                  options={activeTechnicians.map((t) => ({ value: t.nom, label: `${t.nom} (${t.id_technician})` }))}
+                />
+              </div>
+            )}
 
             <div>
               <label className="text-[11px] font-bold text-slate-600 block mb-1">

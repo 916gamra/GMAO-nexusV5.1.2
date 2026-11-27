@@ -27,8 +27,11 @@ import {
   MoreVertical,
   FileSpreadsheet,
   Boxes,
+  AlertTriangle,
 } from 'lucide-react';
 import { getGroupId, getGroupRecordId } from '../../../domain/stock/pdrHierarchyService';
+import { isWarehousePart } from '../../../core/domain/EntrepotItem';
+import { exportTypeBCsv } from '../../../utils/safeExcelExport';
 
 export default function PartTypeView({
   partGroups = [],
@@ -64,6 +67,11 @@ export default function PartTypeView({
   const sortMenuRef = useRef(null);
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState(25);
+  const [formError, setFormError] = useState('');
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [search, activeGroupFilter, sortField, sortOrder]);
 
   const partGroupMap = useMemo(() => {
     const map = new Map();
@@ -134,6 +142,12 @@ export default function PartTypeView({
         const gB = partGroupMap.get(String(b.id_group || b.id_groupe || '').trim());
         valA = gA ? `${gA.code || ''} ${gA.libelle || ''}` : 'zzz';
         valB = gB ? `${gB.code || ''} ${gB.libelle || ''}` : 'zzz';
+      } else if (sortField === 'part_designations' || sortField === 'designations_count') {
+        valA = partDesignations.filter((d) => d.id_type === a.id_type).length;
+        valB = partDesignations.filter((d) => d.id_type === b.id_type).length;
+      } else if (sortField === 'warehouse_parts' || sortField === 'warehouse_count') {
+        valA = warehouseItems.filter((w) => isWarehousePart(w) && w.id_type === a.id_type).length;
+        valB = warehouseItems.filter((w) => isWarehousePart(w) && w.id_type === b.id_type).length;
       }
       if (typeof valA === 'string') valA = valA.toLowerCase();
       if (typeof valB === 'string') valB = valB.toLowerCase();
@@ -141,7 +155,7 @@ export default function PartTypeView({
       if (valA > valB) return sortOrder === 'asc' ? 1 : -1;
       return 0;
     });
-  }, [filtered, sortField, sortOrder, partGroupMap]);
+  }, [filtered, sortField, sortOrder, partGroupMap, partDesignations, warehouseItems]);
 
   const totalItems = sortedData.length;
   const effectivePageSize = pageSize === 0 ? totalItems : pageSize;
@@ -178,8 +192,10 @@ export default function PartTypeView({
         return t('part_types.col_libelle', 'Libellé');
       case 'id_group':
         return 'Groupe Part (Niv 1)';
+      case 'part_designations':
       case 'designations_count':
         return t('part_types.col_count', 'Désignations');
+      case 'warehouse_parts':
       case 'warehouse_count':
         return t('part_types.col_warehouse', 'Entrepôt');
       default:
@@ -187,8 +203,26 @@ export default function PartTypeView({
     }
   };
 
+  const getNextPartTypeIndex = () => {
+    let maxNum = 0;
+    partTypes.forEach((pt) => {
+      const m = String(pt.id_type || '').match(/(\d+)$/);
+      if (m) {
+        const n = parseInt(m[1], 10);
+        if (n > maxNum) maxNum = n;
+      }
+    });
+    return Math.max(maxNum, partTypes.length) + 1;
+  };
+
   const handleExportExcel = () => {
-    const headers = ['ID Type Part', 'Libellé Type Part', 'Groupe Part (Niv 1)', 'Nb Désignations', 'Nb Articles Entrepôt'];
+    const headers = [
+      'ID Type Part',
+      'Libellé Type Part',
+      'Groupe Part (Niv 1)',
+      'Nb Désignations',
+      'Nb Parts Entrepôt',
+    ];
     const rows = filtered.map((tItem) => {
       const grp = partGroupMap.get(String(tItem.id_group || tItem.id_groupe || '').trim());
       return [
@@ -196,32 +230,42 @@ export default function PartTypeView({
         tItem.libelle || '',
         grp ? `${grp.code} - ${grp.libelle}` : 'Non classé',
         partDesignations.filter((d) => d.id_type === tItem.id_type).length,
-        warehouseItems.filter((i) => i.id_type === tItem.id_type).length,
+        warehouseItems.filter((i) => isWarehousePart(i) && i.id_type === tItem.id_type).length,
       ];
     });
-    const csvContent =
-      'data:text/csv;charset=utf-8,\uFEFF' +
-      [headers.join(';'), ...rows.map((e) => e.join(';'))].join('\n');
-    const encodedUri = encodeURI(csvContent);
-    const link = document.createElement('a');
-    link.setAttribute('href', encodedUri);
-    link.setAttribute('download', `types_parts_${new Date().toISOString().slice(0, 10)}.csv`);
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+    exportTypeBCsv({
+      filename: `GMAO_Types_Parts_TypeB_${new Date().toISOString().slice(0, 10)}.csv`,
+      headers,
+      rows,
+    });
   };
 
   const handleSubmit = (e) => {
     e.preventDefault();
     if (!canCreateStock) return;
-    if (!form.id_type || !form.libelle) return;
+    setFormError('');
+    const cleanId = form.id_type.trim().toUpperCase();
+    const cleanLibelle = form.libelle.trim();
+    if (!cleanId || !cleanLibelle) {
+      setFormError("L'ID Type et le libellé sont obligatoires.");
+      return;
+    }
+    if (
+      partTypes.some((pt) => String(pt.id_type || '').trim().toUpperCase() === cleanId)
+    ) {
+      setFormError(`Le type "${cleanId}" existe déjà.`);
+      return;
+    }
     const cleanGroupId = form.id_group ? String(form.id_group).trim() : null;
-    onAddPartType({
+    const created = onAddPartType?.({
       ...form,
-      id_type: form.id_type.trim().toUpperCase(),
+      id_type: cleanId,
+      libelle: cleanLibelle,
       id_group: cleanGroupId,
     });
+    if (created === false) return;
     setForm({ id_type: '', id_group: '', libelle: '' });
+    setFormError('');
     setShowAddModal(false);
   };
 
@@ -288,6 +332,7 @@ export default function PartTypeView({
         label: t('part_types.col_designations', 'DÉSIGNATIONS DE PARTS'),
         colLetter: 'D',
         icon: PartInfoIcon,
+        sortable: true,
         render: (item) => {
           const dCount = partDesignations.filter((d) => d.id_type === item.id_type).length;
           return (
@@ -311,11 +356,10 @@ export default function PartTypeView({
         label: t('part_types.col_warehouse', 'PARTS EN ENTREPÔT'),
         colLetter: 'E',
         icon: Warehouse,
+        sortable: true,
         render: (item) => {
           const pCount = warehouseItems.filter(
-            (w) =>
-              (w.nature === 'PART' || w.nature === 'COMPOSANT') &&
-              w.id_type === item.id_type
+            (w) => isWarehousePart(w) && w.id_type === item.id_type
           ).length;
           return (
             <button
@@ -475,7 +519,8 @@ export default function PartTypeView({
               icon={LayersIcon}
               showAddBadge={true}
               onClick={() => {
-                const nextIdx = partTypes.length + 1;
+                const nextIdx = getNextPartTypeIndex();
+                setFormError('');
                 setForm({
                   id_type: `TYPE-PRT${String(nextIdx).padStart(2, '0')}`,
                   id_group: activeGroupFilter && activeGroupFilter !== 'ALL' && activeGroupFilter !== 'UNASSIGNED' ? activeGroupFilter : '',
@@ -520,7 +565,7 @@ export default function PartTypeView({
               title={`${t('common.filters.export_excel', 'Exporter le tableau vers Excel / CSV')} — Type B : Export externe (non réimportable)`}
             >
               <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-600" />
-              <span>{t('common.filters.export_excel', 'Export Excel')}</span>
+              <span>{t('common.filters.export_excel', 'Export Excel')} (Type B)</span>
             </button>
 
             {/* Circular Reset Button */}
@@ -755,13 +800,19 @@ export default function PartTypeView({
       {/* Add Modal */}
       {showAddModal && (
         <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl shadow-xl w-full max-w-md p-6 border border-slate-200 animate-in fade-in zoom-in-95 duration-150">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-md max-h-[90vh] overflow-y-auto p-6 border border-slate-200 animate-in fade-in zoom-in-95 duration-150">
             <h3 className="font-bold text-base text-slate-900 mb-1">
               {t('part_types.add_title', 'Nouveau Type de Part')}
             </h3>
             <p className="text-xs text-slate-500 mb-4">
               {t('part_types.add_desc', "Catégorie de parts d'entrepôt (Niveau 2).")}
             </p>
+            {formError && (
+              <div className="mb-3 p-2.5 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-xs font-semibold flex items-center gap-2">
+                <AlertTriangle className="w-4 h-4 shrink-0" />
+                <span>{formError}</span>
+              </div>
+            )}
             <form onSubmit={handleSubmit} className="space-y-3">
               <div>
                 <label className="text-[11px] font-bold uppercase tracking-wider text-slate-500">
@@ -838,7 +889,7 @@ export default function PartTypeView({
       {/* Edit Modal */}
       {toEdit && (
         <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl shadow-xl w-full max-w-md p-6 border border-slate-200 animate-in fade-in zoom-in-95 duration-150">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-md max-h-[90vh] overflow-y-auto p-6 border border-slate-200 animate-in fade-in zoom-in-95 duration-150">
             <h3 className="font-bold text-base text-slate-900 mb-1">
               {t('part_types.edit_title', 'Modifier Type de Part')}
             </h3>
@@ -920,38 +971,57 @@ export default function PartTypeView({
       )}
 
       {/* Delete Modal */}
-      {toDelete && (
-        <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm p-6 border border-slate-200">
-            <h3 className="font-bold text-base text-slate-900 mb-1">
-              {t('part_types.delete_title', 'Supprimer ce Type de Part ?')}
-            </h3>
-            <p className="text-xs text-slate-500 mb-4">
-              {t('part_types.delete_confirm', 'Confirmez-vous la suppression de {{name}} ?', { name: `${toDelete.id_type} (${toDelete.libelle})` })}
-            </p>
-            <div className="flex justify-end gap-2">
-              <button
-                onClick={() => setToDelete(null)}
-                className="px-4 py-2 text-xs font-bold text-slate-600 hover:bg-slate-100 rounded-xl cursor-pointer"
-              >
-                {t('common.cancel', 'Annuler')}
-              </button>
+      {toDelete && (() => {
+        const linkedDesignationsCount = partDesignations.filter((d) => d.id_type === toDelete.id_type).length;
+        const linkedWarehouseCount = warehouseItems.filter(
+          (w) => isWarehousePart(w) && w.id_type === toDelete.id_type
+        ).length;
+        const hasLinks = linkedDesignationsCount > 0 || linkedWarehouseCount > 0;
+        return (
+          <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-xs flex items-center justify-center p-4">
+            <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm p-6 border border-slate-200">
+              <h3 className="font-bold text-base text-slate-900 mb-1">
+                {t('part_types.delete_title', 'Supprimer ce Type de Part ?')}
+              </h3>
+              <p className="text-xs text-slate-500 mb-3">
+                {t('part_types.delete_confirm', 'Confirmez-vous la suppression de {{name}} ?', { name: `${toDelete.id_type} (${toDelete.libelle})` })}
+              </p>
+              {hasLinks && (
+                <div className="mb-4 p-2.5 rounded-xl bg-amber-50 border border-amber-200 text-[11px] font-semibold text-amber-800 flex items-start gap-2">
+                  <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                  <span>
+                    Suppression bloquée : {linkedDesignationsCount} désignation(s) et {linkedWarehouseCount} part(s) en entrepôt dépendent de ce type.
+                  </span>
+                </div>
+              )}
+              <div className="flex justify-end gap-2">
+                <button
+                  onClick={() => setToDelete(null)}
+                  className="px-4 py-2 text-xs font-bold text-slate-600 hover:bg-slate-100 rounded-xl cursor-pointer"
+                >
+                  {t('common.cancel', 'Annuler')}
+                </button>
 
-              <button
-                onClick={() => {
-                  if (!canDeleteStock) return;
-                  onDeletePartType(toDelete.id_type);
-                  setToDelete(null);
-                }}
-                className="px-4 py-2 text-xs font-bold text-white bg-rose-600 hover:bg-rose-700 rounded-xl shadow-[0_12px_32px_-6px_rgba(0,0,0,0.12),0_4px_12px_-2px_rgba(0,0,0,0.06)] hover:shadow-[0_16px_40px_-8px_rgba(0,0,0,0.16),0_6px_16px_-3px_rgba(0,0,0,0.08)] hover:-translate-y-0.5 transition-all duration-300 ease-out cursor-pointer"
-              >
-                {t('common.delete', 'Supprimer')}
-              </button>
-
+                <button
+                  disabled={hasLinks}
+                  onClick={() => {
+                    if (!canDeleteStock || hasLinks) return;
+                    onDeletePartType(toDelete.id_type);
+                    setToDelete(null);
+                  }}
+                  className={`px-4 py-2 text-xs font-bold text-white rounded-xl transition-all duration-300 ease-out ${
+                    hasLinks
+                      ? 'bg-slate-300 cursor-not-allowed'
+                      : 'bg-rose-600 hover:bg-rose-700 shadow-[0_12px_32px_-6px_rgba(0,0,0,0.12),0_4px_12px_-2px_rgba(0,0,0,0.06)] hover:shadow-[0_16px_40px_-8px_rgba(0,0,0,0.16),0_6px_16px_-3px_rgba(0,0,0,0.08)] hover:-translate-y-0.5 cursor-pointer'
+                  }`}
+                >
+                  {t('common.delete', 'Supprimer')}
+                </button>
+              </div>
             </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
 
       {/* Excel Formulas Modal */}
       {showFormulasModal && (

@@ -35,6 +35,8 @@ import {
   type MaterialPolicyTag,
 } from '../../../domain/corrective/needRequestService';
 import { getGroupId, getGroupRecordId } from '../../../domain/stock/pdrHierarchyService';
+import { isWarehousePart } from '../../../core/domain/EntrepotItem';
+import { exportTypeBCsv } from '../../../utils/safeExcelExport';
 import type {
   IPartDesignation,
   IPartGroup,
@@ -49,7 +51,7 @@ interface PartDesignationViewProps {
   warehouseItems?: IWarehouseItem[];
   partDesignationTypeFilter?: string;
   setPartDesignationTypeFilter?: (val: string) => void;
-  onAddPartDesignation: (item: Partial<IPartDesignation>) => void;
+  onAddPartDesignation: (item: Partial<IPartDesignation>) => boolean | void;
   onUpdatePartDesignation: (id: string | number, item: Partial<IPartDesignation>) => void;
   onDeletePartDesignation: (id: string | number) => void;
   onNavigateToPartGroups?: (groupId?: string) => void;
@@ -90,6 +92,11 @@ export default function PartDesignationView({
   const sortMenuRef = useRef<HTMLDivElement | null>(null);
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState(25);
+  const [formError, setFormError] = useState('');
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [search, partGroupFilter, partDesignationTypeFilter, sortField, sortOrder]);
 
   const partGroupMap = useMemo(() => {
     const map: Record<string, IPartGroup> = {};
@@ -221,6 +228,18 @@ export default function PartDesignationView({
     }
   };
 
+  const getNextPartDesignationIndex = () => {
+    let maxNum = 0;
+    partDesignations.forEach((d) => {
+      const m = String(d.ref || d.id_part || '').match(/(\d+)$/);
+      if (m) {
+        const n = parseInt(m[1], 10);
+        if (n > maxNum) maxNum = n;
+      }
+    });
+    return Math.max(maxNum, partDesignations.length) + 1;
+  };
+
   const handleExportExcel = () => {
     const headers = [
       'Référence',
@@ -240,7 +259,7 @@ export default function PartDesignationView({
       const grpId = getGroupId(d) || getGroupId(typeObj);
       const matchingItems = warehouseItems.filter(
         (w: IWarehouseItem) =>
-          (w.nature === 'PART' || w.nature === 'COMPOSANT') &&
+          isWarehousePart(w) &&
           (w.id_warehouse_item === dKey ||
             w.ref === dKey ||
             w.id_diag === dKey ||
@@ -248,7 +267,7 @@ export default function PartDesignationView({
             w.designation === d.designation)
       );
       const totalStock = matchingItems.reduce(
-        (sum: number, w: IWarehouseItem) => sum + (Number(w.stockActuel ?? w.quantite ?? 1) || 0),
+        (sum: number, w: IWarehouseItem) => sum + (Number(w.stockActuel ?? w.quantite ?? 0) || 0),
         0
       );
       return [
@@ -264,30 +283,40 @@ export default function PartDesignationView({
         d.emplacement || '',
       ];
     });
-    const csvContent =
-      'data:text/csv;charset=utf-8,\uFEFF' +
-      [headers.join(';'), ...rows.map((e) => e.join(';'))].join('\n');
-    const encodedUri = encodeURI(csvContent);
-    const link = document.createElement('a');
-    link.setAttribute('href', encodedUri);
-    link.setAttribute('download', `designations_parts_${new Date().toISOString().slice(0, 10)}.csv`);
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+    exportTypeBCsv({
+      filename: `GMAO_Designations_Parts_TypeB_${new Date().toISOString().slice(0, 10)}.csv`,
+      headers,
+      rows,
+    });
   };
 
   const handleSubmit = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     if (!canCreateStock) return;
-    if (!form.ref || !form.designation || !form.id_type) return;
+    setFormError('');
     const cleanRef = form.ref.trim().toUpperCase();
+    const cleanDesignation = form.designation.trim();
+    if (!cleanRef || !cleanDesignation || !form.id_type) {
+      setFormError('La référence, la désignation et le type de part sont obligatoires.');
+      return;
+    }
+    const duplicate = partDesignations.some((d) => {
+      const k1 = String(d.ref || '').trim().toUpperCase();
+      const k2 = String(d.id_part || '').trim().toUpperCase();
+      return k1 === cleanRef || k2 === cleanRef;
+    });
+    if (duplicate) {
+      setFormError(`La référence "${cleanRef}" existe déjà dans les désignations de parts.`);
+      return;
+    }
     const matchedTypeObj = partTypes.find((tItem: IPartType) => tItem.id_type === form.id_type);
     const effectiveGroup = form.id_group || getGroupId(matchedTypeObj) || undefined;
-    onAddPartDesignation({
+    const created = onAddPartDesignation({
       ...form,
       id: cleanRef,
       id_part: cleanRef,
       ref: cleanRef,
+      designation: cleanDesignation,
       id_group: effectiveGroup,
       matiere_nuance: form.matiere_nuance.trim(),
       ref_plan: form.ref_plan.trim(),
@@ -299,6 +328,7 @@ export default function PartDesignationView({
           ? form.policy_tags
           : (['REPAIRABLE', 'REPLACING'] as MaterialPolicyTag[]),
     });
+    if (created === false) return;
     setForm({
       id_part: '',
       ref: '',
@@ -313,6 +343,7 @@ export default function PartDesignationView({
       traitement_thermique: '',
       policy_tags: ['REPAIRABLE', 'REPLACING'],
     });
+    setFormError('');
     setShowAddModal(false);
   };
 
@@ -434,7 +465,7 @@ export default function PartDesignationView({
         render: (item) => (
           <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-amber-50 text-amber-800 border border-amber-200 text-xs font-mono font-bold">
             <AlertTriangle className="w-3 h-3 text-amber-600" />
-            {item.seuil ?? 3}
+            {item.seuil ?? 0}
           </span>
         ),
       },
@@ -459,7 +490,7 @@ export default function PartDesignationView({
           const dKey = item.ref || item.id_part || item.id_diag || item.id;
           const pCount = warehouseItems.filter(
             (w) =>
-              (w.nature === 'PART' || w.nature === 'COMPOSANT') &&
+              isWarehousePart(w) &&
               (w.id_warehouse_item === dKey ||
                 w.ref === dKey ||
                 w.id_diag === dKey ||
@@ -519,7 +550,7 @@ export default function PartDesignationView({
           const rowKey = item.ref || item.id_part || item.id_diag || item.id || '';
           const pCount = warehouseItems.filter(
             (w) =>
-              (w.nature === 'PART' || w.nature === 'COMPOSANT') &&
+              isWarehousePart(w) &&
               (w.id_warehouse_item === rowKey ||
                 w.ref === rowKey ||
                 w.id_diag === rowKey ||
@@ -651,13 +682,14 @@ export default function PartDesignationView({
               icon={PartInfoIcon}
               showAddBadge={true}
               onClick={() => {
-                const nextIdx = partDesignations.length + 1;
+                const nextIdx = getNextPartDesignationIndex();
+                setFormError('');
                 setForm({
                   id_part: `PRT-${String(nextIdx).padStart(2, '0')}`,
                   ref: `PRT-${String(nextIdx).padStart(2, '0')}`,
                   designation: '',
-                  id_group: '',
-                  id_type: partTypes[0]?.id_type || '',
+                  id_group: partGroupFilter !== 'ALL' && partGroupFilter !== 'UNASSIGNED' ? partGroupFilter : '',
+                  id_type: partDesignationTypeFilter || partTypes[0]?.id_type || '',
                   seuil: 5,
                   emplacement: '',
                   matiere_nuance: '',
@@ -705,7 +737,7 @@ export default function PartDesignationView({
               title={`${t('common.filters.export_excel', 'Exporter le tableau vers Excel / CSV')} — Type B : Export externe (non réimportable)`}
             >
               <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-600" />
-              <span>{t('common.filters.export_excel', 'Export Excel')}</span>
+              <span>{t('common.filters.export_excel', 'Export Excel')} (Type B)</span>
             </button>
 
             {/* Circular Reset Button */}
@@ -1011,9 +1043,24 @@ export default function PartDesignationView({
         </div>
 
         {/* Active Filter Chips */}
-        {(search || partDesignationTypeFilter) && (
+        {(search || partGroupFilter !== 'ALL' || partDesignationTypeFilter) && (
           <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-slate-100 text-xs">
             <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">{t('common.filters.active_filters', 'Filtres actifs :')}</span>
+            {partGroupFilter !== 'ALL' && (
+              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-teal-50 border border-teal-200 text-teal-800 text-xs font-semibold">
+                <LayersIcon className="w-3 h-3 text-teal-600" />
+                Groupe :{' '}
+                {partGroupFilter === 'UNASSIGNED'
+                  ? 'Non classés'
+                  : partGroupMap[String(partGroupFilter).trim().toUpperCase()]?.code || partGroupFilter}
+                <button
+                  onClick={() => setPartGroupFilter('ALL')}
+                  className="hover:bg-teal-200/60 p-0.5 rounded-full transition cursor-pointer"
+                >
+                  <X className="w-3 h-3" />
+                </button>
+              </span>
+            )}
             {search && (
               <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-amber-50 border border-amber-200 text-amber-800 text-xs font-semibold">
                 <Search className="w-3 h-3 text-amber-600" />
@@ -1073,13 +1120,19 @@ export default function PartDesignationView({
       {/* Add Modal */}
       {showAddModal && (
         <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl shadow-xl w-full max-w-md p-6 border border-slate-200 animate-in fade-in zoom-in-95 duration-150">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-md max-h-[90vh] overflow-y-auto p-6 border border-slate-200 animate-in fade-in zoom-in-95 duration-150">
             <h3 className="font-bold text-base text-slate-900 mb-1">
               {t('part_designations.add_title', 'Nouvelle Désignation de Part')}
             </h3>
             <p className="text-xs text-slate-500 mb-4">
               {t('part_designations.add_desc', 'Référence et description d’une pièce détachée stockée en entrepôt.')}
             </p>
+            {formError && (
+              <div className="mb-3 p-2.5 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-xs font-semibold flex items-center gap-2">
+                <AlertTriangle className="w-4 h-4 shrink-0" />
+                <span>{formError}</span>
+              </div>
+            )}
             <form onSubmit={handleSubmit} className="space-y-3">
               <div>
                 <label className="text-[11px] font-bold uppercase tracking-wider text-slate-500">
@@ -1267,7 +1320,7 @@ export default function PartDesignationView({
       {/* Edit Modal */}
       {toEdit && (
         <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl shadow-xl w-full max-w-md p-6 border border-slate-200 animate-in fade-in zoom-in-95 duration-150">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-md max-h-[90vh] overflow-y-auto p-6 border border-slate-200 animate-in fade-in zoom-in-95 duration-150">
             <h3 className="font-bold text-base text-slate-900 mb-1">
               {t('part_designations.edit_title', 'Modifier Désignation de Part')}
             </h3>
@@ -1327,7 +1380,7 @@ export default function PartDesignationView({
                   <input
                     type="number"
                     min="0"
-                    value={toEdit.seuil ?? 3}
+                    value={toEdit.seuil ?? 0}
                     onChange={(e) =>
                       setToEdit({ ...toEdit, seuil: Number(e.target.value) || 0 })
                     }
@@ -1461,7 +1514,7 @@ export default function PartDesignationView({
         const delKey = toDelete.ref || toDelete.id_part || toDelete.id_diag || toDelete.id;
         const linkedWarehouseCount = warehouseItems.filter(
           (w) =>
-            (w.nature === 'PART' || w.nature === 'COMPOSANT') &&
+            isWarehousePart(w) &&
             (w.id_warehouse_item === delKey ||
               w.ref === delKey ||
               w.id_diag === delKey ||

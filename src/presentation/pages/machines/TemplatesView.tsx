@@ -27,15 +27,19 @@ import {
   X,
   MoreVertical,
   FileSpreadsheet,
+  FileText,
 } from 'lucide-react';
 import { BlueprintPlusIcon } from '../../components/common/icons/BlueprintPlusIcon';
 import { useI18n } from '../../../i18n/I18nContext';
+import { useWorkspaceProfile } from '../../../core/workspace/workspaceProfile';
 
 export default function TemplatesView({
   templates,
   families,
   blueprints = [],
   machines,
+  search: externalSearch = '',
+  setSearch: setExternalSearch,
   templateFamilyFilter,
   setTemplateFamilyFilter,
   quickCreateTemplateFamily,
@@ -53,8 +57,22 @@ export default function TemplatesView({
   const canCreate = usePermission('machine.create');
   const canEdit = usePermission('machine.edit');
   const canDelete = usePermission('machine.delete');
-  const [localSearch, setLocalSearch] = useState('');
-  const [search, setSearch] = useState('');
+  const workspaceProfile = useWorkspaceProfile();
+  const { showBlueprintsInPrimaryNav } = workspaceProfile.moduleVisibility;
+
+  const safeTemplates = Array.isArray(templates) ? templates : [];
+  const safeFamilies = Array.isArray(families) ? families : [];
+  const safeBlueprints = Array.isArray(blueprints) ? blueprints : [];
+  const safeMachines = Array.isArray(machines) ? machines : [];
+
+  const [localSearch, setLocalSearch] = useState(() => String(externalSearch || ''));
+  const [search, setSearch] = useState(() => String(externalSearch || ''));
+
+  useEffect(() => {
+    const incoming = String(externalSearch || '');
+    setLocalSearch(incoming);
+    setSearch(incoming);
+  }, [externalSearch]);
 
   useEffect(() => {
     const handler = setTimeout(() => {
@@ -68,7 +86,7 @@ export default function TemplatesView({
   const [form, setForm] = useState({
     id_templates: '',
     libelle: '',
-    id_family: families[0]?.id_family || '',
+    id_family: safeFamilies[0]?.id_family || '',
   });
   const [formError, setFormError] = useState('');
   const [toEdit, setToEdit] = useState(null);
@@ -79,7 +97,7 @@ export default function TemplatesView({
       const famUpper = String(quickCreateTemplateFamily).trim().toUpperCase();
       const baseCode = `TPL-${famUpper}`;
       const existingCodes = new Set(
-        (templates || []).map((tpl) => String(tpl?.id_templates || '').trim().toUpperCase())
+        safeTemplates.map((tpl) => String(tpl?.id_templates || '').trim().toUpperCase())
       );
       let candidate = baseCode;
       if (existingCodes.has(candidate)) {
@@ -101,7 +119,7 @@ export default function TemplatesView({
     }
   }, [quickCreateTemplateFamily, templates]);
 
-  const filtered = templates.filter((t) => {
+  const filtered = safeTemplates.filter((t) => {
     if (templateFamilyFilter !== 'ALL' && t.id_family !== templateFamilyFilter) return false;
     if (!search) return true;
     const q = search.toLowerCase();
@@ -209,11 +227,22 @@ export default function TemplatesView({
       },
       {
         key: 'nb_machines',
-        label: t('machines.template.col_machines', 'NB MACHINES (F)'),
+        label: t('machines.template.col_machines', 'NB MACHINES (E)'),
         colLetter: 'E',
         icon: Cpu,
         align: 'center',
       },
+      ...(showBlueprintsInPrimaryNav
+        ? [
+            {
+              key: 'nb_blueprints',
+              label: t('machines.template.col_blueprints', 'NB BLUEPRINTS (F)'),
+              colLetter: 'F',
+              icon: FileText,
+              align: 'center',
+            },
+          ]
+        : []),
       {
         key: 'actions',
         label: '•••',
@@ -221,7 +250,7 @@ export default function TemplatesView({
         headerClassName: 'w-24 font-bold text-slate-400 tracking-widest',
       },
     ],
-    [t]
+    [t, showBlueprintsInPrimaryNav]
   );
 
   const handleCloseAddModal = () => {
@@ -237,8 +266,12 @@ export default function TemplatesView({
     if (!canCreate) return;
     const codeNorm = String(form.id_templates || '').trim().toUpperCase();
     const labelClean = String(form.libelle || '').trim();
-    if (!codeNorm || !labelClean || !form.id_family) return;
-    const isDuplicate = (templates || []).some(
+    if (!codeNorm || !labelClean) return;
+    if (!form.id_family) {
+      setFormError('Veuillez sélectionner ou créer une famille parente avant d’enregistrer.');
+      return;
+    }
+    const isDuplicate = safeTemplates.some(
       (tpl) => String(tpl?.id_templates || '').trim().toUpperCase() === codeNorm
     );
     if (isDuplicate) {
@@ -247,7 +280,7 @@ export default function TemplatesView({
     }
     setFormError('');
     onAddTemplate({ ...form, id_templates: codeNorm, libelle: labelClean });
-    setForm({ id_templates: '', libelle: '', id_family: families[0]?.id_family || '' });
+    setForm({ id_templates: '', libelle: '', id_family: safeFamilies[0]?.id_family || '' });
     setShowAddModal(false);
     if (quickCreateTemplateFamily && setQuickCreateTemplateFamily) {
       setQuickCreateTemplateFamily(null);
@@ -255,9 +288,6 @@ export default function TemplatesView({
   };
 
   const handleExportExcel = () => {
-    const safeBlueprints = Array.isArray(blueprints) ? blueprints : [];
-    const safeMachines = Array.isArray(machines) ? machines : [];
-    const safeFamilies = Array.isArray(families) ? families : [];
     const exportRows = filtered.map((tItem, idx) => {
       const fam = safeFamilies.find((f) => f.id_family === tItem.id_family);
       return {
@@ -267,12 +297,16 @@ export default function TemplatesView({
         [t('machines.template.col_family', 'Famille Parente')]: fam?.libelle
           ? `${fam.libelle} (${tItem.id_family})`
           : tItem.id_family || '',
-        [t('machines.template.col_blueprints', 'Nb Blueprints')]: safeBlueprints.filter(
-          (bp) => bp.id_templates === tItem.id_templates
-        ).length,
         [t('machines.template.col_machines', 'Nb Machines')]: safeMachines.filter(
           (m) => m.id_templates === tItem.id_templates
         ).length,
+        ...(showBlueprintsInPrimaryNav
+          ? {
+              [t('machines.template.col_blueprints', 'Nb Blueprints')]: safeBlueprints.filter(
+                (bp) => bp.id_templates === tItem.id_templates
+              ).length,
+            }
+          : {}),
       };
     });
     const ws = XLSX.utils.json_to_sheet(exportRows);
@@ -337,11 +371,13 @@ export default function TemplatesView({
                   {t('common.filters.title')}
                 </span>
                 <span className="bg-amber-50 text-amber-800 px-2.5 py-0.5 rounded-lg text-[11px] font-bold border border-amber-200/70 shadow-2xs font-mono">
-                  {filtered.length} / {templates.length}
+                  {filtered.length} / {safeTemplates.length}
                 </span>
               </div>
               <p className="text-[11px] text-slate-400 font-medium">
-                {t('machines.template.filters_subtitle', 'Référentiel des Modèles / Templates de Machines • Colonnes B → E')}
+                {showBlueprintsInPrimaryNav
+                  ? t('machines.template.filters_subtitle', 'Référentiel des Modèles / Templates de Machines • Colonnes B → F')
+                  : 'Référentiel des Modèles / Templates de Machines • Colonnes B → E'}
               </p>
             </div>
           </div>
@@ -351,10 +387,10 @@ export default function TemplatesView({
             <button
               onClick={handleExportExcel}
               className="h-8 px-3 rounded-xl border border-emerald-200/80 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 text-xs font-bold transition flex items-center gap-1.5 cursor-pointer shadow-2xs active:scale-95"
-              title={t('common.filters.export_excel')}
+              title="Export externe Type B (consultation uniquement — pour Round-Trip utilisez Paramètres ➔ REF_PARC)"
             >
               <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-600" />
-              <span>{t('common.filters.export_excel')}</span>
+              <span>{t('common.filters.export_excel')} (Type B)</span>
             </button>
 
             {/* Circular Reset Button */}
@@ -363,6 +399,7 @@ export default function TemplatesView({
                 onClick={() => {
                   setLocalSearch('');
                   setSearch('');
+                  setExternalSearch?.('');
                   setTemplateFamilyFilter('ALL');
                   setSortField('id_templates');
                   setSortOrder('asc');
@@ -403,6 +440,7 @@ export default function TemplatesView({
                   onClick={() => {
                     setLocalSearch('');
                     setSearch('');
+                    setExternalSearch?.('');
                   }}
                   className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 cursor-pointer z-10"
                 >
@@ -433,12 +471,12 @@ export default function TemplatesView({
               options={[
                 {
                   value: 'ALL',
-                  label: `${t('machines.blueprint.all_families')} (${families.length})`,
-                  badge: `${templates.length}`,
+                  label: `${t('machines.blueprint.all_families')} (${safeFamilies.length})`,
+                  badge: `${safeTemplates.length}`,
                   badgeColor: 'bg-slate-100 text-slate-700 font-bold',
                 },
-                ...families.map((f) => {
-                  const count = templates.filter((t) => t.id_family === f.id_family).length;
+                ...safeFamilies.map((f) => {
+                  const count = safeTemplates.filter((t) => t.id_family === f.id_family).length;
                   return {
                     value: f.id_family,
                     label: `${f.libelle} (${f.id_family})`,
@@ -580,6 +618,7 @@ export default function TemplatesView({
                   onClick={() => {
                     setLocalSearch('');
                     setSearch('');
+                    setExternalSearch?.('');
                   }}
                   className="hover:bg-amber-200/60 p-0.5 rounded-full transition cursor-pointer"
                 >
@@ -605,9 +644,17 @@ export default function TemplatesView({
 
       {/* Unified Industrial Data Grid */}
       <GmaoIndustrialDataGrid
-        title={t('machines.template.grid_title', 'Tableau Templates • Colonnes B → E')}
+        title={
+          showBlueprintsInPrimaryNav
+            ? t('machines.template.grid_title', 'Tableau Templates • Colonnes B → F')
+            : 'Tableau Templates • Colonnes B → E'
+        }
         icon={<CategoryIcon className="w-4 h-4 text-amber-600" />}
-        excelMapping={t('machines.template.excel_mapping', 'id_templates (B) | libelle (C) | id_family (D) | nb_machines (E)')}
+        excelMapping={
+          showBlueprintsInPrimaryNav
+            ? t('machines.template.excel_mapping', 'id_templates (B) | libelle (C) | id_family (D) | nb_machines (E) | nb_blueprints (F)')
+            : 'id_templates (B) | libelle (C) | id_family (D) | nb_machines (E)'
+        }
         bannerColor="slate"
         columns={templateColumns}
         data={displayedData}
@@ -619,8 +666,11 @@ export default function TemplatesView({
         showRowNumber={true}
         renderRow={(tItem, idx) => {
           const rowNum = startIndex + idx + 1;
-          const fam = families.find((f) => f.id_family === tItem.id_family);
-          const mCount = machines.filter((m) => m.id_templates === tItem.id_templates).length;
+          const fam = safeFamilies.find((f) => f.id_family === tItem.id_family);
+          const mCount = safeMachines.filter((m) => m.id_templates === tItem.id_templates).length;
+          const bpCount = safeBlueprints.filter(
+            (bp) => bp.id_templates === tItem.id_templates
+          ).length;
 
           return (
             <tr
@@ -658,11 +708,24 @@ export default function TemplatesView({
                   <ArrowRight className="w-3 h-3 text-amber-600 group-hover:translate-x-0.5 transition-transform" />
                 </button>
               </td>
+              {showBlueprintsInPrimaryNav && (
+                <td className="py-3 px-4 text-center">
+                  <button
+                    type="button"
+                    onClick={() => onNavigateToBlueprints?.(tItem.id_family, tItem.id_templates)}
+                    className="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg bg-indigo-50 text-indigo-800 hover:bg-indigo-100 border border-indigo-200 text-xs font-semibold transition group shadow-2xs cursor-pointer"
+                  >
+                    <FileText className="w-3.5 h-3.5 text-indigo-600" />
+                    <span>{bpCount} {t('machines.template.blueprint_unit', 'blueprints')}</span>
+                    <ArrowRight className="w-3 h-3 text-indigo-600 group-hover:translate-x-0.5 transition-transform" />
+                  </button>
+                </td>
+              )}
               {/* Actions (•••) */}
               <td className="py-3 px-3.5 text-center whitespace-nowrap">
                 <div className="relative inline-flex items-center justify-center action-menu-container">
                   <div className="inline-flex rounded-xl border border-slate-200 bg-white shadow-2xs overflow-hidden">
-                    {canCreate && (
+                    {showBlueprintsInPrimaryNav && canCreate && (
                       <button
                         type="button"
                         onClick={() => {
@@ -674,6 +737,7 @@ export default function TemplatesView({
                           setActiveActionMenuId(null);
                         }}
                         className="p-1.5 bg-white hover:bg-slate-100/80 text-slate-800 hover:text-black transition flex items-center justify-center cursor-pointer border-r border-slate-200"
+                        title={t('machines.blueprint.new_blueprint_button', 'Nouveau Blueprint')}
                       >
                         <BlueprintPlusIcon className="w-3.5 h-3.5 text-slate-900" />
                       </button>
@@ -705,7 +769,7 @@ export default function TemplatesView({
                         </span>
                       </div>
 
-                      {canCreate && (
+                      {showBlueprintsInPrimaryNav && canCreate && (
                         <button
                           type="button"
                           onClick={() => {
@@ -860,8 +924,11 @@ export default function TemplatesView({
                 </div>
                 <CustomSelect
                   value={form.id_family}
-                  onChange={(val) => setForm({ ...form, id_family: val })}
-                  options={families.map((f) => ({
+                  onChange={(val) => {
+                    setFormError('');
+                    setForm({ ...form, id_family: val });
+                  }}
+                  options={safeFamilies.map((f) => ({
                     value: f.id_family,
                     label: `${f.libelle} (${f.id_family})`,
                   }))}
@@ -953,36 +1020,72 @@ export default function TemplatesView({
           </div>
         </div>
       )}
-      {toDelete && (
-        <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm p-5 space-y-4">
-            <div className="flex flex-col items-center text-center">
-              <AlertTriangle className="w-8 h-8 text-rose-600 mb-2" />
-              <h3 className="font-bold text-lg text-slate-900">{t('machines.template.delete_title')}</h3>
-            </div>
-            <p className="text-sm text-center text-slate-600">
-              {t('machines.template.delete_confirm', { name: toDelete.libelle })}
-            </p>
-            <div className="flex gap-2">
-              <button
-                onClick={() => setToDelete(null)}
-                className="flex-1 h-10 rounded-xl bg-slate-100 text-slate-700 text-xs font-medium"
-              >
-                {t('common.cancel')}
-              </button>
-              <button
-                onClick={() => {
-                  onDeleteTemplate(toDelete.id_templates);
-                  setToDelete(null);
-                }}
-                className="flex-1 h-10 rounded-xl bg-rose-600 text-white text-xs font-semibold"
-              >
-                {t('common.delete')}
-              </button>
+      {toDelete && (() => {
+        const linkedMachinesCount = safeMachines.filter(
+          (m) => m.id_templates === toDelete.id_templates
+        ).length;
+        const linkedBlueprintsCount = safeBlueprints.filter(
+          (bp) => bp.id_templates === toDelete.id_templates
+        ).length;
+        const hasLinkedRecords = linkedMachinesCount > 0 || linkedBlueprintsCount > 0;
+
+        return (
+          <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4">
+            <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm p-5 space-y-4">
+              <div className="flex flex-col items-center text-center">
+                <AlertTriangle className="w-8 h-8 text-rose-600 mb-2" />
+                <h3 className="font-bold text-lg text-slate-900">{t('machines.template.delete_title')}</h3>
+              </div>
+              {hasLinkedRecords ? (
+                <div
+                  data-testid="template-delete-blocked-alert"
+                  className="p-3 rounded-xl bg-amber-50 border border-amber-200 text-xs text-amber-900 space-y-1.5 text-left"
+                >
+                  <p className="font-bold text-amber-950">
+                    Suppression bloquée — Intégrité référentielle
+                  </p>
+                  <p>
+                    Le modèle <span className="font-mono font-bold">{toDelete.id_templates}</span> est
+                    encore référencé par{' '}
+                    <strong>{linkedMachinesCount} machine(s)</strong>
+                    {linkedBlueprintsCount > 0 && (
+                      <>
+                        {' '}et <strong>{linkedBlueprintsCount} blueprint(s)</strong>
+                      </>
+                    )}
+                    . Réaffectez ou archivez ces éléments avant toute suppression.
+                  </p>
+                </div>
+              ) : (
+                <p className="text-sm text-center text-slate-600">
+                  {t('machines.template.delete_confirm', { name: toDelete.libelle })}
+                </p>
+              )}
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => setToDelete(null)}
+                  className="flex-1 h-10 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-medium cursor-pointer"
+                >
+                  {hasLinkedRecords ? t('common.close', 'Fermer') : t('common.cancel')}
+                </button>
+                {!hasLinkedRecords && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onDeleteTemplate(toDelete.id_templates);
+                      setToDelete(null);
+                    }}
+                    className="flex-1 h-10 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-xs font-semibold cursor-pointer"
+                  >
+                    {t('common.delete')}
+                  </button>
+                )}
+              </div>
             </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
 
       {/* Excel Formulas Modal */}
       {showFormulasModal && (

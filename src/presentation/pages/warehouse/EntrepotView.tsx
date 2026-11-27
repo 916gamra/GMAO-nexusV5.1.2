@@ -52,7 +52,7 @@ export default function EntrepotView(props: EntrepotViewProps) {
     <AnimatedPage className="space-y-4">
       <EntrepotHeaderAndKpis
         t={ctrl.t}
-        totalWarehouseCount={ctrl.warehouseItems.length}
+        totalWarehouseCount={ctrl.kpis.total}
         activeWarehouseTab={ctrl.activeWarehouseTab}
         onTabSwitch={ctrl.handleTabSwitch}
         canCreateStock={ctrl.canCreateStock}
@@ -68,13 +68,14 @@ export default function EntrepotView(props: EntrepotViewProps) {
       <EntrepotFilterBar
         t={ctrl.t}
         filteredCount={ctrl.filteredItems.length}
-        totalCount={ctrl.warehouseItems.length}
+        totalCount={ctrl.tabTotalCount}
         hasActiveFilters={ctrl.hasActiveFilters}
         onReset={ctrl.clearAllFilters}
         onExportExcel={ctrl.handleExportExcel}
         presets={ctrl.entrepotFilterPresets}
         activeFilters={ctrl.activeEntrepotFilterChips}
         activeWarehouseTab={ctrl.activeWarehouseTab}
+        onTabSwitch={ctrl.handleTabSwitch}
         localSearch={ctrl.localSearch}
         setLocalSearch={ctrl.setLocalSearch}
         setWhSearch={setWhSearch}
@@ -223,6 +224,8 @@ export default function EntrepotView(props: EntrepotViewProps) {
 
       <EntrepotDeleteModal
         open={Boolean(ctrl.toDelete)}
+        item={ctrl.toDelete}
+        dependencyInfo={ctrl.deleteDependencyInfo}
         onCancel={() => ctrl.setToDelete(null)}
         onConfirm={ctrl.handleConfirmDelete}
         t={ctrl.t}

@@ -60,11 +60,11 @@ const PRESET_UI_COPY: Record<WorkspacePreset, PresetUiCopy> = {
     label: 'Solo Expert',
     tagline: 'Ingénieur terrain autonome',
     description:
-      'Conçu pour un technicien ou ingénieur maintenance qui exécute et suit tout par lui-même : exécution directe ADMIN, BOM Tier 2 sans Blueprint obligatoire, sans surcharge comptable.',
+      'Conçu pour un technicien ou ingénieur maintenance qui exécute et suit tout par lui-même : exécution directe ADMIN, hiérarchie complète Familles ➔ Templates ➔ Machines (sans Blueprint obligatoire), sans surcharge comptable.',
     highlights: [
       'Exécution & clôture directe (SOLO_DIRECT tracé dans AUDIT_EVENTS)',
       'Correctif complet (DI, BT, Live, Atelier BR/RECT, Besoins) & Préventif',
-      'Machines, Entrepôt Organes/Parts & journal Sortie Rapide au premier plan',
+      'Familles ➔ Templates ➔ Machines, Entrepôt Organes/Parts & Sortie Rapide actifs',
     ],
   },
   SOLO_LIGHT: {
@@ -98,9 +98,9 @@ const VISIBILITY_CONTROLS: ReadonlyArray<{
   },
   {
     key: 'showBlueprintsInPrimaryNav',
-    label: 'Blueprints, Familles & Modèles (Tier 1/3)',
+    label: 'Blueprints Machine (Schémas & Plans Tier 3)',
     description:
-      'Afficher les écrans d’ingénierie Blueprint / Familles / Modèles dans le menu principal (le Passeport Machine Tier 2 reste accessible).',
+      'Afficher l’écran et les liaisons Blueprints (Tier 3) dans le Parc Machines. La hiérarchie Familles ➔ Templates ➔ Machines reste active dans tous les modes.',
   },
   {
     key: 'showTeamManagement',

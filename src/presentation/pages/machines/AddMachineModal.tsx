@@ -11,8 +11,6 @@ import {
   Hash,
   Calendar,
   ShieldAlert,
-  Settings2,
-  Check,
   Wand2,
   LayoutList,
 } from 'lucide-react';
@@ -21,29 +19,33 @@ import { CategoryIcon } from '../../components/common/icons/CategoryIcon';
 import CustomSelect from '../../components/common/CustomSelect';
 import SequentialCodePicker from '../../components/common/SequentialCodePicker';
 import { WizardShell, useWizardFeature, type WizardProfile } from '../../components/common/wizard';
-import { useGmaoStore } from '../../../store/useGmaoStore';
 import { filterActiveMachines } from '../../../utils/activeMachines';
 import {
   ASSET_HIERARCHY_LEVEL_LABELS,
   wouldCreateHierarchyCycle,
   type AssetHierarchyLevel,
 } from '../../../utils/assetHierarchy';
+import { useCurrency } from '../../../utils/currencyService';
+import { useWorkspaceProfile } from '../../../core/workspace/workspaceProfile';
 
 function generateMachineCode(selectedTemplateId, existingMachines = []) {
-  if (!selectedTemplateId) return 'MCH-01';
-
-  // Clean prefix from selected template ID (e.g. DET -> DET, TPL-RCF100 -> RCF100)
-  const prefix =
-    selectedTemplateId
-      .replace(/^TPL-?/i, '')
-      .toUpperCase()
-      .replace(/[^A-Z0-9]/g, '') || 'MCH';
+  // Clean prefix from selected template ID (e.g. DET -> DET, TPL-RCF100 -> RCF100), fallback MCH
+  const prefix = selectedTemplateId
+    ? selectedTemplateId
+        .replace(/^TPL-?/i, '')
+        .toUpperCase()
+        .replace(/[^A-Z0-9]/g, '') || 'MCH'
+    : 'MCH';
 
   let maxIndex = 0;
   existingMachines.forEach((m) => {
-    const code = String(m.id_machine_registered || '').toUpperCase();
-    const tpl = String(m.id_templates || '').toUpperCase();
-    if (code.startsWith(`${prefix}-`) || code.startsWith(prefix) || tpl === selectedTemplateId.toUpperCase()) {
+    const code = String(m?.id_machine_registered || '').toUpperCase();
+    const tpl = String(m?.id_templates || '').toUpperCase();
+    if (
+      code.startsWith(`${prefix}-`) ||
+      code.startsWith(prefix) ||
+      (selectedTemplateId && tpl === selectedTemplateId.toUpperCase())
+    ) {
       const match = code.match(/\d+$/);
       if (match) {
         const num = parseInt(match[0], 10);
@@ -105,18 +107,10 @@ export default function AddMachineModal({
 }: any) {
   const { isEnabled: isWizardMode, setEnabled: setWizardMode } =
     useWizardFeature('machines_onboarding');
-
-  const storeGeneralSystemTypes = useGmaoStore((state) => state.generalSystemTypes);
-
-  const generalSystemTypes = useMemo(
-    () => (Array.isArray(storeGeneralSystemTypes) ? storeGeneralSystemTypes : []),
-    [storeGeneralSystemTypes]
-  );
-
-  const activeSystemTypes = useMemo(
-    () => generalSystemTypes.filter((t) => t && t.is_active !== false),
-    [generalSystemTypes]
-  );
+  const { currencySymbol } = useCurrency();
+  const workspaceProfile = useWorkspaceProfile();
+  const { showFinance, showBlueprintsInPrimaryNav, showTeamManagement } =
+    workspaceProfile.moduleVisibility;
 
   const activeTechnicians = useMemo(
     () =>
@@ -136,7 +130,6 @@ export default function AddMachineModal({
     asset_class: 'PRODUCTION' as 'PRODUCTION' | 'SYSTEM_GENERAL',
     asset_level: 'MACHINE' as AssetHierarchyLevel,
     parent_id: '',
-    id_general_system_type: '',
     id_machine_registered: '',
     designation: '',
     serial_number: '',
@@ -145,7 +138,7 @@ export default function AddMachineModal({
     id_templates: templates[0]?.id_templates || '',
     id_blueprint: '',
     id_zone_default: zones[0]?.id_zone || zones[0]?.code_zone || '',
-    technician: activeTechnicians[0]?.id_technician || '',
+    technician: showTeamManagement ? activeTechnicians[0]?.id_technician || '' : '',
     status: 'En Service',
     cout_arret_horaire: '',
     valeur_acquisition: '',
@@ -167,7 +160,6 @@ export default function AddMachineModal({
         asset_class: 'PRODUCTION',
         asset_level: 'MACHINE',
         parent_id: '',
-        id_general_system_type: activeSystemTypes[0]?.id || '',
         id_machine_registered: autoCode,
         designation: '',
         serial_number: '',
@@ -176,21 +168,14 @@ export default function AddMachineModal({
         id_templates: initialTpl,
         id_blueprint: '',
         id_zone_default: zones[0]?.id_zone || zones[0]?.code_zone || '',
-        technician: activeTechnicians[0]?.id_technician || '',
+        technician: showTeamManagement ? activeTechnicians[0]?.id_technician || '' : '',
         status: 'En Service',
         cout_arret_horaire: '',
         valeur_acquisition: '',
         regime_travail: '2x8',
       });
     }
-  }, [isOpen]);
-
-  const isSystemGeneral = false;
-
-  const selectedSystemTypeObj = useMemo(
-    () => generalSystemTypes.find((t) => t.id === form.id_general_system_type) || null,
-    [generalSystemTypes, form.id_general_system_type]
-  );
+  }, [isOpen, showTeamManagement]);
 
   // Cascading templates according to selected family
   const availableTemplates = form.id_family
@@ -242,12 +227,10 @@ export default function AddMachineModal({
 
   const handleFamilyChange = (newFam) => {
     const relTpl = newFam ? templates.filter((t) => t.id_family === newFam) : [];
-    const newTpl = isSystemGeneral ? '' : relTpl[0]?.id_templates || '';
-    const autoCode = isSystemGeneral
-      ? form.id_machine_registered || generateSystemGeneralCode(selectedSystemTypeObj, machines)
-      : generateMachineCode(newTpl, machines);
+    const newTpl = relTpl[0]?.id_templates || '';
+    const autoCode = generateMachineCode(newTpl, machines);
 
-    const relBps = blueprints.filter((b) => b.id_family === newFam);
+    const relBps = newFam ? blueprints.filter((b) => b.id_family === newFam) : [];
     const keepBp = relBps.some((b) => b.id_blueprint === form.id_blueprint);
 
     setForm((prev) => ({
@@ -260,10 +243,8 @@ export default function AddMachineModal({
   };
 
   const handleTemplateChange = (newTpl) => {
-    const autoCode = isSystemGeneral
-      ? form.id_machine_registered || generateSystemGeneralCode(selectedSystemTypeObj, machines)
-      : generateMachineCode(newTpl, machines);
-    const relBps = blueprints.filter((b) => b.id_templates === newTpl);
+    const autoCode = generateMachineCode(newTpl, machines);
+    const relBps = newTpl ? blueprints.filter((b) => b.id_templates === newTpl) : [];
     const keepBp = relBps.some((b) => b.id_blueprint === form.id_blueprint);
 
     setForm((prev) => ({
@@ -276,38 +257,25 @@ export default function AddMachineModal({
 
   // Prefix and auto code calculation for machines
   const machinePrefix = useMemo(() => {
-    if (isSystemGeneral) {
-      const sysCode =
-        selectedSystemTypeObj?.code ||
-        String(selectedSystemTypeObj?.id || '')
-          .replace(/^SYS-?/i, '')
-          .toUpperCase()
-          .replace(/[^A-Z0-9]/g, '') ||
-        'SYS';
-      return `${sysCode}-`;
-    }
-    const tpl = form.id_templates || templates[0]?.id_templates || '';
+    const tpl = form.id_templates || '';
     if (!tpl) return 'MCH-';
     const clean = tpl
       .replace(/^TPL-?/i, '')
       .toUpperCase()
       .replace(/[^A-Z0-9]/g, '');
     return clean ? `${clean}-` : 'MCH-';
-  }, [isSystemGeneral, selectedSystemTypeObj, form.id_templates, templates]);
+  }, [form.id_templates]);
 
   const autoMachineCode = useMemo(() => {
-    if (isSystemGeneral) {
-      return generateSystemGeneralCode(selectedSystemTypeObj, machines);
-    }
     return generateMachineCode(form.id_templates, machines);
-  }, [isSystemGeneral, selectedSystemTypeObj, form.id_templates, machines]);
+  }, [form.id_templates, machines]);
 
   const takenMachineNumbers = useMemo(() => {
     const set = new Set();
     const cleanPrefix = machinePrefix.replace(/-$/, '').toUpperCase();
     machines.forEach((m) => {
       const code = String(m.id_machine_registered || '').toUpperCase();
-      if (!isSystemGeneral || code.startsWith(cleanPrefix)) {
+      if (code.startsWith(`${cleanPrefix}-`) || code.startsWith(cleanPrefix)) {
         const match = code.match(/(\d+)$/);
         if (match) {
           set.add(parseInt(match[1], 10));
@@ -315,23 +283,37 @@ export default function AddMachineModal({
       }
     });
     return set;
-  }, [machines, isSystemGeneral, machinePrefix]);
+  }, [machines, machinePrefix]);
 
   const familyOptions = useMemo(() => {
-    const base = families.map((f) => ({
-      value: f.id_family,
-      label: `${f.libelle} (${f.id_family})`,
-    }));
-    return base;
+    return [
+      { value: '', label: '— Aucune Famille (Optionnel) —' },
+      ...families.map((f) => ({
+        value: f.id_family,
+        label: `${f.libelle} (${f.id_family})`,
+      })),
+    ];
   }, [families]);
 
   const templateOptions = useMemo(() => {
-    const list = (availableTemplates.length > 0 ? availableTemplates : templates).map((t) => ({
-      value: t.id_templates,
-      label: `${t.libelle} (${t.id_templates})`,
-    }));
-    return list;
+    return [
+      { value: '', label: '— Aucun Template (Optionnel) —' },
+      ...(availableTemplates.length > 0 ? availableTemplates : templates).map((t) => ({
+        value: t.id_templates,
+        label: `${t.libelle} (${t.id_templates})`,
+      })),
+    ];
   }, [availableTemplates, templates]);
+
+  const technicianOptions = useMemo(() => {
+    return [
+      { value: '', label: '— Non assigné / Moi-même —' },
+      ...activeTechnicians.map((t) => ({
+        value: t.id_technician,
+        label: `${t.nom} (${t.id_technician})`,
+      })),
+    ];
+  }, [activeTechnicians]);
 
   const [isSubmittingMachine, setIsSubmittingMachine] = useState(false);
 
@@ -376,14 +358,14 @@ export default function AddMachineModal({
         parent_id: cleanParent,
         id_parent: cleanParent,
         id_general_system_type: null,
-        id_family: form.id_family,
-        id_templates: form.id_templates || availableTemplates[0]?.id_templates || '',
+        id_family: form.id_family || '',
+        id_templates: form.id_templates || '',
         id_blueprint: form.id_blueprint || '',
         id_zone_default: form.id_zone_default,
-        technician: form.technician,
+        technician: form.technician || '',
         status: form.status,
-        cout_arret_horaire: parsedHourlyCost,
-        ...(parsedAcquisitionVal > 0
+        cout_arret_horaire: showFinance ? parsedHourlyCost : 0,
+        ...(showFinance && parsedAcquisitionVal > 0
           ? {
               valeur_acquisition: parsedAcquisitionVal,
               valeur_a_neuf: parsedAcquisitionVal,
@@ -448,11 +430,7 @@ export default function AddMachineModal({
           autoGeneratedCode={autoMachineCode}
           takenNumbers={takenMachineNumbers}
           label="Code Machine / Équipement (B)"
-          helperText={
-            isSystemGeneral
-              ? 'Code auto-dérivé du type de système général (ex: AIR-01, SEC-01) avec édition libre'
-              : "Code séquentiel de l'équipement avec choix libre du numéro"
-          }
+          helperText="Code séquentiel de l'équipement avec choix libre du numéro"
         />
       </div>
 
@@ -463,11 +441,7 @@ export default function AddMachineModal({
         </label>
         <input
           type="text"
-          placeholder={
-            isSystemGeneral
-              ? 'ex: Compresseur Atlas Copco GA55 / Extincteur CO2 Atelier'
-              : 'ex: Ligne Ensacheuse 03'
-          }
+          placeholder="ex: Ligne Ensacheuse 03"
           value={form.designation}
           onChange={(e) => setForm({ ...form, designation: e.target.value })}
           className="w-full h-10 px-3 rounded-xl border border-slate-200 bg-white text-xs font-medium focus:bg-white focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 shadow-2xs transition"
@@ -479,18 +453,16 @@ export default function AddMachineModal({
 
   const step2ArborescenceSection = (
     <div className="space-y-4">
-      <div className="grid grid-cols-2 gap-3.5">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
         {/* Family with '+' Button */}
         <div>
           <div className="flex items-center justify-between mb-1.5">
             <label className="text-[11px] font-bold text-slate-600 uppercase tracking-wider flex items-center gap-1">
               <HubIcon className="w-3 h-3 text-cyan-600" />
               <span>Famille (D)</span>
-              {isSystemGeneral && (
-                <span className="text-[9.5px] font-normal text-slate-400 lowercase italic">
-                  (optionnel)
-                </span>
-              )}
+              <span className="text-[9.5px] font-normal text-slate-400 lowercase italic">
+                (optionnel)
+              </span>
             </label>
             {onOpenAddFamilyModal && (
               <button
@@ -507,7 +479,7 @@ export default function AddMachineModal({
             value={form.id_family}
             onChange={(val) => handleFamilyChange(val)}
             options={familyOptions}
-            placeholder={isSystemGeneral ? '— Optionnel —' : '-- Choisir Famille --'}
+            placeholder="— Optionnel —"
           />
         </div>
 
@@ -517,11 +489,9 @@ export default function AddMachineModal({
             <label className="text-[11px] font-bold text-slate-600 uppercase tracking-wider flex items-center gap-1">
               <CategoryIcon className="w-3 h-3 text-amber-600" />
               <span>Template (E)</span>
-              {isSystemGeneral && (
-                <span className="text-[9.5px] font-normal text-slate-400 lowercase italic">
-                  (optionnel)
-                </span>
-              )}
+              <span className="text-[9.5px] font-normal text-slate-400 lowercase italic">
+                (optionnel)
+              </span>
             </label>
             {onOpenAddTemplateModal && (
               <button
@@ -538,46 +508,48 @@ export default function AddMachineModal({
             value={form.id_templates}
             onChange={(val) => handleTemplateChange(val)}
             options={templateOptions}
-            placeholder={isSystemGeneral ? '— Optionnel —' : '-- Choisir Modèle --'}
+            placeholder="— Optionnel —"
           />
         </div>
       </div>
 
-      {/* Blueprint / Plan Schéma Technique (Optionnel) */}
-      <div>
-        <div className="flex items-center justify-between mb-1.5">
-          <label className="text-[11px] font-bold text-slate-600 uppercase tracking-wider flex items-center gap-1">
-            <FileText className="w-3 h-3 text-cyan-600" />
-            <span>Blueprint / Schéma Machine</span>
-            <span className="text-[10px] font-normal text-slate-400 lowercase italic">(optionnel)</span>
-          </label>
-          {onOpenAddBlueprintModal && (
-            <button
-              type="button"
-              onClick={onOpenAddBlueprintModal}
-              className="text-[11px] text-cyan-700 hover:text-cyan-900 font-bold inline-flex items-center gap-0.5 cursor-pointer bg-cyan-50 px-1.5 py-0.5 rounded border border-cyan-200/60"
-            >
-              <Plus className="w-3 h-3" />
-              <span>Nouveau Blueprint</span>
-            </button>
+      {/* Blueprint / Plan Schéma Technique (Optionnel — Tier 3 uniquement) */}
+      {showBlueprintsInPrimaryNav && (
+        <div>
+          <div className="flex items-center justify-between mb-1.5">
+            <label className="text-[11px] font-bold text-slate-600 uppercase tracking-wider flex items-center gap-1">
+              <FileText className="w-3 h-3 text-cyan-600" />
+              <span>Blueprint / Schéma Machine</span>
+              <span className="text-[10px] font-normal text-slate-400 lowercase italic">(optionnel)</span>
+            </label>
+            {onOpenAddBlueprintModal && (
+              <button
+                type="button"
+                onClick={onOpenAddBlueprintModal}
+                className="text-[11px] text-cyan-700 hover:text-cyan-900 font-bold inline-flex items-center gap-0.5 cursor-pointer bg-cyan-50 px-1.5 py-0.5 rounded border border-cyan-200/60"
+              >
+                <Plus className="w-3 h-3" />
+                <span>Nouveau Blueprint</span>
+              </button>
+            )}
+          </div>
+          <CustomSelect
+            value={form.id_blueprint}
+            onChange={(val) => setForm({ ...form, id_blueprint: val })}
+            options={blueprintOptions}
+            placeholder="— Non sélectionné —"
+          />
+          {form.id_blueprint && (
+            <p className="mt-1 text-[11px] text-cyan-700 font-medium flex items-center gap-1">
+              <FileText className="w-3 h-3" />
+              <span>Plan lié : {blueprintOptions.find((o) => o.value === form.id_blueprint)?.label}</span>
+            </p>
           )}
         </div>
-        <CustomSelect
-          value={form.id_blueprint}
-          onChange={(val) => setForm({ ...form, id_blueprint: val })}
-          options={blueprintOptions}
-          placeholder="— Non sélectionné —"
-        />
-        {form.id_blueprint && (
-          <p className="mt-1 text-[11px] text-cyan-700 font-medium flex items-center gap-1">
-            <FileText className="w-3 h-3" />
-            <span>Plan lié : {blueprintOptions.find((o) => o.value === form.id_blueprint)?.label}</span>
-          </p>
-        )}
-      </div>
+      )}
 
       {/* Regroupement Opérationnel (Ligne / Machine Mère — Optionnel pour Rollup analytique) */}
-      <div className="grid grid-cols-2 gap-3.5 pt-2 border-t border-slate-100">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5 pt-2 border-t border-slate-100">
         <div>
           <label className="text-[11px] font-bold text-slate-600 uppercase tracking-wider block mb-1.5">
             Rôle Opérationnel
@@ -652,35 +624,43 @@ export default function AddMachineModal({
       </div>
 
       {/* Paramètres Économiques & Régime de Travail (TCO / BER / Disponibilité) */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 p-3 rounded-2xl bg-amber-50/40 border border-amber-200/70">
-        <div>
-          <label className="text-[10.5px] font-bold text-slate-700 uppercase tracking-wider block mb-1">
-            Coût Arrêt (DH/h)
-          </label>
-          <input
-            type="number"
-            min="0"
-            step="any"
-            value={form.cout_arret_horaire}
-            onChange={(e) => setForm({ ...form, cout_arret_horaire: e.target.value })}
-            placeholder="Ex: 800 DH/h"
-            className="w-full h-9 px-2.5 rounded-xl border border-slate-200 bg-white text-xs font-mono font-medium focus:outline-none focus:ring-1 focus:ring-amber-500"
-          />
-        </div>
-        <div>
-          <label className="text-[10.5px] font-bold text-slate-700 uppercase tracking-wider block mb-1">
-            Valeur Acquisition (DH)
-          </label>
-          <input
-            type="number"
-            min="0"
-            step="any"
-            value={form.valeur_acquisition}
-            onChange={(e) => setForm({ ...form, valeur_acquisition: e.target.value })}
-            placeholder="Ex: 150000 (BER)"
-            className="w-full h-9 px-2.5 rounded-xl border border-slate-200 bg-white text-xs font-mono font-medium focus:outline-none focus:ring-1 focus:ring-amber-500"
-          />
-        </div>
+      <div
+        className={`grid grid-cols-1 ${
+          showFinance ? 'sm:grid-cols-3 bg-amber-50/40 border-amber-200/70' : 'bg-slate-50/70 border-slate-200/80'
+        } gap-3 p-3 rounded-2xl border`}
+      >
+        {showFinance && (
+          <>
+            <div>
+              <label className="text-[10.5px] font-bold text-slate-700 uppercase tracking-wider block mb-1">
+                Coût Arrêt ({currencySymbol}/h)
+              </label>
+              <input
+                type="number"
+                min="0"
+                step="any"
+                value={form.cout_arret_horaire}
+                onChange={(e) => setForm({ ...form, cout_arret_horaire: e.target.value })}
+                placeholder={`Ex: 800 ${currencySymbol}/h`}
+                className="w-full h-9 px-2.5 rounded-xl border border-slate-200 bg-white text-xs font-mono font-medium focus:outline-none focus:ring-1 focus:ring-amber-500"
+              />
+            </div>
+            <div>
+              <label className="text-[10.5px] font-bold text-slate-700 uppercase tracking-wider block mb-1">
+                Valeur Acquisition ({currencySymbol})
+              </label>
+              <input
+                type="number"
+                min="0"
+                step="any"
+                value={form.valeur_acquisition}
+                onChange={(e) => setForm({ ...form, valeur_acquisition: e.target.value })}
+                placeholder="Ex: 150000 (BER)"
+                className="w-full h-9 px-2.5 rounded-xl border border-slate-200 bg-white text-xs font-mono font-medium focus:outline-none focus:ring-1 focus:ring-amber-500"
+              />
+            </div>
+          </>
+        )}
         <div>
           <label className="text-[10.5px] font-bold text-slate-700 uppercase tracking-wider block mb-1">
             Régime Travail
@@ -697,7 +677,7 @@ export default function AddMachineModal({
         </div>
       </div>
 
-      <div className="grid grid-cols-2 gap-3.5">
+      <div className={`grid grid-cols-1 ${showTeamManagement ? 'sm:grid-cols-2' : ''} gap-3.5`}>
         {/* Zone with '+' Button (Real physical zone) */}
         <div>
           <div className="flex items-center justify-between mb-1.5">
@@ -733,33 +713,32 @@ export default function AddMachineModal({
         </div>
 
         {/* Technician with '+' Button */}
-        <div>
-          <div className="flex items-center justify-between mb-1.5">
-            <label className="text-[11px] font-bold text-slate-600 uppercase tracking-wider flex items-center gap-1">
-              <Users className="w-3 h-3 text-blue-600" />
-              <span>Technicien (G)</span>
-            </label>
-            {onOpenAddTechModal && (
-              <button
-                type="button"
-                onClick={onOpenAddTechModal}
-                className="text-[11px] text-emerald-700 hover:text-emerald-900 font-bold inline-flex items-center gap-0.5 cursor-pointer bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200/60"
-              >
-                <Plus className="w-3 h-3" />
-                <span>Nouveau</span>
-              </button>
-            )}
+        {showTeamManagement && (
+          <div>
+            <div className="flex items-center justify-between mb-1.5">
+              <label className="text-[11px] font-bold text-slate-600 uppercase tracking-wider flex items-center gap-1">
+                <Users className="w-3 h-3 text-blue-600" />
+                <span>Technicien (G)</span>
+              </label>
+              {onOpenAddTechModal && (
+                <button
+                  type="button"
+                  onClick={onOpenAddTechModal}
+                  className="text-[11px] text-emerald-700 hover:text-emerald-900 font-bold inline-flex items-center gap-0.5 cursor-pointer bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200/60"
+                >
+                  <Plus className="w-3 h-3" />
+                  <span>Nouveau</span>
+                </button>
+              )}
+            </div>
+            <CustomSelect
+              value={form.technician}
+              onChange={(val) => setForm({ ...form, technician: val })}
+              options={technicianOptions}
+              placeholder="— Non assigné / Moi-même —"
+            />
           </div>
-          <CustomSelect
-            value={form.technician}
-            onChange={(val) => setForm({ ...form, technician: val })}
-            options={activeTechnicians.map((t) => ({
-              value: t.id_technician,
-              label: `${t.nom} (${t.id_technician})`,
-            }))}
-            placeholder="-- Choisir Technicien --"
-          />
-        </div>
+        )}
       </div>
 
       <div>
@@ -817,9 +796,7 @@ export default function AddMachineModal({
             </div>
             <div>
               <span className="text-slate-500">Classe : </span>
-              <strong className="text-slate-900">
-                {isSystemGeneral ? 'Système Général' : 'Production'}
-              </strong>
+              <strong className="text-slate-900">Production</strong>
             </div>
             <div>
               <span className="text-slate-500">Famille / Modèle : </span>
@@ -828,9 +805,12 @@ export default function AddMachineModal({
               </strong>
             </div>
             <div>
-              <span className="text-slate-500">Zone / Tech : </span>
+              <span className="text-slate-500">
+                {showTeamManagement ? 'Zone / Tech : ' : 'Zone : '}
+              </span>
               <strong className="font-mono text-slate-800">
-                {form.id_zone_default || '—'} • {form.technician || '—'}
+                {form.id_zone_default || '—'}
+                {showTeamManagement ? ` • ${form.technician || '—'}` : ''}
               </strong>
             </div>
           </div>
@@ -843,14 +823,10 @@ export default function AddMachineModal({
     id: 'machines-onboarding-wizard',
     moduleKey: 'machines_onboarding',
     code: form.id_machine_registered || 'WIZ-MAC',
-    title: isSystemGeneral
-      ? 'Assistant Système Général'
-      : 'Assistant Immatriculation Machine',
+    title: 'Assistant Immatriculation Machine',
     subtitle: 'Enregistrement guidé au référentiel Parc Machines (Colonnes B → H)',
     themeColor: 'emerald',
-    finishLabel: isSystemGeneral
-      ? 'Enregistrer le Système Général'
-      : 'Enregistrer la Machine',
+    finishLabel: 'Enregistrer la Machine',
     cancelLabel: 'Annuler',
     onCancel: handleSafeClose,
     onFinish: async () => submitMachineRegistration(),
@@ -860,7 +836,7 @@ export default function AddMachineModal({
         code: 'ÉTAPE 01',
         title: 'Identité & Code',
         description:
-          "Choisissez la catégorie d'actif, le code matricule séquentiel (Col B) et la désignation officielle (Col C).",
+          "Définissez le code matricule séquentiel (Col B) et la désignation officielle (Col C).",
         badge: 'COL B-C',
         icon: Factory,
         content: step1IdentitySection,
@@ -891,29 +867,23 @@ export default function AddMachineModal({
               message: "Veuillez saisir la désignation officielle de l'équipement (Col C).",
             };
           }
-          if (isSystemGeneral && !form.id_general_system_type) {
-            return {
-              isValid: false,
-              severity: 'critical',
-              message: 'Veuillez sélectionner ou créer un Type de Système Général.',
-            };
-          }
           return { isValid: true };
         },
       },
       {
         id: 'step-2-arborescence',
         code: 'ÉTAPE 02',
-        title: 'Famille & Blueprint',
-        description:
-          "Rattachez l'équipement à sa Famille (Col D), son Modèle Template (Col E) et son Schéma Blueprint.",
+        title: showBlueprintsInPrimaryNav ? 'Famille, Template & Blueprint' : 'Famille, Template & Ligne Mère',
+        description: showBlueprintsInPrimaryNav
+          ? "Rattachez l'équipement à sa Famille (Col D), son Modèle Template (Col E) et optionnellement son Schéma Blueprint."
+          : "Rattachez l'équipement à sa Famille (Col D), son Modèle Template (Col E) et optionnellement une Ligne Mère.",
         badge: 'COL D-E',
-        optional: isSystemGeneral,
+        optional: true,
         validateOn: 'always',
         icon: FileText,
         content: step2ArborescenceSection,
         validate: () => {
-          if (!isSystemGeneral && families.length > 0 && !form.id_family) {
+          if (families.length > 0 && !form.id_family) {
             return {
               isValid: true,
               severity: 'warning',
@@ -927,8 +897,9 @@ export default function AddMachineModal({
         id: 'step-3-exploitation',
         code: 'ÉTAPE 03',
         title: 'Zone & Exploitation',
-        description:
-          'Définissez le N° de série, la Zone physique (Col F), le Technicien référent (Col G) et le Statut (Col H).',
+        description: showTeamManagement
+          ? 'Définissez le N° de série, la Zone physique (Col F), le Technicien référent (Col G) et le Statut (Col H).'
+          : 'Définissez le N° de série, la Zone physique (Col F) et le Statut opérationnel (Col H).',
         badge: 'COL F-H',
         icon: MapPin,
         content: step3ExploitationSection,
@@ -964,23 +935,15 @@ export default function AddMachineModal({
         {/* Modal Header */}
         <div className="p-5 border-b border-slate-100 flex items-center justify-between gap-3 bg-white shrink-0 flex-wrap">
           <div className="flex items-center gap-3 min-w-0">
-            <div
-              className={`w-10 h-10 rounded-2xl flex items-center justify-center shadow-2xs font-bold border shrink-0 ${
-                isSystemGeneral
-                  ? 'bg-teal-50 border-teal-200/80 text-teal-700'
-                  : 'bg-emerald-50 border-emerald-200/80 text-emerald-700'
-              }`}
-            >
-              {isSystemGeneral ? <ShieldAlert className="w-5 h-5" /> : <Factory className="w-5 h-5" />}
+            <div className="w-10 h-10 rounded-2xl flex items-center justify-center shadow-2xs font-bold border shrink-0 bg-emerald-50 border-emerald-200/80 text-emerald-700">
+              <Factory className="w-5 h-5" />
             </div>
             <div className="min-w-0">
               <h3 className="font-bold text-base text-slate-900 truncate">
-                {isSystemGeneral ? 'Nouveau Système Général / Utilité' : 'Nouvelle Machine Registered'}
+                Nouvelle Machine Registered
               </h3>
               <p className="text-xs text-slate-500 truncate">
-                {isSystemGeneral
-                  ? 'Équipement transversal / sécurité rattaché à une zone physique réelle'
-                  : "Ajout d'un équipement au catalogue global (Liaison B→H)"}
+                Ajout d&apos;un équipement au catalogue global (Liaison B→H)
               </p>
             </div>
           </div>
@@ -1064,11 +1027,11 @@ export default function AddMachineModal({
               </button>
               <button
                 type="submit"
-                disabled={isSubmittingMachine || (isSystemGeneral && !form.id_general_system_type)}
+                disabled={isSubmittingMachine}
                 className="px-5 py-2.5 rounded-xl btn-primary-accent disabled:opacity-50 text-white font-bold transition shadow-xs cursor-pointer text-xs flex items-center gap-1.5 active:scale-[0.98]"
               >
                 <Plus className="w-4 h-4" />
-                <span>{isSystemGeneral ? 'Enregistrer le Système Général' : 'Enregistrer la Machine'}</span>
+                <span>Enregistrer la Machine</span>
               </button>
             </div>
           </form>

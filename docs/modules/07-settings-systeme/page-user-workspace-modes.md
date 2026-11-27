@@ -48,8 +48,8 @@ Toutes les équipes de maintenance ne travaillent pas avec la même organisation
 - **Pour qui ?** Ingénieur maintenance terrain ou technicien expert qui pilote et exécute l'ensemble de la maintenance par lui-même.
 - **Ce qu'il offre :**
   - **Exécution directe (`SOLO_DIRECT`) :** en tant qu'administrateur unique, vous créez, exécutez et clôturez directement vos interventions correctives/préventives et sorties de pièces sans étape de double validation artificielle.
-  - **Interface centrée terrain :** les pages *Finance*, *Inventaire Magasin complet*, *Centre de Validation*, *Gestion d'équipe* et *Blueprints/Familles/Modèles* sont masquées par défaut pour épurer le menu.
-  - **Tout le cœur technique reste actif :** Parc Machines, Passeport 360° (avec **ajout direct de Composants / Parts / PDR sans Blueprint requis**), Préventif & Compteurs, Correctif complet (`DI`, `BT`, `Live`, `Besoins d'achat`, `Atelier Mécanique BR/RECT`, `Clôture`, `Pareto`), Entrepôt Organes & Pièces, et Journal de retrait rapide (`Sortie Rapide`).
+  - **Interface centrée terrain :** les pages *Finance*, *Inventaire Magasin complet*, *Centre de Validation*, *Gestion d'équipe* et *Blueprints Machine* sont masquées par défaut pour épurer le menu.
+  - **Tout le cœur technique reste actif :** Parc Machines complet (**Familles ➔ Templates ➔ Machines Registered** dans le même ordre hiérarchique), Passeport 360° (avec **ajout direct de Composants / Parts / PDR sans Blueprint requis**), Préventif & Compteurs, Correctif complet (`DI`, `BT`, `Live`, `Besoins d'achat`, `Atelier Mécanique BR/RECT`, `Clôture`, `Pareto`), Entrepôt Organes & Pièces, et Journal de retrait rapide (`Sortie Rapide`).
   - **Affichage à la carte :** 4 interrupteurs dédiés permettent de réafficher individuellement la Finance, le Stock Magasin, les Blueprints ou la Gestion d'équipe si besoin.
 - **Avantage principal :** Toute la puissance analytique et technique de CIOB GMAO Nexus, avec la rapidité d'un outil pensé pour une seule personne sur le terrain.
 

@@ -29,6 +29,8 @@ import { useTranslation } from '../../../../i18n/I18nContext';
 import { useGmaoStore } from '../../../../store/useGmaoStore';
 import { evaluateComponentWearAndLifecycle } from '../../../../utils/componentHealthScore';
 import { getEffectivePolicyTags } from '../../../../domain/corrective/needRequestService';
+import { useWorkspaceProfile } from '../../../../core/workspace/workspaceProfile';
+import { useCurrency } from '../../../../utils/currencyService';
 
 export default function ComponentsTable({
   displayedData = [],
@@ -60,6 +62,10 @@ export default function ComponentsTable({
   handleOpenAddModal,
 }) {
   const { t } = useTranslation();
+  const workspaceProfile = useWorkspaceProfile();
+  const showTeamUi = workspaceProfile.moduleVisibility.showTeamManagement;
+  const showFinance = workspaceProfile.moduleVisibility.showFinance;
+  const { formatCurrency } = useCurrency();
   const storeCorrective = useGmaoStore((s) => s.correctiveInterventions);
   const storePreventiveExecs = useGmaoStore((s) => s.preventiveExecutions);
   const storeSortiesExterne = useGmaoStore((s) => s.sortiesExterne);
@@ -98,14 +104,18 @@ export default function ComponentsTable({
         sortable: true,
         headerClassName: 'whitespace-nowrap',
       },
-      {
-        key: 'technician',
-        label: t('entrepot.columns.responsible'),
-        colLetter: 'F',
-        icon: User,
-        sortable: true,
-        headerClassName: 'whitespace-nowrap',
-      },
+      ...(showTeamUi
+        ? [
+            {
+              key: 'technician',
+              label: t('entrepot.columns.responsible'),
+              colLetter: 'F',
+              icon: User,
+              sortable: true,
+              headerClassName: 'whitespace-nowrap',
+            },
+          ]
+        : []),
       {
         key: 'status',
         label: t('entrepot.columns.status'),
@@ -130,14 +140,18 @@ export default function ComponentsTable({
         headerClassName: 'w-20 tracking-widest text-slate-400 font-bold',
       },
     ],
-    [t]
+    [t, showTeamUi]
   );
 
   return (
     <GmaoIndustrialDataGrid
       title={t('entrepot.table.title')}
       icon={<CubeIcon className="w-4 h-4 text-blue-600" />}
-      excelMapping="id_warehouse_item (A) | nature: COMPONENT (B) | designation (C) | famille/template (D) | machine/zone (E) | responsable (F) | statut (G) | stock (H)"
+      excelMapping={
+        showTeamUi
+          ? 'id_warehouse_item (A) | nature: COMPONENT (B) | designation (C) | famille/template (D) | machine/zone (E) | responsable (F) | statut (G) | stock (H)'
+          : 'id_warehouse_item (A) | nature: COMPONENT (B) | designation (C) | famille/template (D) | machine/zone (E) | statut (G) | stock (H)'
+      }
       bannerColor="blue"
       columns={columns}
       data={displayedData}
@@ -196,7 +210,11 @@ export default function ComponentsTable({
                               type="button"
                               onClick={(e) => {
                                 e.stopPropagation();
-                                navigator.clipboard?.writeText(item.id);
+                                try {
+                                  navigator.clipboard?.writeText(String(item.id));
+                                } catch {
+                                  // Ignore clipboard errors in restricted contexts
+                                }
                               }}
                               className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-slate-100 hover:bg-slate-200 text-slate-500 hover:text-slate-700 font-mono text-[9.5px] border border-slate-200 transition cursor-pointer"
                               title={`Passport ID: ${item.id}\n(Cliquer pour copier)`}
@@ -382,10 +400,18 @@ export default function ComponentsTable({
                                       setSelectedDetails?.(item);
                                     }}
                                     className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-rose-100 hover:bg-rose-200 text-rose-900 border border-rose-300 font-black text-[10px] shadow-2xs transition cursor-pointer"
-                                    title={`${wearInfo.recommendation}\n• ${wearInfo.reformReasons.join('\n• ')}`}
+                                    title={
+                                      showFinance
+                                        ? `${wearInfo.recommendation}\n• ${wearInfo.reformReasons.join('\n• ')}`
+                                        : `Santé technique : ${wearInfo.wearScore}/100\nPannes 6m : ${wearInfo.recentBreakdowns6Months} | Cycles rebobinage : ${wearInfo.bobinageCount}`
+                                    }
                                   >
                                     <AlertTriangle className="w-3 h-3 text-rose-600 shrink-0" />
-                                    <span>À réformer ({wearInfo.costRatioPercent}% neuf)</span>
+                                    <span>
+                                      {showFinance
+                                        ? `À réformer (${wearInfo.costRatioPercent}% neuf)`
+                                        : `À réformer (Santé ${wearInfo.wearScore}/100)`}
+                                    </span>
                                   </button>
                                 )}
 
@@ -397,10 +423,18 @@ export default function ComponentsTable({
                                       setSelectedDetails?.(item);
                                     }}
                                     className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-300 font-bold text-[10px] transition cursor-pointer"
-                                    title={`${wearInfo.recommendation}\nCoût cumulé : ${wearInfo.cumulativeRepairCost.toFixed(0)} DH / ${wearInfo.replacementValue.toFixed(0)} DH (${wearInfo.costRatioPercent}%)`}
+                                    title={
+                                      showFinance
+                                        ? `${wearInfo.recommendation}\nCoût cumulé : ${formatCurrency(wearInfo.cumulativeRepairCost)} / ${formatCurrency(wearInfo.replacementValue)} (${wearInfo.costRatioPercent}%)`
+                                        : `Santé technique : ${wearInfo.wearScore}/100\nPannes 6m : ${wearInfo.recentBreakdowns6Months} | Cycles rebobinage : ${wearInfo.bobinageCount}`
+                                    }
                                   >
                                     <Activity className="w-3 h-3 text-amber-600 shrink-0" />
-                                    <span>Usure {wearInfo.costRatioPercent}%</span>
+                                    <span>
+                                      {showFinance
+                                        ? `Usure ${wearInfo.costRatioPercent}%`
+                                        : `Usure (Santé ${wearInfo.wearScore}/100)`}
+                                    </span>
                                   </button>
                                 )}
                               </div>
@@ -492,21 +526,23 @@ export default function ComponentsTable({
                     </td>
 
                     {/* Col 5: Responsable (F) */}
-                    <td className="py-2.5 px-3 whitespace-nowrap">
-                      <div className="flex items-center gap-2">
-                        <div className="w-6 h-6 rounded-lg bg-purple-50 text-purple-700 border border-purple-200 flex items-center justify-center font-bold text-xs shrink-0">
-                          <User className="w-3 h-3 text-purple-600" />
+                    {showTeamUi && (
+                      <td className="py-2.5 px-3 whitespace-nowrap">
+                        <div className="flex items-center gap-2">
+                          <div className="w-6 h-6 rounded-lg bg-purple-50 text-purple-700 border border-purple-200 flex items-center justify-center font-bold text-xs shrink-0">
+                            <User className="w-3 h-3 text-purple-600" />
+                          </div>
+                          <div>
+                            <span className="font-bold text-slate-900 text-xs block leading-tight">
+                              {item.technician || 'Non assigné'}
+                            </span>
+                            <span className="text-[9.5px] text-slate-400 font-medium block">
+                              {item.technician ? 'Technicien Référent' : 'Disponible pour affectation'}
+                            </span>
+                          </div>
                         </div>
-                        <div>
-                          <span className="font-bold text-slate-900 text-xs block leading-tight">
-                            {item.technician || 'Non assigné'}
-                          </span>
-                          <span className="text-[9.5px] text-slate-400 font-medium block">
-                            {item.technician ? 'Technicien Référent' : 'Disponible pour affectation'}
-                          </span>
-                        </div>
-                      </div>
-                    </td>
+                      </td>
+                    )}
 
                     {/* Col 6: Statut Opérationnel (G) */}
                     <td className="py-2.5 px-3 whitespace-nowrap">
@@ -561,22 +597,29 @@ export default function ComponentsTable({
 
                     {/* Col 7: Stock Actuel & Solde (H) */}
                     <td className="py-2.5 px-3 text-right whitespace-nowrap">
-                      <div className="flex flex-col items-end">
-                        <span
-                          className={`px-2.5 py-0.5 rounded-lg font-mono font-bold text-xs ${
-                            (item.stockActuel || 0) <= 0
-                              ? 'bg-rose-50 text-rose-700 border border-rose-200'
-                              : (item.stockActuel || 0) <= (item.seuil || 2)
-                                ? 'bg-amber-50 text-amber-700 border border-amber-200'
-                                : 'bg-blue-50 text-blue-800 border border-blue-200/80'
-                          }`}
-                        >
-                          {domainItem.getStockActuel()} u
-                        </span>
-                        <span className="text-[9.5px] font-mono text-slate-400 mt-0.5">
-                          Init: {item.stockInitial || 1} • Seuil: {item.seuil || 2}
-                        </span>
-                      </div>
+                      {(() => {
+                        const stockVal = domainItem.getStockActuel();
+                        const initVal = Number(item.stockInitial ?? 0);
+                        const seuilVal = Number(item.seuil ?? 0);
+                        return (
+                          <div className="flex flex-col items-end">
+                            <span
+                              className={`px-2.5 py-0.5 rounded-lg font-mono font-bold text-xs ${
+                                stockVal <= 0
+                                  ? 'bg-rose-50 text-rose-700 border border-rose-200'
+                                  : seuilVal > 0 && stockVal <= seuilVal
+                                    ? 'bg-amber-50 text-amber-700 border border-amber-200'
+                                    : 'bg-blue-50 text-blue-800 border border-blue-200/80'
+                              }`}
+                            >
+                              {stockVal} u
+                            </span>
+                            <span className="text-[9.5px] font-mono text-slate-400 mt-0.5">
+                              Init: {initVal} • Seuil: {seuilVal}
+                            </span>
+                          </div>
+                        );
+                      })()}
                     </td>
 
                     {/* Col 8: Action & Dropdown (•••) */}

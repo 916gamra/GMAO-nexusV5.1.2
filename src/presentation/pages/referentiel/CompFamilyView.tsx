@@ -29,7 +29,10 @@ import {
   FileSpreadsheet,
   Boxes,
   FolderTree,
+  AlertTriangle,
 } from 'lucide-react';
+import { isWarehouseComponent } from '../../../core/domain/EntrepotItem';
+import { exportTypeBCsv } from '../../../utils/safeExcelExport';
 
 export default function CompFamilyView({
   compGroups = [],
@@ -66,6 +69,11 @@ export default function CompFamilyView({
   const sortMenuRef = useRef(null);
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState(25);
+  const [formError, setFormError] = useState('');
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [search, activeGroupFilter, sortField, sortOrder]);
 
   useEffect(() => {
     function handleClickOutside(event) {
@@ -116,13 +124,24 @@ export default function CompFamilyView({
     return [...filtered].sort((a, b) => {
       let valA = a[sortField] || '';
       let valB = b[sortField] || '';
+      if (sortField === 'templates_count') {
+        valA = compTemplates.filter((tItem) => tItem.id_family === a.id_family).length;
+        valB = compTemplates.filter((tItem) => tItem.id_family === b.id_family).length;
+      } else if (sortField === 'warehouse_items') {
+        valA = warehouseItems.filter(
+          (w) => isWarehouseComponent(w) && w.id_family === a.id_family
+        ).length;
+        valB = warehouseItems.filter(
+          (w) => isWarehouseComponent(w) && w.id_family === b.id_family
+        ).length;
+      }
       if (typeof valA === 'string') valA = valA.toLowerCase();
       if (typeof valB === 'string') valB = valB.toLowerCase();
       if (valA < valB) return sortOrder === 'asc' ? -1 : 1;
       if (valA > valB) return sortOrder === 'asc' ? 1 : -1;
       return 0;
     });
-  }, [filtered, sortField, sortOrder]);
+  }, [filtered, sortField, sortOrder, compTemplates, warehouseItems]);
 
   const totalItems = sortedData.length;
   const effectivePageSize = pageSize === 0 ? totalItems : pageSize;
@@ -151,20 +170,49 @@ export default function CompFamilyView({
     );
   };
 
+  const getNextCompFamilyIndex = () => {
+    let maxNum = 0;
+    compFamilies.forEach((f) => {
+      const m = String(f.id_family || '').match(/(\d+)$/);
+      if (m) {
+        const n = parseInt(m[1], 10);
+        if (n > maxNum) maxNum = n;
+      }
+    });
+    return Math.max(maxNum, compFamilies.length) + 1;
+  };
+
   const handleSubmit = (e) => {
     e.preventDefault();
     if (!canCreateStock) return;
-    if (!form.id_family || !form.libelle) return;
-    const cleanPrefix = (form.componentCode || form.id_family.replace(/^FAM-?/i, ''))
+    setFormError('');
+    const cleanId = form.id_family.trim().toUpperCase();
+    const cleanLibelle = form.libelle.trim();
+    if (!cleanId || !cleanLibelle) {
+      setFormError("L'ID Famille et le libellé sont obligatoires.");
+      return;
+    }
+    if (
+      compFamilies.some(
+        (f) => String(f.id_family || '').trim().toUpperCase() === cleanId
+      )
+    ) {
+      setFormError(`La famille "${cleanId}" existe déjà.`);
+      return;
+    }
+    const cleanPrefix = (form.componentCode || cleanId.replace(/^FAM-?/i, ''))
       .toUpperCase()
       .trim();
 
-    onAddCompFamily({
+    const created = onAddCompFamily?.({
       ...form,
-      id_family: form.id_family.trim().toUpperCase(),
+      id_family: cleanId,
+      libelle: cleanLibelle,
       componentCode: cleanPrefix,
     });
+    if (created === false) return;
     setForm({ id_family: '', id_groupe: '', libelle: '', componentCode: '' });
+    setFormError('');
     setShowAddModal(false);
   };
 
@@ -188,24 +236,29 @@ export default function CompFamilyView({
   };
 
   const handleExportExcel = () => {
-    const headers = ['ID Type', 'Libellé Type', 'Préfixe Code', 'Nb Désignations', 'Nb Articles'];
+    const headers = [
+      'ID Famille',
+      'Groupe Parent (Niv 1)',
+      'Libellé Famille',
+      'Préfixe Code',
+      'Nb Désignations',
+      'Nb Composants Entrepôt',
+    ];
     const rows = filtered.map((f) => [
       f.id_family || '',
+      f.id_groupe || '',
       f.libelle || '',
       f.componentCode || '',
-      compTemplates.filter((t) => t.id_family === f.id_family).length,
-      warehouseItems.filter((i) => i.id_family === f.id_family).length,
+      compTemplates.filter((tItem) => tItem.id_family === f.id_family).length,
+      warehouseItems.filter(
+        (i) => isWarehouseComponent(i) && i.id_family === f.id_family
+      ).length,
     ]);
-    const csvContent =
-      'data:text/csv;charset=utf-8,\uFEFF' +
-      [headers.join(';'), ...rows.map((e) => e.join(';'))].join('\n');
-    const encodedUri = encodeURI(csvContent);
-    const link = document.createElement('a');
-    link.setAttribute('href', encodedUri);
-    link.setAttribute('download', `types_composants_${new Date().toISOString().slice(0, 10)}.csv`);
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+    exportTypeBCsv({
+      filename: `GMAO_Familles_Composants_TypeB_${new Date().toISOString().slice(0, 10)}.csv`,
+      headers,
+      rows,
+    });
   };
 
   const familyColumns = useMemo(
@@ -270,6 +323,7 @@ export default function CompFamilyView({
         label: t('components.family.col_templates', 'DÉSIGNATIONS COMPOSANTS'),
         colLetter: 'D',
         icon: CubeIcon,
+        sortable: true,
         render: (f) => {
           const tCount = compTemplates.filter((t) => t.id_family === f.id_family).length;
           return (
@@ -290,9 +344,10 @@ export default function CompFamilyView({
         label: t('components.family.col_warehouse', 'COMPOSANTS EN ENTREPÔT'),
         colLetter: 'E',
         icon: Warehouse,
+        sortable: true,
         render: (f) => {
           const cCount = warehouseItems.filter(
-            (w) => (w.nature === 'COMPONENT' || w.nature === 'PARTIE') && w.id_family === f.id_family
+            (w) => isWarehouseComponent(w) && w.id_family === f.id_family
           ).length;
           return (
             <button
@@ -314,7 +369,7 @@ export default function CompFamilyView({
         headerClassName: 'w-24 text-center font-bold text-slate-400 tracking-widest select-none',
         render: (f) => {
           const cCount = warehouseItems.filter(
-            (w) => (w.nature === 'COMPONENT' || w.nature === 'PARTIE') && w.id_family === f.id_family
+            (w) => isWarehouseComponent(w) && w.id_family === f.id_family
           ).length;
           return (
             <div className="relative inline-flex items-center justify-center action-menu-container">
@@ -476,7 +531,8 @@ export default function CompFamilyView({
               icon={SpokeIcon}
               showAddBadge={true}
               onClick={() => {
-                const nextIdx = compFamilies.length + 1;
+                const nextIdx = getNextCompFamilyIndex();
+                setFormError('');
                 setForm({
                   id_family: `FAM-CMP${String(nextIdx).padStart(2, '0')}`,
                   id_groupe: activeGroupFilter && activeGroupFilter !== 'ALL' ? activeGroupFilter : '',
@@ -522,7 +578,7 @@ export default function CompFamilyView({
               title={`${t('common.export_excel_title', 'Exporter le tableau vers Excel / CSV')} — Type B : Export externe (non réimportable)`}
             >
               <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-600" />
-              <span>{t('components.family.export_excel', 'Export Excel')}</span>
+              <span>{t('components.family.export_excel', 'Export Excel')} (Type B)</span>
             </button>
 
             {/* Circular Reset Button */}
@@ -812,13 +868,19 @@ export default function CompFamilyView({
       {/* Add Modal */}
       {showAddModal && (
         <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl shadow-xl w-full max-w-md p-6 border border-slate-200 animate-in fade-in zoom-in-95 duration-150">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-md max-h-[90vh] overflow-y-auto p-6 border border-slate-200 animate-in fade-in zoom-in-95 duration-150">
             <h3 className="font-bold text-base text-slate-900 mb-1">
               {t('components.family.add_title', 'Nouvelle Famille de Composants')}
             </h3>
             <p className="text-xs text-slate-500 mb-4">
               {t('components.family.add_desc', "Type d'ensembles et sous-systèmes stockés en entrepôt.")}
             </p>
+            {formError && (
+              <div className="mb-3 p-2.5 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-xs font-semibold flex items-center gap-2">
+                <AlertTriangle className="w-4 h-4 shrink-0" />
+                <span>{formError}</span>
+              </div>
+            )}
             <form onSubmit={handleSubmit} className="space-y-3">
               <div>
                 <label className="text-[11px] font-bold uppercase tracking-wider text-slate-500">
@@ -905,7 +967,7 @@ export default function CompFamilyView({
       {/* Edit Modal */}
       {toEdit && (
         <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl shadow-xl w-full max-w-md p-6 border border-slate-200 animate-in fade-in zoom-in-95 duration-150">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-md max-h-[90vh] overflow-y-auto p-6 border border-slate-200 animate-in fade-in zoom-in-95 duration-150">
             <h3 className="font-bold text-base text-slate-900 mb-1">
               {t('components.family.edit_title', 'Modifier la Famille de Composants')}
             </h3>
@@ -988,36 +1050,56 @@ export default function CompFamilyView({
       )}
 
       {/* Delete Modal */}
-      {toDelete && (
-        <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm p-6 border border-slate-200">
-            <h3 className="font-bold text-base text-slate-900 mb-1">
-              {t('components.family.delete_title', 'Supprimer cette famille de composants ?')}
-            </h3>
-            <p className="text-xs text-slate-500 mb-4">
-              {t('components.family.delete_confirm', 'Confirmez-vous la suppression de {{name}} ?', { name: `${toDelete.id_family} (${toDelete.libelle})` })}
-            </p>
-            <div className="flex justify-end gap-2">
-              <button
-                onClick={() => setToDelete(null)}
-                className="px-4 py-2 text-xs font-bold text-slate-600 hover:bg-slate-100 rounded-xl cursor-pointer"
-              >
-                {t('common.cancel', 'Annuler')}
-              </button>
-              <button
-                onClick={() => {
-                  if (!canDeleteStock) return;
-                  onDeleteCompFamily(toDelete.id_family);
-                  setToDelete(null);
-                }}
-                className="px-4 py-2 text-xs font-bold text-white bg-rose-600 hover:bg-rose-700 rounded-xl shadow-[0_12px_32px_-6px_rgba(0,0,0,0.12),0_4px_12px_-2px_rgba(0,0,0,0.06)] hover:shadow-[0_16px_40px_-8px_rgba(0,0,0,0.16),0_6px_16px_-3px_rgba(0,0,0,0.08)] hover:-translate-y-0.5 transition-all duration-300 ease-out cursor-pointer"
-              >
-                {t('common.delete', 'Supprimer')}
-              </button>
+      {toDelete && (() => {
+        const linkedTemplates = compTemplates.filter((tItem) => tItem.id_family === toDelete.id_family).length;
+        const linkedWarehouse = warehouseItems.filter(
+          (w) => isWarehouseComponent(w) && w.id_family === toDelete.id_family
+        ).length;
+        const hasLinks = linkedTemplates > 0 || linkedWarehouse > 0;
+        return (
+          <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-xs flex items-center justify-center p-4">
+            <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm p-6 border border-slate-200">
+              <h3 className="font-bold text-base text-slate-900 mb-1">
+                {t('components.family.delete_title', 'Supprimer cette famille de composants ?')}
+              </h3>
+              <p className="text-xs text-slate-500 mb-3">
+                {t('components.family.delete_confirm', 'Confirmez-vous la suppression de {{name}} ?', { name: `${toDelete.id_family} (${toDelete.libelle})` })}
+              </p>
+              {hasLinks && (
+                <div className="mb-4 p-2.5 rounded-xl bg-amber-50 border border-amber-200 text-[11px] font-semibold text-amber-800 flex items-start gap-2">
+                  <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                  <span>
+                    Suppression bloquée : {linkedTemplates} désignation(s) et {linkedWarehouse} composant(s) en entrepôt dépendent de cette famille.
+                  </span>
+                </div>
+              )}
+              <div className="flex justify-end gap-2">
+                <button
+                  onClick={() => setToDelete(null)}
+                  className="px-4 py-2 text-xs font-bold text-slate-600 hover:bg-slate-100 rounded-xl cursor-pointer"
+                >
+                  {t('common.cancel', 'Annuler')}
+                </button>
+                <button
+                  disabled={hasLinks}
+                  onClick={() => {
+                    if (!canDeleteStock || hasLinks) return;
+                    onDeleteCompFamily(toDelete.id_family);
+                    setToDelete(null);
+                  }}
+                  className={`px-4 py-2 text-xs font-bold text-white rounded-xl transition-all duration-300 ease-out ${
+                    hasLinks
+                      ? 'bg-slate-300 cursor-not-allowed'
+                      : 'bg-rose-600 hover:bg-rose-700 shadow-[0_12px_32px_-6px_rgba(0,0,0,0.12),0_4px_12px_-2px_rgba(0,0,0,0.06)] hover:shadow-[0_16px_40px_-8px_rgba(0,0,0,0.16),0_6px_16px_-3px_rgba(0,0,0,0.08)] hover:-translate-y-0.5 cursor-pointer'
+                  }`}
+                >
+                  {t('common.delete', 'Supprimer')}
+                </button>
+              </div>
             </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
 
       {/* Excel Formulas Modal */}
       {showFormulasModal && (

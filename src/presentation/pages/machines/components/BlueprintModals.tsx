@@ -48,27 +48,60 @@ export interface BlueprintTemplateOption {
 }
 
 export interface BlueprintCompTemplateOption {
-  id_comp_template: string;
+  id_comp_template?: string;
+  id_templates?: string;
+  id_template?: string;
   label_comp_template?: string;
   libelle?: string;
 }
 
 export interface BlueprintPartTypeOption {
-  id_part_type: string;
+  id_part_type?: string;
+  id_type?: string;
   label_part_type?: string;
   libelle?: string;
 }
 
 export interface BlueprintPartDesignationOption {
-  id_part_designation: string;
+  id_part_designation?: string;
+  id_designation?: string;
+  id_diag?: string;
   label_part_designation?: string;
   label_part_type?: string;
+  libelle?: string;
 }
+
+const getCompTemplateId = (ct: BlueprintCompTemplateOption): string =>
+  String(ct.id_templates || ct.id_template || ct.id_comp_template || '').trim();
+
+const getCompTemplateLabel = (ct: BlueprintCompTemplateOption): string =>
+  String(ct.libelle || ct.label_comp_template || getCompTemplateId(ct)).trim();
+
+const getPartTypeId = (pt: BlueprintPartTypeOption): string =>
+  String(pt.id_type || pt.id_part_type || '').trim();
+
+const getPartTypeLabel = (pt: BlueprintPartTypeOption): string =>
+  String(pt.libelle || pt.label_part_type || getPartTypeId(pt)).trim();
+
+const getPartDesignationId = (pd: BlueprintPartDesignationOption): string =>
+  String(pd.id_part_designation || pd.id_designation || pd.id_diag || '').trim();
+
+const getPartDesignationLabel = (pd: BlueprintPartDesignationOption): string =>
+  String(pd.libelle || pd.label_part_designation || pd.label_part_type || getPartDesignationId(pd)).trim();
 
 const STATUS_OPTIONS = [
   { value: 'Approuvé', label: 'Approuvé' },
   { value: 'En Révision', label: 'En Révision' },
   { value: 'Archivé', label: 'Archivé' },
+];
+
+const SCHEMA_TYPE_OPTIONS = [
+  'Mécanique',
+  'Électrique',
+  'Hydraulique',
+  'Pneumatique',
+  'Automate / PLC',
+  'Mixte / Général',
 ];
 
 export interface BlueprintFormModalProps {
@@ -180,7 +213,7 @@ export function BlueprintFormModal({
             </div>
             <div>
               <h3 className="font-bold text-slate-900 text-base">
-                {toEdit ? `Modifier Blueprint : ${toEdit.id_blueprint}` : 'Nouveau Blueprint (BOM 4-Tabs)'}
+                {toEdit ? `Modifier Blueprint : ${toEdit.id_blueprint}` : 'Nouveau Blueprint (BOM 6-Tabs)'}
               </h3>
               <p className="text-xs text-slate-500">
                 Nomenclature technique complète liant modèle d&apos;usine et composants réels.
@@ -389,7 +422,7 @@ export function BlueprintFormModal({
                   </div>
                 </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5">
                   {/* Ref Plan */}
                   <div>
                     <label className="block text-slate-700 font-bold mb-1">Réf Plan Dessin / DWG</label>
@@ -420,6 +453,25 @@ export function BlueprintFormModal({
                     />
                   </div>
 
+                  {/* Type Schéma */}
+                  <div>
+                    <label className="block text-slate-700 font-bold mb-1">Type de Schéma</label>
+                    <select
+                      value={(toEdit ? toEdit.type_schema : form.type_schema) || 'Mécanique'}
+                      onChange={(e) => {
+                        if (toEdit) setToEdit({ ...toEdit, type_schema: e.target.value });
+                        else setForm({ ...form, type_schema: e.target.value });
+                      }}
+                      className="w-full h-9 px-3 rounded-xl border border-slate-200 bg-slate-50 text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-slate-900"
+                    >
+                      {SCHEMA_TYPE_OPTIONS.map((opt) => (
+                        <option key={`schema-type-${opt}`} value={opt}>
+                          {opt}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
                   {/* Statut */}
                   <div>
                     <label className="block text-slate-700 font-bold mb-1">Statut</label>
@@ -440,13 +492,28 @@ export function BlueprintFormModal({
                   </div>
                 </div>
 
+                {/* Description */}
+                <div>
+                  <label className="block text-slate-700 font-bold mb-1">Description / Notes d&apos;Architecture</label>
+                  <textarea
+                    rows={2}
+                    value={(toEdit ? toEdit.description : form.description) || ''}
+                    onChange={(e) => {
+                      if (toEdit) setToEdit({ ...toEdit, description: e.target.value });
+                      else setForm({ ...form, description: e.target.value });
+                    }}
+                    placeholder="Notes constructeurs, tolérances critiques, références dossiers techniques..."
+                    className="w-full p-2.5 rounded-xl border border-slate-200 bg-slate-50 text-xs focus:bg-white focus:outline-none focus:ring-2 focus:ring-slate-900"
+                  />
+                </div>
+
                 {/* Technical Specs box */}
                 <div className="p-4 rounded-xl bg-slate-50 border border-slate-200 space-y-3">
                   <div className="font-bold text-slate-800 flex items-center gap-1.5">
                     <Zap className="w-4 h-4 text-indigo-600" />
-                    <span>Paramètres & Spécifications Physiques (Puissance, Course, Moteur)</span>
+                    <span>Paramètres & Spécifications Physiques (Puissance, Course, Moteur, Dimensions)</span>
                   </div>
-                  <div className="grid grid-cols-2 gap-3">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <div>
                       <label className="block text-slate-500 font-medium mb-1">Puissance / Tonnage</label>
                       <input
@@ -475,6 +542,34 @@ export function BlueprintFormModal({
                         className="w-full h-8 px-2.5 rounded-lg border border-slate-200 bg-white text-xs"
                       />
                     </div>
+                    <div>
+                      <label className="block text-slate-500 font-medium mb-1">Motorisation / Vitesse</label>
+                      <input
+                        type="text"
+                        value={toEdit ? toEdit.specs?.moteur || '' : form.specs?.moteur || ''}
+                        onChange={(e) => {
+                          const val = e.target.value;
+                          if (toEdit) setToEdit({ ...toEdit, specs: { ...toEdit.specs, moteur: val } });
+                          else setForm({ ...form, specs: { ...form.specs, moteur: val } });
+                        }}
+                        placeholder="Ex: 15 kW • 1500 tr/min Tri 400V"
+                        className="w-full h-8 px-2.5 rounded-lg border border-slate-200 bg-white text-xs"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-slate-500 font-medium mb-1">Dimensions / Encombrement</label>
+                      <input
+                        type="text"
+                        value={toEdit ? toEdit.specs?.dimensions || '' : form.specs?.dimensions || ''}
+                        onChange={(e) => {
+                          const val = e.target.value;
+                          if (toEdit) setToEdit({ ...toEdit, specs: { ...toEdit.specs, dimensions: val } });
+                          else setForm({ ...form, specs: { ...form.specs, dimensions: val } });
+                        }}
+                        placeholder="Ex: 2400 × 1200 × 1800 mm"
+                        className="w-full h-8 px-2.5 rounded-lg border border-slate-200 bg-white text-xs"
+                      />
+                    </div>
                   </div>
                 </div>
               </div>
@@ -492,24 +587,29 @@ export function BlueprintFormModal({
                 {/* Quick Add Row */}
                 <div className="flex items-center gap-2 p-3 bg-slate-50 rounded-xl border border-slate-200">
                   <select
+                    data-testid="blueprint-comp-select"
                     value={newCompItem.id_component}
                     onChange={(e) => {
                       const id = e.target.value;
-                      const found = compTemplates.find((ct) => ct.id_comp_template === id);
+                      const found = compTemplates.find((ct) => getCompTemplateId(ct) === id);
                       setNewCompItem({
                         id_component: id,
-                        libelle: found?.label_comp_template || id,
-                        qte: 1,
+                        libelle: found ? getCompTemplateLabel(found) : id,
+                        qte: newCompItem.qte ?? 1,
                       });
                     }}
                     className="h-8 px-2.5 rounded-lg border border-slate-200 bg-white text-xs flex-1"
                   >
                     <option value="">Sélectionner un composant...</option>
-                    {compTemplates.map((ct, idx) => (
-                      <option key={`comp-tpl-${ct.id_comp_template || idx}-${idx}`} value={ct.id_comp_template}>
-                        {ct.id_comp_template} • {ct.label_comp_template || ct.libelle}
-                      </option>
-                    ))}
+                    {compTemplates.map((ct, idx) => {
+                      const compId = getCompTemplateId(ct);
+                      if (!compId) return null;
+                      return (
+                        <option key={`comp-tpl-${compId}-${idx}`} value={compId}>
+                          {compId} • {getCompTemplateLabel(ct)}
+                        </option>
+                      );
+                    })}
                   </select>
 
                   <input
@@ -595,30 +695,50 @@ export function BlueprintFormModal({
                 {/* Quick Add Row */}
                 <div className="flex items-center gap-2 p-3 bg-slate-50 rounded-xl border border-slate-200">
                   <select
+                    data-testid="blueprint-part-select"
                     value={newPartItem.id_part}
                     onChange={(e) => {
                       const id = e.target.value;
-                      const foundDes = partDesignations.find((pd) => pd.id_part_designation === id);
-                      const foundType = partTypes.find((pt) => pt.id_part_type === id);
+                      const foundDes = partDesignations.find((pd) => getPartDesignationId(pd) === id);
+                      const foundType = partTypes.find((pt) => getPartTypeId(pt) === id);
                       setNewPartItem({
                         id_part: id,
                         libelle:
-                          foundDes?.label_part_designation ||
-                          foundDes?.label_part_type ||
-                          foundType?.label_part_type ||
-                          foundType?.libelle ||
+                          (foundDes ? getPartDesignationLabel(foundDes) : '') ||
+                          (foundType ? getPartTypeLabel(foundType) : '') ||
                           id,
-                        qte: 1,
+                        qte: newPartItem.qte ?? 1,
                       });
                     }}
                     className="h-8 px-2.5 rounded-lg border border-slate-200 bg-white text-xs flex-1"
                   >
                     <option value="">Sélectionner une pièce...</option>
-                    {partTypes.map((pt, idx) => (
-                      <option key={`part-type-${pt.id_part_type || idx}-${idx}`} value={pt.id_part_type}>
-                        {pt.id_part_type} • {pt.label_part_type || pt.libelle}
-                      </option>
-                    ))}
+                    {partTypes.length > 0 && (
+                      <optgroup label="Types de Pièces">
+                        {partTypes.map((pt, idx) => {
+                          const ptId = getPartTypeId(pt);
+                          if (!ptId) return null;
+                          return (
+                            <option key={`part-type-${ptId}-${idx}`} value={ptId}>
+                              {ptId} • {getPartTypeLabel(pt)}
+                            </option>
+                          );
+                        })}
+                      </optgroup>
+                    )}
+                    {partDesignations.length > 0 && (
+                      <optgroup label="Désignations de Pièces">
+                        {partDesignations.map((pd, idx) => {
+                          const pdId = getPartDesignationId(pd);
+                          if (!pdId) return null;
+                          return (
+                            <option key={`part-des-${pdId}-${idx}`} value={pdId}>
+                              {pdId} • {getPartDesignationLabel(pd)}
+                            </option>
+                          );
+                        })}
+                      </optgroup>
+                    )}
                   </select>
 
                   <input
@@ -1518,7 +1638,7 @@ export function BlueprintFormulasModal({
             <div className="font-mono text-xs text-teal-800 font-bold bg-white p-2 rounded-lg border border-teal-100">
               =COUNTA(Specs) + COUNTA(Comps) + COUNTA(Parts) + COUNTA(PDR)
             </div>
-            <p className="text-[11px] text-slate-500">Somme totale des éléments et spécifications documentés dans les 4 volets de la nomenclature.</p>
+            <p className="text-[11px] text-slate-500">Somme totale des éléments et spécifications documentés dans les 6 volets de la nomenclature (Specs, Composants, Pièces, PDR, Plan PM, Pannes).</p>
           </div>
 
           <div className="bg-slate-50 p-4 rounded-xl border border-slate-200/90 space-y-1.5">

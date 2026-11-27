@@ -1,3 +1,4 @@
+import { useState, useEffect } from 'react';
 import CustomSelect from '../../../components/common/CustomSelect';
 import { HubIcon } from '../../../components/common/icons/HubIcon';
 import { CategoryIcon } from '../../../components/common/icons/CategoryIcon';
@@ -33,6 +34,10 @@ import {
 } from '../../../../utils/assetHierarchy';
 import { buildMachineActivityLedger } from '../../../../application/services/MachineHealthPassportService';
 import { dataIntegrityService } from '../../../../services/dataIntegrityService';
+import { useCurrency } from '../../../../utils/currencyService';
+import { useWorkspaceProfile } from '../../../../core/workspace/workspaceProfile';
+import { useGmaoStore } from '../../../../store/useGmaoStore';
+import type { MeterUnit } from '../../../../types/meter';
 
 import type {
   IBlueprint,
@@ -116,6 +121,43 @@ export function MachinesRegisteredModals({
   getMachineCommissioningDate,
   getZoneByRef,
 }: MachinesRegisteredModalsProps) {
+  const { formatCurrency, currencySymbol } = useCurrency();
+  const workspaceProfile = useWorkspaceProfile();
+  const { showFinance, showBlueprintsInPrimaryNav, showTeamManagement } =
+    workspaceProfile.moduleVisibility;
+
+  const [editError, setEditError] = useState('');
+  const [allowMeterReset, setAllowMeterReset] = useState(false);
+
+  const editMachineId = toEdit?.id_machine_registered || '';
+  useEffect(() => {
+    setEditError('');
+    setAllowMeterReset(false);
+  }, [editMachineId]);
+
+  const originalMachine = toEdit
+    ? machines.find(
+        (m) =>
+          String(m.id_machine_registered || '').trim().toUpperCase() ===
+          String(toEdit.id_machine_registered || '').trim().toUpperCase()
+      )
+    : null;
+  const originalMeterValue = Number(
+    originalMachine?.compteur_heures ?? originalMachine?.dernier_releve_compteur ?? 0
+  );
+  const editedMeterRaw = toEdit?.compteur_heures ?? toEdit?.dernier_releve_compteur;
+  const editedMeterValue =
+    editedMeterRaw !== undefined && editedMeterRaw !== null && String(editedMeterRaw) !== ''
+      ? Number(editedMeterRaw)
+      : null;
+  const isMeterChanged =
+    editedMeterValue !== null &&
+    Number.isFinite(editedMeterValue) &&
+    editedMeterValue !== originalMeterValue;
+  const isMeterLowerThanOriginal =
+    isMeterChanged && originalMeterValue > 0 && (editedMeterValue as number) < originalMeterValue;
+  const isEditSystemGeneral = toEdit ? getMachineAssetClass(toEdit) === 'SYSTEM_GENERAL' : false;
+
   return (
     <>
       {/* MODAL: MODIFIER MACHINE */}
@@ -144,24 +186,85 @@ export function MachinesRegisteredModals({
             <form
               onSubmit={(e) => {
                 e.preventDefault();
+                setEditError('');
                 const isSysGen = getMachineAssetClass(toEdit) === 'SYSTEM_GENERAL';
                 if (isSysGen && !toEdit.id_general_system_type) {
+                  setEditError('Veuillez renseigner le type de système général.');
                   return;
                 }
-                const normalizedEdit = {
+                if (isMeterChanged) {
+                  if (editedMeterValue === null || !Number.isFinite(editedMeterValue) || editedMeterValue < 0) {
+                    setEditError('La valeur du compteur horomètre doit être un nombre positif.');
+                    return;
+                  }
+                  if (isMeterLowerThanOriginal && !allowMeterReset) {
+                    setEditError(
+                      `Le relevé (${editedMeterValue}) est inférieur au compteur actuel (${originalMeterValue}). Cochez "Remplacement compteur" pour journaliser une réinitialisation.`
+                    );
+                    return;
+                  }
+                }
+
+                const normalizedEdit: Partial<IMachine> = {
                   ...toEdit,
                   asset_class: isSysGen ? ('SYSTEM_GENERAL' as const) : ('PRODUCTION' as const),
                   id_general_system_type: isSysGen ? toEdit.id_general_system_type || '' : '',
                 };
+
+                // If meter changed, keep original meter on the plain update and delegate meter mutation to MeterService
+                if (isMeterChanged && originalMachine) {
+                  normalizedEdit.compteur_heures = originalMachine.compteur_heures;
+                  normalizedEdit.dernier_releve_compteur = originalMachine.dernier_releve_compteur;
+                  normalizedEdit.date_releve_compteur = originalMachine.date_releve_compteur;
+                }
+
                 onUpdateMachine(toEdit.id_machine_registered, normalizedEdit);
+
+                if (isMeterChanged && editedMeterValue !== null) {
+                  try {
+                    const unit = (toEdit.compteur_unite_defaut || 'Heures') as MeterUnit;
+                    useGmaoStore.getState().handleRecordMeterReading({
+                      machineId: toEdit.id_machine_registered,
+                      valeur: editedMeterValue,
+                      unite: unit,
+                      date_releve: new Date().toISOString().split('T')[0],
+                      source: 'MANUEL',
+                      commentaire: allowMeterReset
+                        ? 'Remplacement / réinitialisation horomètre depuis la fiche machine'
+                        : 'Mise à jour compteur depuis la fiche machine',
+                      allowMeterReset,
+                    });
+                  } catch (err: any) {
+                    setEditError(err?.message || 'Erreur lors de la journalisation du relevé compteur.');
+                    return;
+                  }
+                }
+
                 setToEdit(null);
               }}
               className="space-y-4"
             >
+              {editError && (
+                <div className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-800 text-xs font-bold flex items-center gap-2">
+                  <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0" />
+                  <span>{editError}</span>
+                </div>
+              )}
+
               <div className="p-3 rounded-2xl bg-slate-50 border border-slate-200/90 flex items-center justify-between gap-2 flex-wrap">
-                <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-emerald-600 text-white text-xs font-bold">
-                  <Factory className="w-3.5 h-3.5" />
-                  <span>Machine de Production</span>
+                <span
+                  className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-white text-xs font-bold ${
+                    isEditSystemGeneral ? 'bg-amber-600' : 'bg-emerald-600'
+                  }`}
+                >
+                  {isEditSystemGeneral ? (
+                    <ShieldAlert className="w-3.5 h-3.5" />
+                  ) : (
+                    <Factory className="w-3.5 h-3.5" />
+                  )}
+                  <span>
+                    {isEditSystemGeneral ? 'Système Général / Utilité' : 'Machine de Production'}
+                  </span>
                 </span>
                 <button
                   type="button"
@@ -177,7 +280,7 @@ export function MachinesRegisteredModals({
                 </button>
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <label className="text-[11px] font-bold text-slate-600 uppercase tracking-wider block mb-1">
                     Code Machine (B)
@@ -205,28 +308,34 @@ export function MachinesRegisteredModals({
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <label className="text-[11px] font-bold text-slate-600 uppercase tracking-wider block mb-1 flex items-center justify-between">
                     <span>Famille (D)</span>
-                    {getMachineAssetClass(toEdit) === 'SYSTEM_GENERAL' && (
-                      <span className="text-[10px] font-normal text-amber-700 lowercase italic">(optionnel)</span>
-                    )}
+                    <span className="text-[10px] font-normal text-slate-400 lowercase italic">(optionnel)</span>
                   </label>
                   <CustomSelect
                     value={toEdit.id_family || ''}
                     onChange={(val) => {
                       const relTpl = templates.filter((t) => t.id_family === val);
+                      const nextTpl = val ? relTpl[0]?.id_templates || '' : '';
+                      const keepBlueprint =
+                        toEdit.id_blueprint &&
+                        blueprints.some(
+                          (b) =>
+                            b.id_blueprint === toEdit.id_blueprint &&
+                            (!val || b.id_family === val) &&
+                            (!nextTpl || b.id_templates === nextTpl)
+                        );
                       setToEdit({
                         ...toEdit,
                         id_family: val,
-                        id_templates: val ? relTpl[0]?.id_templates || '' : '',
+                        id_templates: nextTpl,
+                        id_blueprint: keepBlueprint ? toEdit.id_blueprint : '',
                       });
                     }}
                     options={[
-                      ...(getMachineAssetClass(toEdit) === 'SYSTEM_GENERAL'
-                        ? [{ value: '', label: '— Aucune Famille (Système Général) —' }]
-                        : []),
+                      { value: '', label: '— Aucune Famille (Optionnel) —' },
                       ...families.map((f) => ({ value: f.id_family, label: `${f.libelle} (${f.id_family})` })),
                     ]}
                   />
@@ -234,17 +343,26 @@ export function MachinesRegisteredModals({
                 <div>
                   <label className="text-[11px] font-bold text-slate-600 uppercase tracking-wider block mb-1 flex items-center justify-between">
                     <span>Template Modèle (E)</span>
-                    {getMachineAssetClass(toEdit) === 'SYSTEM_GENERAL' && (
-                      <span className="text-[10px] font-normal text-amber-700 lowercase italic">(optionnel)</span>
-                    )}
+                    <span className="text-[10px] font-normal text-slate-400 lowercase italic">(optionnel)</span>
                   </label>
                   <CustomSelect
                     value={toEdit.id_templates || ''}
-                    onChange={(val) => setToEdit({ ...toEdit, id_templates: val })}
+                    onChange={(val) => {
+                      const keepBlueprint =
+                        toEdit.id_blueprint &&
+                        blueprints.some(
+                          (b) =>
+                            b.id_blueprint === toEdit.id_blueprint &&
+                            (!val || b.id_templates === val)
+                        );
+                      setToEdit({
+                        ...toEdit,
+                        id_templates: val,
+                        id_blueprint: keepBlueprint ? toEdit.id_blueprint : '',
+                      });
+                    }}
                     options={[
-                      ...(getMachineAssetClass(toEdit) === 'SYSTEM_GENERAL'
-                        ? [{ value: '', label: '— Aucun Template (Optionnel) —' }]
-                        : []),
+                      { value: '', label: '— Aucun Template (Optionnel) —' },
                       ...templates
                         .filter((t) => !toEdit.id_family || t.id_family === toEdit.id_family)
                         .map((t) => ({ value: t.id_templates, label: `${t.libelle} (${t.id_templates})` })),
@@ -253,32 +371,34 @@ export function MachinesRegisteredModals({
                 </div>
               </div>
 
-              <div>
-                <label className="text-[11px] font-bold text-slate-600 uppercase tracking-wider block mb-1 flex items-center justify-between">
-                  <span className="flex items-center gap-1">
-                    <FileText className="w-3 h-3 text-cyan-600" />
-                    <span>Blueprint / Schéma Machine</span>
-                  </span>
-                  <span className="text-[10px] font-normal text-slate-400 lowercase italic">(optionnel)</span>
-                </label>
-                <CustomSelect
-                  value={toEdit.id_blueprint || ''}
-                  onChange={(val) => setToEdit({ ...toEdit, id_blueprint: val })}
-                  options={[
-                    { value: '', label: '— Non sélectionné (Optionnel) —' },
-                    ...blueprints
-                      .filter(
-                        (b) =>
-                          (!toEdit.id_templates || b.id_templates === toEdit.id_templates) &&
-                          (!toEdit.id_family || b.id_family === toEdit.id_family)
-                      )
-                      .map((b) => ({
-                        value: b.id_blueprint,
-                        label: `${b.id_blueprint} • ${b.libelle || b.ref_plan || ''} ${b.revision ? `(${b.revision})` : ''}`,
-                      })),
-                  ]}
-                />
-              </div>
+              {showBlueprintsInPrimaryNav && (
+                <div>
+                  <label className="text-[11px] font-bold text-slate-600 uppercase tracking-wider block mb-1 flex items-center justify-between">
+                    <span className="flex items-center gap-1">
+                      <FileText className="w-3 h-3 text-cyan-600" />
+                      <span>Blueprint / Schéma Machine</span>
+                    </span>
+                    <span className="text-[10px] font-normal text-slate-400 lowercase italic">(optionnel)</span>
+                  </label>
+                  <CustomSelect
+                    value={toEdit.id_blueprint || ''}
+                    onChange={(val) => setToEdit({ ...toEdit, id_blueprint: val })}
+                    options={[
+                      { value: '', label: '— Non sélectionné (Optionnel) —' },
+                      ...blueprints
+                        .filter(
+                          (b) =>
+                            (!toEdit.id_templates || b.id_templates === toEdit.id_templates) &&
+                            (!toEdit.id_family || b.id_family === toEdit.id_family)
+                        )
+                        .map((b) => ({
+                          value: b.id_blueprint,
+                          label: `${b.id_blueprint} • ${b.libelle || b.ref_plan || ''} ${b.revision ? `(${b.revision})` : ''}`,
+                        })),
+                    ]}
+                  />
+                </div>
+              )}
 
               <div className="grid grid-cols-2 gap-3 p-3 rounded-2xl bg-indigo-50/40 border border-indigo-100">
                 <div>
@@ -374,91 +494,116 @@ export function MachinesRegisteredModals({
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="text-[11px] font-bold text-slate-600 uppercase tracking-wider block mb-1 flex items-center gap-1">
-                    <Gauge className="w-3 h-3 text-indigo-600" />
-                    <span>Compteur Principal (Horomètre)</span>
-                  </label>
-                  <input
-                    type="number"
-                    step="any"
-                    value={toEdit.compteur_heures ?? toEdit.dernier_releve_compteur ?? ''}
-                    onChange={(e) =>
-                      setToEdit({
-                        ...toEdit,
-                        compteur_heures: Number(e.target.value) || 0,
-                        dernier_releve_compteur: Number(e.target.value) || 0,
-                        date_releve_compteur: new Date().toISOString().split('T')[0],
-                      })
-                    }
-                    placeholder="Ex: 4500 (Heures)"
-                    className="w-full h-10 px-3 rounded-xl border border-slate-200 bg-white text-xs font-mono font-medium focus:outline-none focus:ring-1 focus:ring-emerald-500"
-                  />
+              <div className="space-y-2">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="text-[11px] font-bold text-slate-600 uppercase tracking-wider block mb-1 flex items-center gap-1">
+                      <Gauge className="w-3 h-3 text-indigo-600" />
+                      <span>Compteur Principal (Horomètre)</span>
+                    </label>
+                    <input
+                      type="number"
+                      min="0"
+                      step="any"
+                      value={toEdit.compteur_heures ?? toEdit.dernier_releve_compteur ?? ''}
+                      onChange={(e) => {
+                        const raw = e.target.value;
+                        const num = raw === '' ? undefined : Number(raw);
+                        setToEdit({
+                          ...toEdit,
+                          compteur_heures: num,
+                          dernier_releve_compteur: num,
+                        });
+                      }}
+                      placeholder="Ex: 4500 (Heures)"
+                      className="w-full h-10 px-3 rounded-xl border border-slate-200 bg-white text-xs font-mono font-medium focus:outline-none focus:ring-1 focus:ring-emerald-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[11px] font-bold text-slate-600 uppercase tracking-wider block mb-1">
+                      <span>Unité par Défaut</span>
+                    </label>
+                    <select
+                      value={toEdit.compteur_unite_defaut || 'Heures'}
+                      onChange={(e) =>
+                        setToEdit({
+                          ...toEdit,
+                          compteur_unite_defaut: e.target.value,
+                        })
+                      }
+                      className="w-full h-10 px-3 rounded-xl border border-slate-200 bg-white text-xs font-medium focus:outline-none focus:ring-1 focus:ring-emerald-500"
+                    >
+                      <option value="Heures">Heures (Horomètre)</option>
+                      <option value="Cycles">Cycles (Production)</option>
+                      <option value="Km">Km (Engins mobiles)</option>
+                    </select>
+                  </div>
                 </div>
-                <div>
-                  <label className="text-[11px] font-bold text-slate-600 uppercase tracking-wider block mb-1">
-                    <span>Unité par Défaut</span>
+                {isMeterLowerThanOriginal && (
+                  <label className="flex items-start gap-2 p-2.5 rounded-xl bg-amber-50 border border-amber-200 text-[11px] text-amber-950 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={allowMeterReset}
+                      onChange={(e) => setAllowMeterReset(e.target.checked)}
+                      className="mt-0.5 rounded border-amber-400 text-amber-600 focus:ring-amber-500"
+                    />
+                    <span>
+                      <strong>Remplacement / réinitialisation horomètre</strong> — La nouvelle valeur ({editedMeterValue}) est inférieure à l&apos;actuelle ({originalMeterValue}). Journaliser un événement <code>METER_RESET_RECORDED</code> dans le registre.
+                    </span>
                   </label>
-                  <select
-                    value={toEdit.compteur_unite_defaut || 'Heures'}
-                    onChange={(e) =>
-                      setToEdit({
-                        ...toEdit,
-                        compteur_unite_defaut: e.target.value,
-                      })
-                    }
-                    className="w-full h-10 px-3 rounded-xl border border-slate-200 bg-white text-xs font-medium focus:outline-none focus:ring-1 focus:ring-emerald-500"
-                  >
-                    <option value="Heures">Heures (Horomètre)</option>
-                    <option value="Cycles">Cycles (Production)</option>
-                    <option value="Km">Km (Engins mobiles)</option>
-                  </select>
-                </div>
+                )}
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 p-3 rounded-2xl bg-amber-50/40 border border-amber-200/70">
-                <div>
-                  <label className="text-[10.5px] font-bold text-slate-700 uppercase tracking-wider block mb-1">
-                    Coût Arrêt (DH/h)
-                  </label>
-                  <input
-                    type="number"
-                    min="0"
-                    step="any"
-                    value={toEdit.cout_arret_horaire ?? ''}
-                    onChange={(e) => {
-                      const val = e.target.value === '' ? undefined : Math.max(0, Number(e.target.value) || 0);
-                      setToEdit({
-                        ...toEdit,
-                        cout_arret_horaire: val,
-                      });
-                    }}
-                    placeholder="Ex: 800 DH/h"
-                    className="w-full h-9 px-2.5 rounded-xl border border-slate-200 bg-white text-xs font-mono font-medium focus:outline-none focus:ring-1 focus:ring-amber-500"
-                  />
-                </div>
-                <div>
-                  <label className="text-[10.5px] font-bold text-slate-700 uppercase tracking-wider block mb-1">
-                    Valeur Acquisition (DH)
-                  </label>
-                  <input
-                    type="number"
-                    min="0"
-                    step="any"
-                    value={toEdit.valeur_acquisition ?? toEdit.valeur_a_neuf ?? ''}
-                    onChange={(e) => {
-                      const val = e.target.value === '' ? undefined : Math.max(0, Number(e.target.value) || 0);
-                      setToEdit({
-                        ...toEdit,
-                        valeur_acquisition: val,
-                        valeur_a_neuf: val,
-                      });
-                    }}
-                    placeholder="Ex: 150000 (Seuil BER)"
-                    className="w-full h-9 px-2.5 rounded-xl border border-slate-200 bg-white text-xs font-mono font-medium focus:outline-none focus:ring-1 focus:ring-amber-500"
-                  />
-                </div>
+              <div
+                className={`grid grid-cols-1 ${
+                  showFinance ? 'sm:grid-cols-3 bg-amber-50/40 border-amber-200/70' : 'bg-slate-50/70 border-slate-200/80'
+                } gap-3 p-3 rounded-2xl border`}
+              >
+                {showFinance && (
+                  <>
+                    <div>
+                      <label className="text-[10.5px] font-bold text-slate-700 uppercase tracking-wider block mb-1">
+                        Coût Arrêt ({currencySymbol}/h)
+                      </label>
+                      <input
+                        type="number"
+                        min="0"
+                        step="any"
+                        value={toEdit.cout_arret_horaire ?? ''}
+                        onChange={(e) => {
+                          const val = e.target.value === '' ? undefined : Math.max(0, Number(e.target.value) || 0);
+                          setToEdit({
+                            ...toEdit,
+                            cout_arret_horaire: val,
+                          });
+                        }}
+                        placeholder={`Ex: 800 ${currencySymbol}/h`}
+                        className="w-full h-9 px-2.5 rounded-xl border border-slate-200 bg-white text-xs font-mono font-medium focus:outline-none focus:ring-1 focus:ring-amber-500"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-[10.5px] font-bold text-slate-700 uppercase tracking-wider block mb-1">
+                        Valeur Acquisition ({currencySymbol})
+                      </label>
+                      <input
+                        type="number"
+                        min="0"
+                        step="any"
+                        value={toEdit.valeur_acquisition ?? toEdit.valeur_a_neuf ?? ''}
+                        onChange={(e) => {
+                          const val = e.target.value === '' ? undefined : Math.max(0, Number(e.target.value) || 0);
+                          setToEdit({
+                            ...toEdit,
+                            valeur_acquisition: val,
+                            valeur_a_neuf: val,
+                          });
+                        }}
+                        placeholder="Ex: 150000 (Seuil BER)"
+                        className="w-full h-9 px-2.5 rounded-xl border border-slate-200 bg-white text-xs font-mono font-medium focus:outline-none focus:ring-1 focus:ring-amber-500"
+                      />
+                    </div>
+                  </>
+                )}
                 <div>
                   <label className="text-[10.5px] font-bold text-slate-700 uppercase tracking-wider block mb-1">
                     Régime Travail
@@ -480,7 +625,7 @@ export function MachinesRegisteredModals({
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
+              <div className={`grid grid-cols-1 ${showTeamManagement ? 'sm:grid-cols-2' : ''} gap-3`}>
                 <div>
                   <label className="text-[11px] font-bold text-slate-600 uppercase tracking-wider block mb-1">
                     Secteur / Zone Réelle (F)
@@ -503,34 +648,39 @@ export function MachinesRegisteredModals({
                     })}
                   />
                 </div>
-                <div>
-                  <label className="text-[11px] font-bold text-slate-600 uppercase tracking-wider block mb-1">
-                    Technicien Responsable (G)
-                  </label>
-                  <CustomSelect
-                    value={toEdit.technician}
-                    onChange={(val) => setToEdit({ ...toEdit, technician: val })}
-                    options={technicians
-                      .filter(
-                        (t) =>
-                          (t.is_active !== false &&
-                            t.actif !== false &&
-                            String(t.statut || '').toUpperCase() !== 'ARCHIVE') ||
-                          t.id_technician === toEdit.technician ||
-                          t.nom === toEdit.technician
-                      )
-                      .map((t) => {
-                        const isTechArchived =
-                          t.is_active === false ||
-                          t.actif === false ||
-                          String(t.statut || '').toUpperCase() === 'ARCHIVE';
-                        return {
-                          value: t.id_technician,
-                          label: `${t.nom} (${t.id_technician})${isTechArchived ? ' — Archivé' : ''}`,
-                        };
-                      })}
-                  />
-                </div>
+                {showTeamManagement && (
+                  <div>
+                    <label className="text-[11px] font-bold text-slate-600 uppercase tracking-wider block mb-1">
+                      Technicien Responsable (G)
+                    </label>
+                    <CustomSelect
+                      value={toEdit.technician || ''}
+                      onChange={(val) => setToEdit({ ...toEdit, technician: val })}
+                      options={[
+                        { value: '', label: '— Non assigné / Moi-même —' },
+                        ...technicians
+                          .filter(
+                            (t) =>
+                              (t.is_active !== false &&
+                                t.actif !== false &&
+                                String(t.statut || '').toUpperCase() !== 'ARCHIVE') ||
+                              t.id_technician === toEdit.technician ||
+                              t.nom === toEdit.technician
+                          )
+                          .map((t) => {
+                            const isTechArchived =
+                              t.is_active === false ||
+                              t.actif === false ||
+                              String(t.statut || '').toUpperCase() === 'ARCHIVE';
+                            return {
+                              value: t.id_technician,
+                              label: `${t.nom} (${t.id_technician})${isTechArchived ? ' — Archivé' : ''}`,
+                            };
+                          }),
+                      ]}
+                    />
+                  </div>
+                )}
               </div>
 
               <div>
@@ -877,13 +1027,23 @@ export function MachinesRegisteredModals({
                     </span>
                   </div>
 
-                  <div className="bg-slate-50 p-3.5 rounded-2xl border border-slate-200">
-                    <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block">Coût Préventif Cumulé</span>
-                    <span className="text-base font-black text-emerald-700 font-mono mt-0.5 block">
-                      {Number(profile.cout_total_preventif || 0).toFixed(2)} DH
-                    </span>
-                    <span className="text-[10px] text-slate-500">Main d&apos;œuvre & PDR</span>
-                  </div>
+                  {showFinance ? (
+                    <div className="bg-slate-50 p-3.5 rounded-2xl border border-slate-200">
+                      <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block">Coût Préventif Cumulé</span>
+                      <span className="text-base font-black text-emerald-700 font-mono mt-0.5 block">
+                        {formatCurrency(Number(profile.cout_total_preventif || 0), { decimals: 2 })}
+                      </span>
+                      <span className="text-[10px] text-slate-500">Main d&apos;œuvre & PDR</span>
+                    </div>
+                  ) : (
+                    <div className="bg-slate-50 p-3.5 rounded-2xl border border-slate-200">
+                      <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block">Journal d&apos;Activité</span>
+                      <span className="text-xl font-black text-emerald-700 font-mono mt-0.5 block">
+                        {machineLedger.length}
+                      </span>
+                      <span className="text-[10px] text-slate-500">Événements validés</span>
+                    </div>
+                  )}
                 </div>
 
                 <div className="space-y-2">
@@ -998,9 +1158,9 @@ export function MachinesRegisteredModals({
                               </p>
                             </div>
                             <div className="flex items-center gap-2 shrink-0 font-mono text-[11px]">
-                              {ev.cost !== undefined && ev.cost > 0 && (
+                              {showFinance && ev.cost !== undefined && ev.cost > 0 && (
                                 <span className="px-2 py-0.5 rounded bg-emerald-50 text-emerald-800 border border-emerald-200 font-bold">
-                                  {ev.cost.toLocaleString('fr-FR')} DH
+                                  {formatCurrency(ev.cost, { decimals: 0 })}
                                 </span>
                               )}
                               <span className="text-slate-500 font-bold">{ev.dateYMD}</span>

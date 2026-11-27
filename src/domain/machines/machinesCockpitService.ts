@@ -55,6 +55,10 @@ export interface ComputeMachinesCockpitInput {
   sortiesExterne?: Array<PassportExternalSortieInput & Record<string, any>>;
   stockItems?: Array<PassportStockItemInput & Record<string, any>>;
   referenceDate?: Date;
+  /** When false (e.g. SOLO_EXPERT), missing technician does not flag the machine as incomplete setup. Defaults to true. */
+  requireTechnician?: boolean;
+  /** When false (e.g. SOLO_EXPERT without finance), missing hourly downtime cost does not flag the machine as incomplete setup. Defaults to true. */
+  requireHourlyCost?: boolean;
 }
 
 function normalizeCode(raw: unknown): string {
@@ -69,6 +73,8 @@ export function computeMachinesCockpitMetrics({
   sortiesExterne = [],
   stockItems = [],
   referenceDate,
+  requireTechnician = true,
+  requireHourlyCost = true,
 }: ComputeMachinesCockpitInput): MachinesCockpitMetrics {
   const openBtCountByMachine = new Map<string, number>();
   for (const ci of correctiveInterventions || []) {
@@ -141,7 +147,10 @@ export function computeMachinesCockpitMetrics({
     const isProduction = getMachineAssetClass(machine) === 'PRODUCTION';
     const missingHourlyCost = isProduction && hourlyDowntimeCost <= 0;
     const isIncompleteSetup =
-      !archived && (missingZone || missingTechnician || missingHourlyCost);
+      !archived &&
+      (missingZone ||
+        (requireTechnician && missingTechnician) ||
+        (requireHourlyCost && missingHourlyCost));
 
     perMachineSignals[machineCode] = {
       machineCode,

@@ -156,10 +156,9 @@ export function EntrepotHeaderAndKpis({
           unit="ensembles"
           icon={CubeIcon}
           color="blue"
-          isActive={isComponentNature(currentNatureFilter) || isComponentNature(activeKpiFilter)}
+          isActive={activeWarehouseTab === 'COMPONENTS' && (isComponentNature(currentNatureFilter) || isComponentNature(activeKpiFilter))}
           onClick={() => {
-            setActiveKpiFilter('COMPONENT');
-            changeNatureFilter('COMPONENT');
+            onTabSwitch('COMPONENTS');
           }}
           badgeText={t('entrepot.stats.components_sub')}
           footerLabel="Architecture :"
@@ -172,10 +171,9 @@ export function EntrepotHeaderAndKpis({
           unit="pièces"
           icon={LayersIcon}
           color="indigo"
-          isActive={isPartNature(currentNatureFilter) || isPartNature(activeKpiFilter)}
+          isActive={activeWarehouseTab === 'PARTS' && (isPartNature(currentNatureFilter) || isPartNature(activeKpiFilter))}
           onClick={() => {
-            setActiveKpiFilter('PART');
-            changeNatureFilter('PART');
+            onTabSwitch('PARTS');
           }}
           badgeText={t('entrepot.stats.parts_sub')}
           footerLabel="Nomenclature :"
@@ -189,7 +187,7 @@ export function EntrepotHeaderAndKpis({
           icon={CheckCircle2}
           color="emerald"
           isActive={activeKpiFilter === 'SERVICE'}
-          onClick={() => setActiveKpiFilter('SERVICE')}
+          onClick={() => setActiveKpiFilter(activeKpiFilter === 'SERVICE' ? 'ALL' : 'SERVICE')}
           badgeText={t('entrepot.stats.active_service_sub')}
           footerLabel="Taux affectation :"
           footerValue={`${kpis.total ? Math.round((kpis.enService / kpis.total) * 100) : 0}%`}

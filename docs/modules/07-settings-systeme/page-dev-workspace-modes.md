@@ -54,7 +54,7 @@ La projection agit **uniquement sur la couche de présentation** (`FloatingSideb
 | :--- | :--- |
 | `moduleVisibility.showFinance === false` | `finance` |
 | `moduleVisibility.showStockInventory === false` | `stock` (`sortie` et les catalogues `pdr_groups`, `types`, `designations` restent accessibles) |
-| `moduleVisibility.showBlueprintsInPrimaryNav === false` | `blueprints`, `families`, `templates` (`machines` et `nexus` restent **toujours** visibles) |
+| `moduleVisibility.showBlueprintsInPrimaryNav === false` | `blueprints` uniquement (`families`, `templates`, `machines` et `nexus` restent **toujours** visibles dans le même ordre hiérarchique) |
 | `moduleVisibility.showTeamManagement === false` | `utilisateurs` |
 | `governanceMode === 'SOLO_DIRECT'` | `validation_center` + `canViewMakerCheckerValidation()` retourne `false` |
 

@@ -23,7 +23,7 @@ export interface WorkspaceModuleVisibility {
   showFinance: boolean;
   /** Show Magasin Stock Balances (`stock` articles view) in primary navigation (Sortie & PDR catalogs stay visible). */
   showStockInventory: boolean;
-  /** Show Tier 1/3 Blueprints, Families & Templates directly in primary navigation. */
+  /** Show Tier 3 Blueprints (`blueprints` & Blueprint fields) in primary navigation; Families -> Templates -> Machines remain visible. */
   showBlueprintsInPrimaryNav: boolean;
   /** Show Team & Users management (`utilisateurs`) in primary navigation. */
   showTeamManagement: boolean;
@@ -320,10 +320,7 @@ export function isTabVisibleInWorkspace(
   if (cleanTab === 'stock' && !profile.moduleVisibility.showStockInventory) {
     return false;
   }
-  if (
-    (cleanTab === 'blueprints' || cleanTab === 'families' || cleanTab === 'templates') &&
-    !profile.moduleVisibility.showBlueprintsInPrimaryNav
-  ) {
+  if (cleanTab === 'blueprints' && !profile.moduleVisibility.showBlueprintsInPrimaryNav) {
     return false;
   }
   if (cleanTab === 'utilisateurs' && !profile.moduleVisibility.showTeamManagement) {

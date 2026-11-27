@@ -3,6 +3,8 @@ import type {
   MachinesCockpitFilter,
   MachinesCockpitMetrics,
 } from '../../../../domain/machines/machinesCockpitService';
+import { useCurrency } from '../../../../utils/currencyService';
+import { useWorkspaceProfile } from '../../../../core/workspace/workspaceProfile';
 
 interface MachinesCockpitBarProps {
   metrics: MachinesCockpitMetrics;
@@ -23,11 +25,24 @@ export function MachinesCockpitBar({
   onToggleMaintDue,
   onToggleIncompleteSetup,
 }: MachinesCockpitBarProps) {
+  const { formatCurrency, currencySymbol } = useCurrency();
+  const workspaceProfile = useWorkspaceProfile();
+  const { showFinance, showTeamManagement } = workspaceProfile.moduleVisibility;
+
   const isStoppedActive =
     cockpitFilter === 'STOPPED_OR_MAINT' || statusFilter === 'STOPPED_OR_MAINT';
   const isBadActorsActive = cockpitFilter === 'BAD_ACTORS';
   const isMaintDueActive = cockpitFilter === 'MAINT_DUE';
   const isIncompleteActive = cockpitFilter === 'INCOMPLETE_SETUP';
+
+  const incompleteSubtitle =
+    showFinance && showTeamManagement
+      ? 'Fiches à Compléter (Zone/Coût)'
+      : showFinance
+        ? 'Fiches à Compléter (Zone/Coût)'
+        : showTeamManagement
+          ? 'Fiches à Compléter (Zone/Tech)'
+          : 'Fiches à Compléter (Zone)';
 
   return (
     <div
@@ -76,8 +91,8 @@ export function MachinesCockpitBar({
                   isStoppedActive ? 'text-rose-100' : 'text-rose-700'
                 }`}
               >
-                {metrics.activeHourlyLossDh > 0
-                  ? `(${metrics.activeHourlyLossDh.toLocaleString('fr-FR')} DH/h)`
+                {showFinance && metrics.activeHourlyLossDh > 0
+                  ? `(${metrics.activeHourlyLossDh.toLocaleString('fr-FR')} ${currencySymbol}/h)`
                   : 'équip.'}
               </span>
             </div>
@@ -96,7 +111,7 @@ export function MachinesCockpitBar({
         </span>
       </button>
 
-      {/* 2. Bad Actors & Alertes BER */}
+      {/* 2. Bad Actors & Santé Critique */}
       <button
         type="button"
         onClick={onToggleBadActors}
@@ -127,7 +142,7 @@ export function MachinesCockpitBar({
                 isBadActorsActive ? 'text-amber-100' : 'text-slate-500'
               }`}
             >
-              Bad Actors &amp; Alertes BER
+              {showFinance ? 'Bad Actors & Alertes BER' : 'Bad Actors & Santé Critique'}
             </div>
             <div className="flex items-baseline gap-1.5 flex-wrap">
               <span className="text-lg font-black font-mono leading-tight">
@@ -138,13 +153,13 @@ export function MachinesCockpitBar({
                   isBadActorsActive ? 'text-amber-100' : 'text-slate-600'
                 }`}
               >
-                (
-                {metrics.badActorsEconomicImpact12m > 0
-                  ? `${metrics.badActorsEconomicImpact12m.toLocaleString('fr-FR', {
-                      maximumFractionDigits: 0,
-                    })} DH`
-                  : 'TCO 12m'}
-                )
+                {showFinance
+                  ? `(${
+                      metrics.badActorsEconomicImpact12m > 0
+                        ? formatCurrency(metrics.badActorsEconomicImpact12m, { decimals: 0 })
+                        : 'TCO 12m'
+                    })`
+                  : '(Santé / Pannes)'}
               </span>
             </div>
           </div>
@@ -253,7 +268,7 @@ export function MachinesCockpitBar({
                 isIncompleteActive ? 'text-cyan-100' : 'text-slate-500'
               }`}
             >
-              Fiches à Compléter (Zone/Coût)
+              {incompleteSubtitle}
             </div>
             <div className="text-lg font-black font-mono leading-tight">
               {metrics.incompleteSetupCount}{' '}

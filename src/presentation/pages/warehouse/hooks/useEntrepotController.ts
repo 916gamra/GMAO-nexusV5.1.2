@@ -29,6 +29,39 @@ import {
   type IZone,
 } from '../../../../types/domain';
 import { getEffectivePolicyTags } from '../../../../domain/corrective/needRequestService';
+import { useWorkspaceProfile } from '../../../../core/workspace/workspaceProfile';
+import { exportTypeBCsv } from '../../../../utils/safeExcelExport';
+
+const parseNonNegativeNumber = (value: unknown, fallback = 0): number => {
+  if (value === '' || value === null || value === undefined) return fallback;
+  const num = Number(value);
+  return Number.isFinite(num) && num >= 0 ? num : fallback;
+};
+
+const isWarehouseItemArchived = (item: IWarehouseItem): boolean => {
+  const rec = item as Record<string, unknown>;
+  const statusUpper = String(rec.statut || rec.status || rec.etat || '')
+    .trim()
+    .toUpperCase();
+  return (
+    rec.is_active === false ||
+    rec.actif === false ||
+    rec.archived === true ||
+    statusUpper === 'ARCHIVE' ||
+    statusUpper === 'ARCHIVEE' ||
+    statusUpper === 'ARCHIVED'
+  );
+};
+
+export interface EntrepotDeleteDependencyInfo {
+  attachedMachine: string;
+  movementsCount: number;
+  interventionsCount: number;
+  preventiveCount: number;
+  sortiesExterneCount: number;
+  bobinageCount: number;
+  totalHistoryCount: number;
+}
 
 export type EntrepotCatalogDiag = IPartDesignation & Partial<IDiagnostic>;
 export type EntrepotCatalogType = IPartType & Partial<IType>;
@@ -104,7 +137,7 @@ export interface EntrepotViewProps {
   setWhStatusFilter?: (val: string) => void;
   whSearch?: string;
   setWhSearch?: (val: string) => void;
-  onAddWarehouseItem?: (item: Partial<IWarehouseItem>) => void;
+  onAddWarehouseItem?: (item: Partial<IWarehouseItem>) => boolean | void;
   onUpdateWarehouseItem?: (id: string, item: Partial<IWarehouseItem>) => void;
   onDeleteWarehouseItem?: (id: string) => void;
   onAddMouvement?: (mvt: Partial<IMouvement>) => void;
@@ -175,7 +208,13 @@ export function useEntrepotController({
   showToast,
 }: EntrepotViewProps) {
   const { t } = useTranslation();
+  const workspaceProfile = useWorkspaceProfile();
+  const showTeamUi = workspaceProfile.moduleVisibility.showTeamManagement;
   const storePartGroups = useGmaoStore((s) => s.partGroups);
+  const storeCorrective = useGmaoStore((s) => s.correctiveInterventions);
+  const storePreventiveTasks = useGmaoStore((s) => s.preventiveTasks);
+  const storePreventiveExecs = useGmaoStore((s) => s.preventiveExecutions);
+  const storeSortiesExterne = useGmaoStore((s) => s.sortiesExterne);
   const effectivePartGroups = useMemo(
     () =>
       propPartGroups && propPartGroups.length > 0
@@ -359,15 +398,6 @@ export function useEntrepotController({
       }
     });
 
-    if (!initialMap['FAM-EXT']) initialMap['FAM-EXT'] = 'EXT';
-    if (!initialMap['FAM-MOT']) initialMap['FAM-MOT'] = 'MOT';
-    if (!initialMap['FAM-POM']) initialMap['FAM-POM'] = 'POM';
-    if (!initialMap['FAM-RED']) initialMap['FAM-RED'] = 'RED';
-    if (!initialMap['FAM-EMB']) initialMap['FAM-EMB'] = 'EMB';
-    if (!initialMap['FAM-USI']) initialMap['FAM-USI'] = 'USI';
-    if (!initialMap['FAM-DEC']) initialMap['FAM-DEC'] = 'DEC';
-    if (!initialMap['FAM-ASSEM']) initialMap['FAM-ASSEM'] = 'ASS';
-    if (!initialMap['FAM-COUR']) initialMap['FAM-COUR'] = 'COUR';
     return initialMap;
   });
 
@@ -451,38 +481,30 @@ export function useEntrepotController({
   );
 
   const handleCascadeFamilyPrefixUpdate = useCallback(
-    (familyId: string, newPrefix: string) => {
+    (familyId: string, newPrefix: string, silent = false) => {
       if (!canEditStock && !canCreateStock) return;
       const cleanPrefix = (newPrefix || '').toUpperCase().replace(/[^A-Z0-9]/g, '').trim();
       if (!familyId || !cleanPrefix) return;
 
-      setFamilyComponentCodes((prev) => ({ ...prev, [familyId]: cleanPrefix }));
+      setFamilyComponentCodes((prev) =>
+        prev[familyId] === cleanPrefix ? prev : { ...prev, [familyId]: cleanPrefix }
+      );
 
       if (onUpdateFamily) {
         const fam = families.find((f) => f.id_family === familyId);
-        if (fam) {
+        if (fam && String(fam.componentCode || '').toUpperCase().trim() !== cleanPrefix) {
           onUpdateFamily(familyId, { ...fam, componentCode: cleanPrefix });
         }
       }
 
-      if (onUpdateWarehouseItem) {
-        const matchingComponents = warehouseItems.filter(
-          (it) => isWarehouseComponent(it) && it.id_family === familyId
+      if (!silent) {
+        showToast?.(
+          `Préfixe "${cleanPrefix}" enregistré pour la famille ${familyId} (appliqué aux nouveaux composants).`,
+          'success'
         );
-
-        matchingComponents.forEach((item, index) => {
-          const oldCode = item.id_warehouse_item;
-          const numMatch = String(oldCode).match(/-(\d+)$/);
-          const seqNum = numMatch ? numMatch[1] : String(index + 1).padStart(2, '0');
-          const newCode = `${cleanPrefix}-${seqNum}`;
-
-          if (oldCode !== newCode) {
-            onUpdateWarehouseItem(oldCode, { ...item, id_warehouse_item: newCode });
-          }
-        });
       }
     },
-    [canEditStock, canCreateStock, onUpdateFamily, families, onUpdateWarehouseItem, warehouseItems]
+    [canEditStock, canCreateStock, onUpdateFamily, families, showToast]
   );
 
   const [addForm, setAddForm] = useState<EntrepotFormState>({
@@ -547,8 +569,8 @@ export function useEntrepotController({
   const handleOpenAddModal = useCallback(() => {
     if (!canCreateStock) return;
     if (activeWarehouseTab === 'PARTS') {
-      const defaultType = types[0]?.id_type || 'TYPE-MEC';
-      const relDiags = diagnostics.filter((d) => d.id_type === defaultType);
+      const defaultType = types[0]?.id_type || '';
+      const relDiags = defaultType ? diagnostics.filter((d) => d.id_type === defaultType) : [];
       const defaultDiagObj = relDiags[0] || null;
       const defaultDiag = getDiagId(defaultDiagObj);
       const autoCode = getNextPartRef(defaultType);
@@ -574,19 +596,20 @@ export function useEntrepotController({
         rattachement_type: 'ENTREPOT',
         id_machine_registered: '',
         id_zone: zones[0]?.id_zone || '',
-        technician: activeTechnicians[0]?.nom || '',
+        technician: showTeamUi ? activeTechnicians[0]?.nom || '' : '',
         status: 'En stock (Disponible)',
         emplacement: defaultDiagObj?.emplacement || 'E-MAG-PDR-01',
         stockInitial: 1,
-        seuil: defaultDiagObj?.seuil != null ? defaultDiagObj.seuil : 0,
+        seuil: defaultDiagObj?.seuil != null ? parseNonNegativeNumber(defaultDiagObj.seuil, 0) : 0,
         remarques: '',
+        policy_tags: ['REPAIRABLE', 'REPLACING'],
       });
     } else {
-      const defaultFam = families[0]?.id_family || 'FAM-MOT';
-      const relTemplates = templates.filter((tpl) => tpl.id_family === defaultFam);
-      const defaultTpl = relTemplates[0]?.id_templates || templates[0]?.id_templates || '';
-      const prefix = familyComponentCodes[defaultFam] || '';
-      const autoCode = getNextFamilyComponentCode(defaultFam, prefix);
+      const defaultFam = families[0]?.id_family || '';
+      const relTemplates = defaultFam ? templates.filter((tpl) => tpl.id_family === defaultFam) : [];
+      const defaultTpl = relTemplates[0]?.id_templates || '';
+      const prefix = defaultFam ? familyComponentCodes[defaultFam] || '' : '';
+      const autoCode = defaultFam ? getNextFamilyComponentCode(defaultFam, prefix) : 'CMP-01';
       const defaultTplObj = templates.find((tpl) => tpl.id_templates === defaultTpl);
 
       setAddForm({
@@ -596,7 +619,7 @@ export function useEntrepotController({
         id_family: defaultFam,
         family_prefix: prefix,
         id_templates: defaultTpl,
-        id_type: types[0]?.id_type || 'TYPE-MEC',
+        id_type: types[0]?.id_type || '',
         id_diag: '',
         matiere_nuance: '',
         ref_plan: '',
@@ -610,12 +633,13 @@ export function useEntrepotController({
         rattachement_type: 'ENTREPOT',
         id_machine_registered: '',
         id_zone: zones[0]?.id_zone || '',
-        technician: activeTechnicians[0]?.nom || '',
+        technician: showTeamUi ? activeTechnicians[0]?.nom || '' : '',
         status: 'En stock (Disponible)',
         emplacement: 'E-MAG-A01',
         stockInitial: 1,
         seuil: 0,
         remarques: '',
+        policy_tags: ['REPAIRABLE', 'REPLACING'],
       });
     }
     setShowAddModal(true);
@@ -626,6 +650,7 @@ export function useEntrepotController({
     diagnostics,
     getNextPartRef,
     zones,
+    showTeamUi,
     activeTechnicians,
     families,
     templates,
@@ -636,11 +661,11 @@ export function useEntrepotController({
   const handleAddNatureSwitch = useCallback(
     (newNature: string) => {
       if (isComponentNature(newNature)) {
-        const defaultFam = addForm.id_family || families[0]?.id_family || 'FAM-MOT';
-        const relTemplates = templates.filter((tpl) => tpl.id_family === defaultFam);
+        const defaultFam = addForm.id_family || families[0]?.id_family || '';
+        const relTemplates = defaultFam ? templates.filter((tpl) => tpl.id_family === defaultFam) : [];
         const defaultTpl = relTemplates[0]?.id_templates || '';
-        const prefix = addForm.family_prefix || familyComponentCodes[defaultFam] || '';
-        const autoCode = getNextFamilyComponentCode(defaultFam, prefix);
+        const prefix = addForm.family_prefix || (defaultFam ? familyComponentCodes[defaultFam] || '' : '');
+        const autoCode = defaultFam ? getNextFamilyComponentCode(defaultFam, prefix) : 'CMP-01';
         const defaultTplObj = templates.find((tpl) => tpl.id_templates === defaultTpl);
 
         setAddForm((prev) => ({
@@ -653,8 +678,8 @@ export function useEntrepotController({
           designation: defaultTplObj ? defaultTplObj.libelle : prev.designation,
         }));
       } else {
-        const defaultType = addForm.id_type || types[0]?.id_type || 'TYPE-MEC';
-        const relDiags = diagnostics.filter((d) => d.id_type === defaultType);
+        const defaultType = addForm.id_type || types[0]?.id_type || '';
+        const relDiags = defaultType ? diagnostics.filter((d) => d.id_type === defaultType) : [];
         const defaultDiagObj = relDiags[0] || null;
         const defaultDiag = getDiagId(defaultDiagObj);
         const autoCode = getNextPartRef(defaultType);
@@ -667,7 +692,7 @@ export function useEntrepotController({
           id_warehouse_item: autoCode,
           designation: defaultDiagObj ? getDiagLabel(defaultDiagObj) : prev.designation,
           emplacement: defaultDiagObj?.emplacement || prev.emplacement,
-          seuil: defaultDiagObj?.seuil != null ? defaultDiagObj.seuil : prev.seuil,
+          seuil: defaultDiagObj?.seuil != null ? parseNonNegativeNumber(defaultDiagObj.seuil, 0) : prev.seuil,
         }));
       }
     },
@@ -722,8 +747,8 @@ export function useEntrepotController({
         technician: item.technician || '',
         status: item.status || 'En service',
         emplacement: item.emplacement || '',
-        stockInitial: item.stockInitial != null ? item.stockInitial : 1,
-        seuil: item.seuil != null ? item.seuil : 0,
+        stockInitial: parseNonNegativeNumber(item.stockInitial, 0),
+        seuil: parseNonNegativeNumber(item.seuil, 0),
         remarques: item.remarques || '',
         policy_tags: getEffectivePolicyTags(item, isComponentNature(item.nature) ? 'COMPONENT' : 'PART'),
       });
@@ -735,15 +760,24 @@ export function useEntrepotController({
   const handleOpenQuickModal = useCallback(
     (item: IWarehouseItem, flow: string, action: string) => {
       if (!canCreateMovement) return;
+      const stockInit = parseNonNegativeNumber(item.stockInitial, 0);
+      const stockCurr =
+        item.stockActuel != null && Number.isFinite(Number(item.stockActuel))
+          ? Number(item.stockActuel)
+          : stockInit;
       const adaptedArticle = {
         id: item.id_warehouse_item,
+        id_warehouse_item: item.id_warehouse_item,
         ref: item.id_warehouse_item,
         designation: item.designation,
-        stockInitial: item.stockInitial || 1,
-        entrees: item.entrees || 0,
-        sorties: item.sorties || 0,
-        stockActuel: item.stockActuel != null ? item.stockActuel : item.stockInitial || 1,
-        seuil: item.seuil || 0,
+        id_machine_registered: item.id_machine_registered || item.id_machine || '',
+        id_zone: item.id_zone || '',
+        rattachement_type: item.rattachement_type || 'ENTREPOT',
+        stockInitial: stockInit,
+        entrees: parseNonNegativeNumber(item.entrees, 0),
+        sorties: parseNonNegativeNumber(item.sorties, 0),
+        stockActuel: stockCurr,
+        seuil: parseNonNegativeNumber(item.seuil, 0),
         alerte: item.alerte || 'OK',
         emplacement: item.emplacement || '',
       };
@@ -877,8 +911,8 @@ export function useEntrepotController({
       if (isComp && addForm.id_family) {
         const match = String(addForm.id_warehouse_item).match(/^([A-Z0-9]+)-/i);
         const prefixToSave = (addForm.family_prefix || (match ? match[1] : '')).toUpperCase().trim();
-        if (prefixToSave) {
-          handleCascadeFamilyPrefixUpdate(addForm.id_family, prefixToSave);
+        if (prefixToSave && familyComponentCodes[addForm.id_family] !== prefixToSave) {
+          handleCascadeFamilyPrefixUpdate(addForm.id_family, prefixToSave, true);
         }
       }
 
@@ -889,7 +923,7 @@ export function useEntrepotController({
         const inheritedPartGroup = !isComp
           ? String(matchedPartType?.id_group || matchedPartType?.id_groupe || '').trim() || undefined
           : undefined;
-        onAddWarehouseItem({
+        const result = onAddWarehouseItem({
           id_warehouse_item: addForm.id_warehouse_item.trim().toUpperCase(),
           designation: addForm.designation.trim(),
           nature: isComp ? 'COMPONENT' : 'PART',
@@ -910,21 +944,31 @@ export function useEntrepotController({
           rattachement_type: addForm.rattachement_type,
           id_machine_registered: addForm.rattachement_type === 'MACHINE' ? addForm.id_machine_registered : '',
           id_zone: addForm.rattachement_type === 'ZONE' ? addForm.id_zone : '',
-          technician: addForm.technician,
+          technician: showTeamUi ? addForm.technician : '',
           status: addForm.status,
           emplacement: addForm.emplacement,
-          stockInitial: Number(addForm.stockInitial) || 1,
-          seuil: Number(addForm.seuil) || 0,
+          stockInitial: parseNonNegativeNumber(addForm.stockInitial, 0),
+          seuil: parseNonNegativeNumber(addForm.seuil, 0),
           remarques: addForm.remarques,
           policy_tags:
             addForm.policy_tags && addForm.policy_tags.length > 0
               ? addForm.policy_tags
               : ['REPAIRABLE', 'REPLACING'],
         });
+        if (result === false) return;
       }
       setShowAddModal(false);
     },
-    [canCreateStock, addForm, showToast, handleCascadeFamilyPrefixUpdate, onAddWarehouseItem, types]
+    [
+      canCreateStock,
+      addForm,
+      showToast,
+      familyComponentCodes,
+      handleCascadeFamilyPrefixUpdate,
+      onAddWarehouseItem,
+      types,
+      showTeamUi,
+    ]
   );
 
   const handleSubmitEdit = useCallback(
@@ -971,11 +1015,11 @@ export function useEntrepotController({
           rattachement_type: editForm.rattachement_type,
           id_machine_registered: editForm.rattachement_type === 'MACHINE' ? editForm.id_machine_registered : '',
           id_zone: editForm.rattachement_type === 'ZONE' ? editForm.id_zone : '',
-          technician: editForm.technician,
+          technician: showTeamUi ? editForm.technician : toEdit.technician || '',
           status: editForm.status,
           emplacement: editForm.emplacement,
-          stockInitial: Number(editForm.stockInitial) || 1,
-          seuil: Number(editForm.seuil) || 0,
+          stockInitial: parseNonNegativeNumber(editForm.stockInitial, 0),
+          seuil: parseNonNegativeNumber(editForm.seuil, 0),
           remarques: editForm.remarques,
           policy_tags:
             editForm.policy_tags && editForm.policy_tags.length > 0
@@ -985,7 +1029,7 @@ export function useEntrepotController({
       }
       setToEdit(null);
     },
-    [canEditStock, toEdit, editForm, showToast, onUpdateWarehouseItem, types]
+    [canEditStock, toEdit, editForm, showToast, onUpdateWarehouseItem, types, showTeamUi]
   );
 
   const handleConfirmDelete = useCallback(() => {
@@ -1022,19 +1066,88 @@ export function useEntrepotController({
     return map;
   }, [warehouseItems]);
 
+  const activeWarehouseItems = useMemo(
+    () => (warehouseItems || []).filter((item) => !isWarehouseItemArchived(item)),
+    [warehouseItems]
+  );
+
+  const tabScopedItems = useMemo(
+    () =>
+      activeWarehouseItems.filter((item) =>
+        activeWarehouseTab === 'COMPONENTS' ? isWarehouseComponent(item) : !isWarehouseComponent(item)
+      ),
+    [activeWarehouseItems, activeWarehouseTab]
+  );
+
+  const deleteDependencyInfo = useMemo<EntrepotDeleteDependencyInfo | null>(() => {
+    if (!toDelete) return null;
+    const targetId = String(toDelete.id_warehouse_item || toDelete.id || '').trim().toUpperCase();
+    const targetRef = String(toDelete.ref || '').trim().toUpperCase();
+    const attachedMachine =
+      toDelete.rattachement_type === 'MACHINE'
+        ? String(toDelete.id_machine_registered || toDelete.id_machine || '').trim()
+        : '';
+
+    const movementsCount = (mouvements || []).filter((m) => {
+      const mRef = String(m.ref || '').trim().toUpperCase();
+      return Boolean((targetId && mRef === targetId) || (targetRef && mRef === targetRef));
+    }).length;
+
+    const interventionsCount = (storeCorrective || []).filter((ci: any) => {
+      const cId = String(ci.id_composant || '').trim().toUpperCase();
+      const pId = String(ci.id_part || '').trim().toUpperCase();
+      return Boolean(
+        (targetId && (cId === targetId || pId === targetId)) ||
+          (targetRef && (cId === targetRef || pId === targetRef))
+      );
+    }).length;
+
+    const preventiveTasksCount = (storePreventiveTasks || []).filter((pt: any) => {
+      const cId = String(pt.id_composant || '').trim().toUpperCase();
+      const pId = String(pt.id_part || '').trim().toUpperCase();
+      return Boolean(targetId && (cId === targetId || pId === targetId));
+    }).length;
+
+    const preventiveExecCount = (storePreventiveExecs || []).filter((pe: any) => {
+      const cId = String(pe.id_composant || '').trim().toUpperCase();
+      const pId = String(pe.id_part || '').trim().toUpperCase();
+      return Boolean(targetId && (cId === targetId || pId === targetId));
+    }).length;
+
+    const sortiesExterneCount = (storeSortiesExterne || []).filter((se: any) => {
+      const candidates = [
+        se.id_composant,
+        se.code_composant,
+        se.id_warehouse_item,
+        se.code_moteur_reel,
+        se.code_moteur,
+        se.id_part,
+        se.ref_moteur,
+      ]
+        .map((v) => String(v || '').trim().toUpperCase())
+        .filter(Boolean);
+      return Boolean((targetId && candidates.includes(targetId)) || (targetRef && candidates.includes(targetRef)));
+    }).length;
+
+    const bobinageCount = Array.isArray(toDelete.historique_bobinage) ? toDelete.historique_bobinage.length : 0;
+    const preventiveCount = preventiveTasksCount + preventiveExecCount;
+    const totalHistoryCount =
+      movementsCount + interventionsCount + preventiveCount + sortiesExterneCount + bobinageCount;
+
+    return {
+      attachedMachine,
+      movementsCount,
+      interventionsCount,
+      preventiveCount,
+      sortiesExterneCount,
+      bobinageCount,
+      totalHistoryCount,
+    };
+  }, [toDelete, mouvements, storeCorrective, storePreventiveTasks, storePreventiveExecs, storeSortiesExterne]);
+
   const filteredItems = useMemo(() => {
     return warehouseItems.filter((item) => {
-      const rec = item as Record<string, unknown>;
-      const statusUpper = String(rec.statut || rec.status || rec.etat || '')
-        .trim()
-        .toUpperCase();
-      const isArchived =
-        rec.is_active === false ||
-        rec.actif === false ||
-        rec.archived === true ||
-        statusUpper === 'ARCHIVE' ||
-        statusUpper === 'ARCHIVEE' ||
-        statusUpper === 'ARCHIVED';
+      const isArchived = isWarehouseItemArchived(item);
       if (isArchived && String(currentStatusFilter).trim().toUpperCase() !== 'ARCHIVE') {
         return false;
       }
@@ -1167,6 +1280,7 @@ export function useEntrepotController({
   useEffect(() => {
     setCurrentPage(1);
   }, [
+    activeWarehouseTab,
     currentNatureFilter,
     activeKpiFilter,
     currentFamilyFilter,
@@ -1229,7 +1343,7 @@ export function useEntrepotController({
     let enStock = 0;
     let enRevision = 0;
 
-    warehouseItems.forEach((item) => {
+    activeWarehouseItems.forEach((item) => {
       if (isWarehouseComponent(item)) components++;
       else parts++;
 
@@ -1255,14 +1369,56 @@ export function useEntrepotController({
     });
 
     return {
-      total: warehouseItems.length,
+      total: activeWarehouseItems.length,
       components,
       parts,
       enService,
       enStock,
       enRevision,
     };
-  }, [warehouseItems]);
+  }, [activeWarehouseItems]);
+
+  const tabStatusCounts = useMemo(() => {
+    let enService = 0;
+    let enStock = 0;
+    let enRevision = 0;
+    let horsService = 0;
+
+    tabScopedItems.forEach((item) => {
+      const st = String(item.status || (item as Record<string, unknown>).statut || item.etat || '').toLowerCase();
+      const inStock =
+        st.includes('stock') ||
+        st.includes('dispo') ||
+        st.includes('retourné') ||
+        st.includes('retourne') ||
+        st.includes('terminé atelier') ||
+        st.includes('termine atelier');
+      if (st.includes('service') || st === 'actif' || st.includes('monté') || st.includes('monte')) {
+        enService++;
+      } else if (inStock) {
+        enStock++;
+      } else if (
+        st.includes('rev') ||
+        st.includes('rév') ||
+        st.includes('ext') ||
+        st.includes('réparation') ||
+        st.includes('reparation') ||
+        st.includes('atelier')
+      ) {
+        enRevision++;
+      } else if (st.includes('hors') || st.includes('hs')) {
+        horsService++;
+      }
+    });
+
+    return {
+      total: tabScopedItems.length,
+      enService,
+      enStock,
+      enRevision,
+      horsService,
+    };
+  }, [tabScopedItems]);
 
   const hasActiveFilters = Boolean(
     currentNatureFilter !== 'ALL' ||
@@ -1307,7 +1463,7 @@ export function useEntrepotController({
       {
         key: 'ALL',
         label: t('entrepot.filters.all_statuses'),
-        count: warehouseItems.length,
+        count: tabStatusCounts.total,
         colorDot: null,
         isActive: currentStatusFilter === 'ALL',
         onClick: () => changeStatusFilter('ALL'),
@@ -1315,7 +1471,7 @@ export function useEntrepotController({
       {
         key: 'En service',
         label: t('entrepot.filters.in_service'),
-        count: kpis.enService,
+        count: tabStatusCounts.enService,
         colorDot: 'bg-emerald-500',
         isActive: currentStatusFilter === 'En service',
         onClick: () => changeStatusFilter('En service'),
@@ -1323,7 +1479,7 @@ export function useEntrepotController({
       {
         key: 'En stock (Disponible)',
         label: t('entrepot.filters.in_stock'),
-        count: kpis.enStock,
+        count: tabStatusCounts.enStock,
         colorDot: 'bg-blue-500',
         isActive: currentStatusFilter === 'En stock (Disponible)',
         onClick: () => changeStatusFilter('En stock (Disponible)'),
@@ -1331,7 +1487,7 @@ export function useEntrepotController({
       {
         key: 'En révision / Externe',
         label: t('entrepot.filters.under_revision'),
-        count: kpis.enRevision,
+        count: tabStatusCounts.enRevision,
         colorDot: 'bg-amber-500',
         isActive: currentStatusFilter === 'En révision / Externe',
         onClick: () => changeStatusFilter('En révision / Externe'),
@@ -1339,17 +1495,13 @@ export function useEntrepotController({
       {
         key: 'Hors service',
         label: 'Hors Service',
-        count: warehouseItems.filter(
-          (i) =>
-            String(i.status || '').toLowerCase().includes('hors') ||
-            String(i.status || '').toLowerCase().includes('hs')
-        ).length,
+        count: tabStatusCounts.horsService,
         colorDot: 'bg-rose-500',
         isActive: currentStatusFilter === 'Hors service',
         onClick: () => changeStatusFilter('Hors service'),
       },
     ],
-    [warehouseItems, kpis, currentStatusFilter, changeStatusFilter, t]
+    [tabStatusCounts, currentStatusFilter, changeStatusFilter, t]
   );
 
   const activeEntrepotFilterChips = useMemo(() => {
@@ -1461,25 +1613,17 @@ export function useEntrepotController({
         item.id_machine_registered || item.id_zone || '',
         item.emplacement || '',
         item.status || '',
-        item.stockInitial || 0,
-        item.entrees || 0,
-        item.sorties || 0,
-        item.stockActuel || 0,
-        item.seuil || 0,
+        item.stockInitial ?? 0,
+        item.entrees ?? 0,
+        item.sorties ?? 0,
+        item.stockActuel ?? 0,
+        item.seuil ?? 0,
       ]);
-      const csvContent =
-        'data:text/csv;charset=utf-8,\uFEFF' +
-        [
-          headers.join(';'),
-          ...rows.map((r) => r.map((c) => `"${String(c).replace(/"/g, '""')}"`).join(';')),
-        ].join('\n');
-      const encodedUri = encodeURI(csvContent);
-      const link = document.createElement('a');
-      link.setAttribute('href', encodedUri);
-      link.setAttribute('download', `GMAO_Entrepot_${new Date().toISOString().slice(0, 10)}.csv`);
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
+      exportTypeBCsv({
+        filename: `GMAO_Entrepot_TypeB_${new Date().toISOString().slice(0, 10)}.csv`,
+        headers,
+        rows,
+      });
     } catch (e) {
       Logger.error('Export error in EntrepotView:', e);
     }
@@ -1569,6 +1713,8 @@ export function useEntrepotController({
     isTableReady,
     handleSort,
     kpis,
+    tabTotalCount: tabScopedItems.length,
+    deleteDependencyInfo,
     hasActiveFilters,
     clearAllFilters,
     entrepotFilterPresets,

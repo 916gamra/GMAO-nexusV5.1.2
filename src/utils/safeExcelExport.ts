@@ -105,3 +105,41 @@ export function exportTypeBWorkbook({
 
   XLSX.writeFile(wb, filename);
 }
+
+/**
+ * Escapes a single cell for RFC-4180 semicolon-delimited CSV with OWASP formula neutralization.
+ */
+export function escapeCsvCell(value: unknown): string {
+  const sanitized = String(sanitizeExcelCell(value));
+  const needsQuotes = /[;"\r\n]/.test(sanitized);
+  if (!needsQuotes) return sanitized;
+  return `"${sanitized.replace(/"/g, '""')}"`;
+}
+
+export interface TypeBCsvExportOptions {
+  filename: string;
+  headers: string[];
+  rows: unknown[][];
+}
+
+/**
+ * Exports a UTF-8 BOM RFC-4180 CSV file via Blob URL (safe for large files & `#` characters).
+ * Operational Type B export (non-reimportable).
+ */
+export function exportTypeBCsv({ filename, headers, rows }: TypeBCsvExportOptions): void {
+  const lines = [
+    headers.map((h) => escapeCsvCell(h)).join(';'),
+    ...rows.map((row) => row.map((cell) => escapeCsvCell(cell)).join(';')),
+  ];
+  const csvBody = '\uFEFF' + lines.join('\r\n');
+  const blob = new Blob([csvBody], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.setAttribute('href', url);
+  link.setAttribute('download', filename);
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+

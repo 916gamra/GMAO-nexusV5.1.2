@@ -26,6 +26,7 @@ import { EntrepotItem } from '../../../../core/domain';
 import { useTranslation } from '../../../../i18n/I18nContext';
 import { getEffectivePolicyTags } from '../../../../domain/corrective/needRequestService';
 import { getGroupId, getGroupRecordId } from '../../../../domain/stock/pdrHierarchyService';
+import { useWorkspaceProfile } from '../../../../core/workspace/workspaceProfile';
 
 export default function PartsTable({
   displayedData = [],
@@ -59,6 +60,8 @@ export default function PartsTable({
   handleOpenAddModal,
 }: any) {
   const { t } = useTranslation();
+  const workspaceProfile = useWorkspaceProfile();
+  const showTeamUi = workspaceProfile.moduleVisibility.showTeamManagement;
   const partGroupMap = useMemo(() => {
     const map: Record<string, any> = {};
     (partGroups || []).forEach((g: any) => {
@@ -103,14 +106,18 @@ export default function PartsTable({
         sortable: true,
         headerClassName: 'whitespace-nowrap',
       },
-      {
-        key: 'technician',
-        label: t('entrepot.columns.responsible'),
-        colLetter: 'F',
-        icon: User,
-        sortable: true,
-        headerClassName: 'whitespace-nowrap',
-      },
+      ...(showTeamUi
+        ? [
+            {
+              key: 'technician',
+              label: t('entrepot.columns.responsible'),
+              colLetter: 'F',
+              icon: User,
+              sortable: true,
+              headerClassName: 'whitespace-nowrap',
+            },
+          ]
+        : []),
       {
         key: 'status',
         label: t('entrepot.columns.status'),
@@ -135,13 +142,17 @@ export default function PartsTable({
         headerClassName: 'w-20 tracking-widest text-slate-400 font-bold',
       },
     ],
-    [t]
+    [t, showTeamUi]
   );
   return (
     <GmaoIndustrialDataGrid
       title={t('entrepot.table.title')}
       icon={<LayersIcon className="w-4 h-4 text-indigo-600" />}
-      excelMapping="id_warehouse_item (A) | nature: PART (B) | designation (C) | type/diag (D) | rattachement/magasin (E) | responsable (F) | statut (G) | stock (H)"
+      excelMapping={
+        showTeamUi
+          ? 'id_warehouse_item (A) | nature: PART (B) | designation (C) | type/diag (D) | rattachement/magasin (E) | responsable (F) | statut (G) | stock (H)'
+          : 'id_warehouse_item (A) | nature: PART (B) | designation (C) | type/diag (D) | rattachement/magasin (E) | statut (G) | stock (H)'
+      }
       bannerColor="indigo"
       columns={columns}
       data={displayedData}
@@ -210,7 +221,11 @@ export default function PartsTable({
                               type="button"
                               onClick={(e) => {
                                 e.stopPropagation();
-                                navigator.clipboard?.writeText(item.id);
+                                try {
+                                  navigator.clipboard?.writeText(String(item.id));
+                                } catch {
+                                  // Ignore clipboard errors in restricted contexts
+                                }
                               }}
                               className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-slate-100 hover:bg-slate-200 text-slate-500 hover:text-slate-700 font-mono text-[9.5px] border border-slate-200 transition cursor-pointer"
                               title={`Passport ID: ${item.id}\n(Cliquer pour copier)`}
@@ -404,65 +419,100 @@ export default function PartsTable({
                     </td>
 
                     {/* Col 5: Responsable / Magasinier (F) */}
-                    <td className="py-2.5 px-3 whitespace-nowrap">
-                      <div className="flex items-center gap-2">
-                        <div className="w-6 h-6 rounded-lg bg-indigo-50 text-indigo-700 border border-indigo-200 flex items-center justify-center font-bold text-xs shrink-0">
-                          <User className="w-3 h-3 text-indigo-600" />
+                    {showTeamUi && (
+                      <td className="py-2.5 px-3 whitespace-nowrap">
+                        <div className="flex items-center gap-2">
+                          <div className="w-6 h-6 rounded-lg bg-indigo-50 text-indigo-700 border border-indigo-200 flex items-center justify-center font-bold text-xs shrink-0">
+                            <User className="w-3 h-3 text-indigo-600" />
+                          </div>
+                          <div>
+                            <span className="font-bold text-slate-900 text-xs block leading-tight">
+                              {item.technician || 'Magasinier Central'}
+                            </span>
+                            <span className="text-[9.5px] text-slate-400 font-medium block">
+                              {item.technician ? 'Responsable Stock' : 'Gestionnaire PDR'}
+                            </span>
+                          </div>
                         </div>
-                        <div>
-                          <span className="font-bold text-slate-900 text-xs block leading-tight">
-                            {item.technician || 'Magasinier Central'}
-                          </span>
-                          <span className="text-[9.5px] text-slate-400 font-medium block">
-                            {item.technician ? 'Responsable Stock' : 'Gestionnaire PDR'}
-                          </span>
-                        </div>
-                      </div>
-                    </td>
+                      </td>
+                    )}
 
                     {/* Col 6: Statut Stock (G) */}
                     <td className="py-2.5 px-3 whitespace-nowrap">
-                      {String(item.status).includes('service') ? (
-                        <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-bold bg-emerald-50 text-emerald-700 border border-emerald-200 shadow-2xs">
-                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
-                          <span>Disponible</span>
-                        </span>
-                      ) : String(item.status).includes('stock') || String(item.status).includes('dispo') ? (
-                        <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-bold bg-sky-50 text-sky-700 border border-sky-200 shadow-2xs">
-                          <span className="w-1.5 h-1.5 rounded-full bg-sky-500"></span>
-                          <span>En stock</span>
-                        </span>
-                      ) : String(item.status).includes('rev') || String(item.status).includes('ext') ? (
-                        <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-bold bg-amber-50 text-amber-700 border border-amber-200 shadow-2xs">
-                          <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse"></span>
-                          <span>En commande</span>
-                        </span>
-                      ) : (
-                        <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-bold bg-rose-50 text-rose-700 border border-rose-200 shadow-2xs">
-                          <span className="w-1.5 h-1.5 rounded-full bg-rose-500"></span>
-                          <span>{item.status || 'Rupture'}</span>
-                        </span>
-                      )}
+                      {(() => {
+                        const st = String(item.status || (item as any).statut || item.etat || '').toLowerCase();
+                        const inStock =
+                          st.includes('stock') ||
+                          st.includes('dispo') ||
+                          st.includes('retourné') ||
+                          st.includes('retourne') ||
+                          st.includes('terminé atelier') ||
+                          st.includes('termine atelier');
+                        if (st.includes('service') || st === 'actif' || st.includes('monté') || st.includes('monte')) {
+                          return (
+                            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-bold bg-emerald-50 text-emerald-700 border border-emerald-200 shadow-2xs">
+                              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
+                              <span>En service</span>
+                            </span>
+                          );
+                        }
+                        if (inStock) {
+                          return (
+                            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-bold bg-sky-50 text-sky-700 border border-sky-200 shadow-2xs">
+                              <span className="w-1.5 h-1.5 rounded-full bg-sky-500"></span>
+                              <span>En stock</span>
+                            </span>
+                          );
+                        }
+                        if (
+                          st.includes('rev') ||
+                          st.includes('rév') ||
+                          st.includes('ext') ||
+                          st.includes('réparation') ||
+                          st.includes('reparation') ||
+                          st.includes('atelier')
+                        ) {
+                          return (
+                            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-bold bg-amber-50 text-amber-700 border border-amber-200 shadow-2xs">
+                              <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse"></span>
+                              <span>En révision</span>
+                            </span>
+                          );
+                        }
+                        return (
+                          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-bold bg-rose-50 text-rose-700 border border-rose-200 shadow-2xs">
+                            <span className="w-1.5 h-1.5 rounded-full bg-rose-500"></span>
+                            <span>{item.status || 'Hors service'}</span>
+                          </span>
+                        );
+                      })()}
                     </td>
 
                     {/* Col 7: Stock Actuel & Seuil (H) */}
                     <td className="py-2.5 px-3 text-right whitespace-nowrap">
-                      <div className="flex flex-col items-end">
-                        <span
-                          className={`px-2.5 py-0.5 rounded-lg font-mono font-bold text-xs ${
-                            (item.stockActuel || 0) <= 0
-                              ? 'bg-rose-50 text-rose-700 border border-rose-200'
-                              : (item.stockActuel || 0) <= (item.seuil || 2)
-                                ? 'bg-amber-50 text-amber-700 border border-amber-200'
-                                : 'bg-indigo-50 text-indigo-800 border border-indigo-200/80'
-                          }`}
-                        >
-                          {domainItem.getStockActuel()} u
-                        </span>
-                        <span className="text-[9.5px] font-mono text-slate-400 mt-0.5">
-                          Init: {item.stockInitial || 1} • Seuil: {item.seuil || 2}
-                        </span>
-                      </div>
+                      {(() => {
+                        const stockVal = domainItem.getStockActuel();
+                        const initVal = Number(item.stockInitial ?? 0);
+                        const seuilVal = Number(item.seuil ?? 0);
+                        return (
+                          <div className="flex flex-col items-end">
+                            <span
+                              className={`px-2.5 py-0.5 rounded-lg font-mono font-bold text-xs ${
+                                stockVal <= 0
+                                  ? 'bg-rose-50 text-rose-700 border border-rose-200'
+                                  : seuilVal > 0 && stockVal <= seuilVal
+                                    ? 'bg-amber-50 text-amber-700 border border-amber-200'
+                                    : 'bg-indigo-50 text-indigo-800 border border-indigo-200/80'
+                              }`}
+                            >
+                              {stockVal} u
+                            </span>
+                            <span className="text-[9.5px] font-mono text-slate-400 mt-0.5">
+                              Init: {initVal} • Seuil: {seuilVal}
+                            </span>
+                          </div>
+                        );
+                      })()}
                     </td>
 
                     {/* Col 8: Action & Dropdown (•••) */}

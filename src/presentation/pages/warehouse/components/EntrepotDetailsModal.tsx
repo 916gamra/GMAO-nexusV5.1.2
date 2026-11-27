@@ -3,6 +3,8 @@ import { CubeIcon } from '../../../components/common/icons/CubeIcon';
 import { isWarehouseComponent } from '../../../../core/domain/EntrepotItem';
 import { useGmaoStore } from '../../../../store/useGmaoStore';
 import { evaluateComponentWearAndLifecycle } from '../../../../utils/componentHealthScore';
+import { useWorkspaceProfile } from '../../../../core/workspace/workspaceProfile';
+import { useCurrency } from '../../../../utils/currencyService';
 
 export interface EntrepotDetailsItem {
   id?: string | number;
@@ -47,8 +49,11 @@ interface CorrectiveEventRecord {
   code_machine?: string;
   num_bt?: string;
   anomalie?: string;
+  description_panne?: string;
+  panne?: string;
   action_realisee?: string;
   date_fin?: string;
+  date_intervention?: string;
   demande_date?: string;
 }
 
@@ -106,12 +111,32 @@ export interface EntrepotDetailsModalProps {
 }
 
 export function EntrepotDetailsModal({ selectedDetails, onClose, t }: EntrepotDetailsModalProps) {
+  const workspaceProfile = useWorkspaceProfile();
+  const showFinance = workspaceProfile.moduleVisibility.showFinance;
+  const { formatCurrency } = useCurrency();
+
+  const allCorrective = useGmaoStore((s) => s.correctiveInterventions || []) as CorrectiveEventRecord[];
+  const allPreventiveExecs = useGmaoStore((s) => s.preventiveExecutions || []) as PreventiveExecutionRecord[];
+  const allSortiesExterne = useGmaoStore((s) => s.sortiesExterne || []) as SortieExterneRecord[];
+  const compFamilies = useGmaoStore((s) => s.compFamilies || []);
+  const compTemplates = useGmaoStore((s) => s.compTemplates || []);
+  const partTypes = useGmaoStore((s) => s.partTypes || []);
+  const partDesignations = useGmaoStore((s) => s.partDesignations || []);
+  const machines = useGmaoStore((s) => s.machines || []);
+  const zones = useGmaoStore((s) => s.zones || []);
+
   if (!selectedDetails) return null;
 
-  const storeState = useGmaoStore.getState();
-  const allCorrective = (storeState.correctiveInterventions || []) as CorrectiveEventRecord[];
-  const allPreventiveExecs = (storeState.preventiveExecutions || []) as PreventiveExecutionRecord[];
-  const allSortiesExterne = (storeState.sortiesExterne || []) as SortieExterneRecord[];
+  const familyObj = compFamilies.find((f) => f.id_family === selectedDetails.id_family);
+  const templateObj = compTemplates.find((tpl) => tpl.id_templates === selectedDetails.id_templates);
+  const partTypeObj = partTypes.find((pt) => pt.id_type === selectedDetails.id_type);
+  const partDiagObj = partDesignations.find(
+    (pd: any) =>
+      String(pd.id_part || pd.ref || pd.id_diag || pd.id || '') === String(selectedDetails.id_diag || '')
+  );
+  const targetMachineId = String(selectedDetails.id_machine_registered || selectedDetails.id_machine || '');
+  const machineObj = machines.find((m) => m.id_machine_registered === targetMachineId);
+  const zoneObj = zones.find((z) => z.id_zone === selectedDetails.id_zone);
 
   const itemId = String(
     selectedDetails.id_warehouse_item || selectedDetails.id || selectedDetails.code || ''
@@ -237,7 +262,13 @@ export function EntrepotDetailsModal({ selectedDetails, onClose, t }: EntrepotDe
                 </div>
                 <button
                   type="button"
-                  onClick={() => navigator.clipboard?.writeText(String(selectedDetails.id || ''))}
+                  onClick={() => {
+                    try {
+                      navigator.clipboard?.writeText(String(selectedDetails.id || ''));
+                    } catch {
+                      // Ignore clipboard errors in restricted contexts
+                    }
+                  }}
                   className="inline-flex items-center gap-1 px-2 py-1 rounded bg-slate-100 hover:bg-slate-200 text-slate-600 text-xs font-semibold cursor-pointer border border-slate-300"
                 >
                   <Copy className="w-3 h-3" />
@@ -282,11 +313,15 @@ export function EntrepotDetailsModal({ selectedDetails, onClose, t }: EntrepotDe
               <div className="grid grid-cols-2 gap-2">
                 <div className="p-2.5 bg-blue-50/50 rounded-xl border border-blue-100">
                   <div className="text-[10px] font-bold text-blue-700 uppercase">{t('entrepot.modal.family')}</div>
-                  <div className="font-bold text-slate-800">{selectedDetails.id_family || '--'}</div>
+                  <div className="font-bold text-slate-800">
+                    {familyObj ? `${familyObj.libelle} (${familyObj.id_family})` : selectedDetails.id_family || '--'}
+                  </div>
                 </div>
                 <div className="p-2.5 bg-blue-50/50 rounded-xl border border-blue-100">
                   <div className="text-[10px] font-bold text-blue-700 uppercase">{t('entrepot.modal.template')}</div>
-                  <div className="font-bold text-slate-800">{selectedDetails.id_templates || '--'}</div>
+                  <div className="font-bold text-slate-800">
+                    {templateObj ? `${templateObj.libelle} (${templateObj.id_templates})` : selectedDetails.id_templates || '--'}
+                  </div>
                 </div>
               </div>
               {(selectedDetails.mode_reparation_defaut ||
@@ -333,11 +368,17 @@ export function EntrepotDetailsModal({ selectedDetails, onClose, t }: EntrepotDe
               <div className="grid grid-cols-2 gap-2">
                 <div className="p-2.5 bg-indigo-50/50 rounded-xl border border-indigo-100">
                   <div className="text-[10px] font-bold text-indigo-700 uppercase">{t('entrepot.modal.type')}</div>
-                  <div className="font-bold text-slate-800">{selectedDetails.id_type || '--'}</div>
+                  <div className="font-bold text-slate-800">
+                    {partTypeObj ? `${partTypeObj.libelle} (${partTypeObj.id_type})` : selectedDetails.id_type || '--'}
+                  </div>
                 </div>
                 <div className="p-2.5 bg-indigo-50/50 rounded-xl border border-indigo-100">
                   <div className="text-[10px] font-bold text-indigo-700 uppercase">{t('entrepot.modal.diag')}</div>
-                  <div className="font-bold text-slate-800">{selectedDetails.id_diag || '--'}</div>
+                  <div className="font-bold text-slate-800">
+                    {partDiagObj
+                      ? `${partDiagObj.designation || partDiagObj.libelle || selectedDetails.id_diag} (${selectedDetails.id_diag})`
+                      : selectedDetails.id_diag || '--'}
+                  </div>
                 </div>
               </div>
               {(selectedDetails.matiere_nuance ||
@@ -382,9 +423,9 @@ export function EntrepotDetailsModal({ selectedDetails, onClose, t }: EntrepotDe
                 <span className="text-[10px] text-slate-400 block font-medium">{t('entrepot.modal.rattachement')}</span>
                 <span className="font-bold text-slate-800">
                   {selectedDetails.rattachement_type === 'MACHINE'
-                    ? `${t('entrepot.modal.machine')} : ${selectedDetails.id_machine_registered || selectedDetails.id_machine || '--'}`
+                    ? `${t('entrepot.modal.machine')} : ${machineObj ? `${machineObj.id_machine_registered} — ${machineObj.designation}` : targetMachineId || '--'}`
                     : selectedDetails.rattachement_type === 'ZONE'
-                      ? `${t('entrepot.modal.zone')} : ${selectedDetails.id_zone || '--'}`
+                      ? `${t('entrepot.modal.zone')} : ${zoneObj ? `${zoneObj.id_zone} — ${zoneObj.libelle}` : selectedDetails.id_zone || '--'}`
                       : t('entrepot.modal.location')}
                 </span>
               </div>
@@ -434,7 +475,9 @@ export function EntrepotDetailsModal({ selectedDetails, onClose, t }: EntrepotDe
               >
                 <div className="flex items-center justify-between gap-2">
                   <span className="text-[10px] font-black uppercase tracking-wider text-slate-700">
-                    Score d&apos;Usure &amp; Coût Cumulé (Seuil BER 70%)
+                    {showFinance
+                      ? "Score d'Usure & Coût Cumulé (Seuil BER 70%)"
+                      : "Santé Technique & Cycle de Vie Composant"}
                   </span>
                   <span
                     className={`px-2 py-0.5 rounded-full text-[10px] font-mono font-black border ${
@@ -449,16 +492,18 @@ export function EntrepotDetailsModal({ selectedDetails, onClose, t }: EntrepotDe
                   </span>
                 </div>
 
-                <div className="grid grid-cols-3 gap-2 text-[11px]">
-                  <div className="p-2 rounded-lg bg-white/90 border border-slate-200/80">
-                    <span className="text-[9.5px] text-slate-400 block font-bold uppercase">Coût Cumulé Répar.</span>
-                    <span className="font-mono font-black text-slate-900">
-                      {wearAnalysis.cumulativeRepairCost.toFixed(0)} DH
-                    </span>
-                    <span className="text-[9.5px] text-slate-500 block font-mono">
-                      ({wearAnalysis.costRatioPercent}% de {wearAnalysis.replacementValue.toFixed(0)} DH)
-                    </span>
-                  </div>
+                <div className={`grid ${showFinance ? 'grid-cols-3' : 'grid-cols-2'} gap-2 text-[11px]`}>
+                  {showFinance && (
+                    <div className="p-2 rounded-lg bg-white/90 border border-slate-200/80">
+                      <span className="text-[9.5px] text-slate-400 block font-bold uppercase">Coût Cumulé Répar.</span>
+                      <span className="font-mono font-black text-slate-900">
+                        {formatCurrency(wearAnalysis.cumulativeRepairCost)}
+                      </span>
+                      <span className="text-[9.5px] text-slate-500 block font-mono">
+                        ({wearAnalysis.costRatioPercent}% de {formatCurrency(wearAnalysis.replacementValue)})
+                      </span>
+                    </div>
+                  )}
 
                   <div className="p-2 rounded-lg bg-white/90 border border-slate-200/80">
                     <span className="text-[9.5px] text-slate-400 block font-bold uppercase">Pannes (6 mois)</span>
@@ -481,24 +526,41 @@ export function EntrepotDetailsModal({ selectedDetails, onClose, t }: EntrepotDe
                     >
                       {wearAnalysis.bobinageCount} cycle(s)
                     </span>
-                    <span className="text-[9.5px] text-slate-500 block">
-                      Coût Ext: {wearAnalysis.externalCost.toFixed(0)} DH
-                    </span>
+                    {showFinance ? (
+                      <span className="text-[9.5px] text-slate-500 block">
+                        Coût Ext: {formatCurrency(wearAnalysis.externalCost)}
+                      </span>
+                    ) : (
+                      <span className="text-[9.5px] text-slate-500 block">Seuil révision: ≥ 3 cycles</span>
+                    )}
                   </div>
                 </div>
 
-                {/* Cost Ratio Progress Bar */}
+                {/* Progress Bar: Cost Ratio in TEAM_FULL, Technical Health in SOLO_EXPERT */}
                 <div className="w-full h-1.5 rounded-full bg-slate-200 overflow-hidden">
-                  <div
-                    className={`h-full rounded-full transition-all ${
-                      wearAnalysis.costRatioPercent >= 70
-                        ? 'bg-rose-600'
-                        : wearAnalysis.costRatioPercent >= 45
-                          ? 'bg-amber-500'
-                          : 'bg-emerald-500'
-                    }`}
-                    style={{ width: `${Math.min(100, wearAnalysis.costRatioPercent)}%` }}
-                  />
+                  {showFinance ? (
+                    <div
+                      className={`h-full rounded-full transition-all ${
+                        wearAnalysis.costRatioPercent >= 70
+                          ? 'bg-rose-600'
+                          : wearAnalysis.costRatioPercent >= 45
+                            ? 'bg-amber-500'
+                            : 'bg-emerald-500'
+                      }`}
+                      style={{ width: `${Math.min(100, wearAnalysis.costRatioPercent)}%` }}
+                    />
+                  ) : (
+                    <div
+                      className={`h-full rounded-full transition-all ${
+                        wearAnalysis.wearScore <= 40
+                          ? 'bg-rose-600'
+                          : wearAnalysis.wearScore <= 70
+                            ? 'bg-amber-500'
+                            : 'bg-emerald-500'
+                      }`}
+                      style={{ width: `${Math.max(5, Math.min(100, wearAnalysis.wearScore))}%` }}
+                    />
+                  )}
                 </div>
 
                 {/* Recommendation Banner */}
@@ -513,8 +575,16 @@ export function EntrepotDetailsModal({ selectedDetails, onClose, t }: EntrepotDe
                 >
                   <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
                   <div className="space-y-0.5">
-                    <div>{wearAnalysis.recommendation}</div>
-                    {wearAnalysis.reformReasons.length > 0 && (
+                    <div>
+                      {showFinance
+                        ? wearAnalysis.recommendation
+                        : wearAnalysis.shouldReform
+                          ? 'Usure technique critique : envisager révision complète ou remplacement.'
+                          : wearAnalysis.statusLevel === 'WATCH'
+                            ? 'Composant sous surveillance technique (pannes ou cycles externes récents).'
+                            : 'État technique nominal.'}
+                    </div>
+                    {showFinance && wearAnalysis.reformReasons.length > 0 && (
                       <div className="text-[10px] font-normal opacity-90">
                         {wearAnalysis.reformReasons.join(' • ')}
                       </div>
@@ -540,7 +610,7 @@ export function EntrepotDetailsModal({ selectedDetails, onClose, t }: EntrepotDe
                         <Wrench className="w-3 h-3 text-rose-600 shrink-0" />
                         <span className="font-mono font-bold text-rose-900">{ci.num_bt || ci.id}</span>
                         <span className="font-semibold text-slate-800 truncate">
-                          {ci.anomalie || 'Intervention corrective'}
+                          {ci.anomalie || ci.description_panne || ci.panne || 'Intervention corrective'}
                         </span>
                       </div>
                       {ci.action_realisee && (
@@ -548,7 +618,7 @@ export function EntrepotDetailsModal({ selectedDetails, onClose, t }: EntrepotDe
                       )}
                     </div>
                     <span className="font-mono text-[10px] text-slate-500 shrink-0">
-                      {ci.date_fin || ci.demande_date || '--'}
+                      {ci.date_fin || ci.date_intervention || ci.demande_date || '--'}
                     </span>
                   </div>
                 ))}
