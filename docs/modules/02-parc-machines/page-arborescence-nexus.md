@@ -52,3 +52,13 @@ Sur chaque élément ou organe affiché dans Nexus, vous disposez de 3 boutons d
 1. **Remplacer / Sortie Rapide (`Sortie PDR`)** : Ouvre le guichet **Sortie & Entrée Rapide** avec la machine et la référence PDR déjà pré-remplies.
 2. **Signaler une Panne (`Créer DI Corrective`)** : Génère immédiatement une **Demande d'Intervention Corrective** ciblée sur cette machine et cet organe précis.
 3. **Programmer un Entretien (`Créer Gamme PM`)** : Ajoute une tâche de maintenance préventive dédiée à cet organe dans le planning de la machine.
+
+---
+
+## 3. Utilisation en Mode `TEAM_FULL` vs `SOLO_EXPERT`
+
+- **Pleinement actif dans les deux modes :** L'écran **Arborescence Nexus (`#nexus`)** reste visible et 100 % opérationnel aussi bien en **`TEAM_FULL`** qu'en **`SOLO_EXPERT`**.
+- **Fonctionnement sans Blueprint en `SOLO_EXPERT` :**
+  - Même si vos machines n'ont aucun Blueprint lié, Nexus fusionne automatiquement tous les organes de l'**Entrepôt** montés sur la machine (`MONTE`) et les éléments ajoutés directement depuis le **Passeport 360°** (`machineElementsLedger`).
+  - La **Duplication vers Jumelles (`Dupliquer BOM`)** et les 3 actions terrain (`Sortie PDR`, `Créer DI Corrective`, `Créer Gamme PM`) fonctionnent directement sur la base du **Template** et de la **Machine**, sans dépendre du Blueprint.
+  - Le bouton **Analyse d'Écart (`Gap Analysis`)** s'active automatiquement dès qu'une machine possède un Blueprint associé (notamment en `TEAM_FULL` ou si l'option Blueprints est réactivée).

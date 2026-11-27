@@ -48,3 +48,10 @@ Dans la colonne d'actions (`•••`) de chaque famille :
 
 - **Suppression contrôlée** : Tant qu'une famille est utilisée par au moins un **Template**, un **Blueprint** ou une **Machine** (même archivée), le système refuse sa suppression et vous indique le nombre exact d'éléments liés.
 - **Mise à jour en cascade** : Toute modification du libellé d'une famille se répercute instantanément sur les écrans **Machines Enregistrées**, **Templates** et **Blueprints**.
+
+---
+
+## 4. Comportement en Mode `TEAM_FULL` vs `SOLO_EXPERT`
+
+- **Hiérarchie 100 % identique :** En mode **`SOLO_EXPERT`**, l'écran **Familles de Machines (`FAM-XX`)** conserve exactement la même structure, le même sélecteur séquentiel (`SequentialCodePicker`), les mêmes compteurs (`Nb Templates` et `Nb Machines`) et le raccourci `+ Template`.
+- **Pourquoi la conserver en Solo Expert ?** Même pour un ingénieur terrain seul, structurer le parc par **Familles ➔ Templates ➔ Machines** permet de filtrer instantanément les statistiques de pannes, les gammes préventives et les pièces communes par technologie industrielle.

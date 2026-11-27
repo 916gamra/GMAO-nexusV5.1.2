@@ -45,4 +45,11 @@ Sur chaque ligne de Template :
 ## 3. Règles de Gouvernance
 
 - **Protection Référentielle** : Un Template lié à des machines (actives ou archivées) ou à des Blueprints ne peut pas être supprimé par erreur.
-- **Export Excel Miroir** : Le bouton **« Export Excel »** génère la table exacte des Templates avec leurs compteurs de Blueprints et de Machines associés.
+- **Export Excel Miroir** : Le bouton **« Export Excel »** génère la table exacte des Templates avec leurs compteurs de Blueprints (en `TEAM_FULL`) et de Machines associés.
+
+---
+
+## 4. Comportement en Mode `TEAM_FULL` vs `SOLO_EXPERT`
+
+- **Même chaîne hiérarchique (`Familles ➔ Templates ➔ Machines`) :** En **`SOLO_EXPERT`**, vous créez vos **Templates** exactement de la même manière qu'en `TEAM_FULL` afin de regrouper les machines jumelles et automatiser leurs codes séquentiels (`RCF100-01`, `RCF100-02`...).
+- **Simplification Blueprint :** Lorsque l'option *Blueprints* est masquée (défaut en `SOLO_EXPERT`), la colonne **Blueprints** et le bouton d'action rapide **`+ Blueprint`** disparaissent automatiquement de cet écran pour alléger l'interface. Ils réapparaissent immédiatement si vous activez l'interrupteur *Blueprints* ou revenez en mode `TEAM_FULL`.

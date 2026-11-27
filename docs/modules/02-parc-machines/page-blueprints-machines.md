@@ -17,7 +17,7 @@ relatedTabs:
 
 # Blueprints Machines — Le Jumeau Cognitif d'Ingénierie (`Tier 3`)
 
-## 1. Qu'est-ce qu'un `Blueprint` dans CIOB GMAO Nexus v5.0.2 ?
+## 1. Qu'est-ce qu'un `Blueprint` dans CIOB GMAO Nexus v5.1.2 ?
 
 Le **Blueprint (`BPT-XX`)** est la **fiche d'ingénierie théorique et évolutive** associée à un modèle de machine (**Template**).
 
@@ -54,3 +54,12 @@ C'est l'un des automatismes les plus puissants de l'application :
 
 Dès qu'un Blueprint est associé à une machine enregistrée :
 - Vous pouvez ouvrir l'écran **Arborescence Nexus** (`#nexus`) et lancer l'**Analyse d'Écart (`Gap Analysis`)** pour comparer ce qui est prévu dans le **Blueprint théorique** avec ce qui est **réellement monté** sur la machine dans l'atelier, puis synchroniser la nomenclature en un clic.
+
+---
+
+## 4. Disponibilité par Mode : `TEAM_FULL` vs `SOLO_EXPERT`
+
+- **En mode `TEAM_FULL` (Défaut) :** L'écran **Blueprints Machines** est actif dans la navigation principale et pleinement intégré à la création machine, aux Templates et au Gap Analysis Nexus.
+- **En mode `SOLO_EXPERT` :** Cet écran est **masqué par défaut** (`showBlueprintsInPrimaryNav: false`) pour éviter la charge de modélisation théorique sur le terrain.
+  - Vos machines enregistrées fonctionnent sans Blueprint : vous attachez directement vos `Components`, `Parts` et `PDR` dans l'onglet **BOM** du **Passeport 360°** ou depuis **Nexus**.
+  - **Zéro perte de données :** Les Blueprints déjà créés restent stockés intact dans la base (`STORAGE_KEYS.BLUEPRINTS`). Vous pouvez les réafficher individuellement à tout moment depuis *Paramètres ➔ Sécurité & Comptes ➔ Projection Modulaire de la Navigation*.

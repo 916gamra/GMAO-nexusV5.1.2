@@ -18,7 +18,7 @@ relatedTabs:
 
 ## 1. Philosophie Fondamentale des 3 Tiers (Séparation Stricte des Préoccupations)
 
-Dans **CIOB GMAO Nexus v5.0.2**, un équipement industriel n'est jamais réduit à une simple ligne plate. L'architecture sépare rigoureusement **ce qu'est l'équipement par catalogue** (Tier 1), **où et comment il opère physiquement dans l'usine** (Tier 2), et **son patrimoine de connaissances d'ingénierie** (Tier 3) :
+Dans **CIOB GMAO Nexus v5.1.2**, un équipement industriel n'est jamais réduit à une simple ligne plate. L'architecture sépare rigoureusement **ce qu'est l'équipement par catalogue** (Tier 1), **où et comment il opère physiquement dans l'usine** (Tier 2), et **son patrimoine de connaissances d'ingénierie** (Tier 3 — actif par défaut en `TEAM_FULL`, optionnel en `SOLO_EXPERT`) :
 
 ```text
 ┌───────────────────────────────────────────────────────────────────────────┐
@@ -48,7 +48,7 @@ Dans **CIOB GMAO Nexus v5.0.2**, un équipement industriel n'est jamais réduit 
 ## 2. Classes d'Actifs (`PRODUCTION` vs `SYSTEM_GENERAL`) & Frontière de Gouvernance
 
 Le service `src/utils/activeMachines.ts` distingue deux classes d'équipements au sein du SSOT unique `STORAGE_KEYS.MACHINES` :
-- **`PRODUCTION` (Géré dans `MachinesRegisteredView.tsx` — `#machines`)** : Machines de transformation et lignes de production industrielle. Elles sont obligatoirement rattachées à une **Famille (`id_family`)** et un **Template (`id_templates`)**, disposent d'un **Blueprint (`id_blueprint`)**, et apparaissent dans l'**Arborescence Nexus** (`filterProductionMachines(machines)`). Leur création et leur édition s'effectuent dans `MachinesRegisteredView.tsx` / `AddMachineModal.tsx`.
+- **`PRODUCTION` (Géré dans `MachinesRegisteredView.tsx` — `#machines`)** : Machines de transformation et lignes de production industrielle. Elles sont obligatoirement rattachées à une **Famille (`id_family`)** et un **Template (`id_templates`)**, peuvent être liées à un **Blueprint (`id_blueprint`)** (actif par défaut en `TEAM_FULL`, optionnel en `SOLO_EXPERT`), et apparaissent dans l'**Arborescence Nexus** (`filterProductionMachines(machines)`). Leur création et leur édition s'effectuent dans `MachinesRegisteredView.tsx` / `AddMachineModal.tsx`.
 - **`SYSTEM_GENERAL` (Géré exclusivement dans `EquipmentView.tsx` — `#equipment`)** : Infrastructures, utilités et équipements de sécurité d'usine (compresseurs d'air `AIR`, groupes électrogènes `ELEC`, pompes incendie `SEC`, refroidisseurs `CHILL`). Ils sont typés via `STORAGE_KEYS.GENERAL_SYSTEM_TYPES` (`id_general_system_type`) avec génération automatique de code (`AIR-01`, `SEC-01`), sans imposer de Famille/Template de production.
   - **Règle d'Isolation (`EQUIPMENT-PAGE-P0`)** : `MachinesRegisteredView.tsx` affiche les équipements `SYSTEM_GENERAL` en **consultation** (pour la visibilité globale du parc, le Passeport 360° et l'étiquette QR), mais ne permet **ni de les créer ni de les modifier sur place** : toute action de création ou d'édition d'un équipement `SYSTEM_GENERAL` redirige vers la page dédiée **Équipements / Système Général (`#equipment`)** du groupe Pilotage & Référentiels.
 
@@ -98,3 +98,17 @@ Le service `computeMachineHealthPassport` (`src/application/services/MachineHeal
 2. **Politique `Safe Archive` sur les Machines (`handleDeleteMachine`)** :
    - `dataIntegrityService.getMachineDependencies` inspecte 8 collections (`preventiveTasks`, `preventiveExecutions`, `correctiveInterventions`, `mouvements`, `machineElementsLedger`, `sortiesExterne`, `sortieDemands`, `warehouseItems`).
    - Si `deps.total > 0` ou si la machine possède des machines filles actives (`parentPolicy.hasActiveChildren`), la suppression physique est convertie en **Archivage Doux** (`status: 'ARCHIVEE'`, `is_active: false`), les tâches préventives futures sont suspendues, les enfants éventuels sont détachés, et un événement immuable **`MACHINE_ARCHIVED`** est inscrit dans `STORAGE_KEYS.AUDIT_EVENTS`.
+
+---
+
+## 7. Projection par Mode d'Exploitation (`TEAM_FULL` vs `SOLO_EXPERT`)
+
+Toutes les vues du Groupe 02 consomment `useWorkspaceProfile()` (`src/core/workspace/workspaceProfile.ts`) sans modifier le SSOT ni altérer la hiérarchie industrielle :
+
+| Couche / Écran | Mode `TEAM_FULL` (Défaut) | Mode `SOLO_EXPERT` (Ingénieur Terrain) |
+| :--- | :--- | :--- |
+| **Hiérarchie `Familles ➔ Templates ➔ Machines`** | Active dans le même ordre exact | **Strictement identique** (`Familles ➔ Templates ➔ Machines`) |
+| **Blueprints (`#blueprints` & liens Blueprint)** | Visibles (`showBlueprintsInPrimaryNav: true`) | Masqués par défaut (`showBlueprintsInPrimaryNav: false`) dans le menu, `TemplatesView`, `MachinesRegisteredView`, `AddMachineModal` et `MachinePassport360Modal` (réactivables à la carte sans perte) |
+| **BOM Machine (`MachinePassport360Modal` & `Nexus`)** | BOM réelle + Gap Analysis Blueprint | **Attachement Tier 2 direct** de `Components`, `Parts` et `PDR` dans l'onglet `BOM` du Passeport 360° (`addMachineElement`) sans aucun Blueprint requis |
+| **Équipe / Technicien (`showTeamManagement`)** | Colonne `ZONE & TECHNICIEN (F+G)`, filtre et assignation visibles | Colonne condensée en `ZONE / SECTEUR (F)`, filtre et sélecteur Technicien masqués (`requireTechnician: false`) |
+| **Données Financières (`showFinance`)** | Coût d'arrêt horaire, TCO 12M, Rollup financier et BER économique affichés (devise ISO dynamique `useCurrency`) | Montants financiers masqués (`requireHourlyCost: false`) ; santé technique (`/100`), pannes, temps d'arrêt et BER technique ($\ge 3$ pannes / 12M) conservés |

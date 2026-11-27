@@ -65,13 +65,13 @@ Toutes les équipes de maintenance ne travaillent pas avec la même organisation
 | :--- | :---: | :---: | :---: |
 | **Disponibilité** | ✅ Actif (Défaut) | ✅ Actif (Basculable) | 🔒 En conception |
 | **Validation croisée (`Maker-Checker`)** | Obligatoire | Exécution directe (`ADMIN`) | Non requise (prévu) |
-| **Machines + BOM directe sans Blueprint** | ✅ Disponible | ✅ Mise en avant | Simplifié (prévu) |
-| **Correctif (`DI / BT / Atelier / Besoins`)** | ✅ Complet | ✅ Complet | Simplifié (prévu) |
-| **Préventif & Compteurs** | ✅ Complet | ✅ Complet | Simplifié (prévu) |
-| **Entrepôt Organes & Parts** | ✅ Complet | ✅ Complet | Optionnel (prévu) |
+| **Machines (`Familles ➔ Templates ➔ Machines`)** | ✅ Complet + Blueprints | ✅ Même hiérarchie (sans Blueprint) + BOM directe 360° | Simplifié (prévu) |
+| **Entrepôt Organes & Parts (4 Niveaux)** | ✅ 7 écrans + Responsable + Coûts | ✅ Mêmes 7 écrans (sans Responsable ni coûts) | Optionnel (prévu) |
+| **Correctif (`DI / BT / Atelier / Besoins`)** | ✅ Complet | ✅ Complet (Exécution directe) | Simplifié (prévu) |
+| **Préventif & Compteurs** | ✅ Complet | ✅ Complet (Exécution directe) | Simplifié (prévu) |
 | **Journal de retrait PDR (`Sortie Rapide`)** | ✅ Actif | ✅ Actif | Simplifié (prévu) |
 | **Inventaire Magasin & Finance** | ✅ Visibles | Masqués (réactivables) | Masqués |
-| **Sécurité `LOTO` & Journal d'Audit** | ✅ Toujours actifs | ✅ Toujours actifs | ✅ Toujours actifs |
+| **Sécurité `LOTO` & Journal d'Audit** | ✅ Toujours actifs | ✅ Toujours actifs (`executionMode: SOLO_DIRECT`) | ✅ Toujours actifs |
 
 ---
 
@@ -83,3 +83,21 @@ Toutes les équipes de maintenance ne travaillent pas avec la même organisation
 4. Cliquez sur **Activer Solo Expert** (ou **Activer Équipe Complète** pour revenir au mode initial).
 5. Un badge discret **SOLO EXPERT** apparaît alors dans la barre supérieure pour vous rappeler le mode actif ; cliquez dessus à tout moment pour revenir rapidement au réglage.
 6. Si vous souhaitez conserver un module habituellement masqué (par exemple les *Blueprints* ou *Stock Articles*), cochez simplement son interrupteur dans **Projection Modulaire de la Navigation**.
+
+---
+
+## 5. Mode d'Emploi Pas-à-Pas en `SOLO_EXPERT` (Parc Machines & Entrepôt)
+
+Voici l'ordre logique recommandé pour exploiter toute la puissance technique du mode **Solo Expert** dès le premier jour :
+
+1. **Structurer votre Parc Machines (`#families` ➔ `#templates` ➔ `#machines`) :**
+   - Créez vos **Familles** (`FAM-01`), puis vos **Modèles / Templates** (`TPL-RCF100`), puis enregistrez vos **Machines Physiques** (`RCF100-01`).
+   - Les champs *Blueprint*, *Technicien* et *Coût d'arrêt horaire* sont masqués automatiquement pour accélérer la saisie.
+   - Ouvrez le **Passeport 360°** d'une machine ➔ onglet **Organes & BOM** pour attacher directement ses `Components`, `Parts` et `PDR` sans avoir à créer de Blueprint.
+2. **Construire votre Entrepôt Technique (`#comp_groups`..`#comp_templates`, `#part_groups`..`#part_designations`, `#entrepot`) :**
+   - Conservez exactement la même **double hiérarchie à 4 niveaux** qu'en mode Équipe Complète :
+     - **Components :** `Groupes Organes ➔ Familles Organes ➔ Modèles Organes ➔ Entrepôt`
+     - **Parts :** `Groupes Parts ➔ Types Parts ➔ Désignations Parts ➔ Entrepôt`
+   - Dans **Entrepôt (`#entrepot`)**, la colonne *Responsable* et les sélecteurs de techniciens disparaissent (chaque mouvement rapide est automatiquement attribué à votre profil actif), et la fiche détaillée affiche la **Santé Technique `/100`** sans montants financiers.
+3. **Exécuter vos Interventions & Retraits en Direct (`#corrective_bt`, `#preventive`, `#sortie`) :**
+   - Créez et clôturez vos **BT Correctifs**, travaux d'**Atelier Mécanique (`BR / RECT`)**, **Tâches Préventives** et **Sorties Rapides PDR** directement sans file d'attente de validation, tout en conservant le journal d'audit complet et les garde-fous `LOTO`.

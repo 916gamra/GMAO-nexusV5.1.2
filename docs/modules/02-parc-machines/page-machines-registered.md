@@ -81,3 +81,19 @@ Lorsque vous cliquez sur **Supprimer** sur une machine :
   - Ses gammes préventives sont automatiquement suspendues.
   - Elle n'apparaît plus dans les listes de saisie de nouveaux bons ou sorties magasin.
   - Tout son historique de coûts et de pannes reste 100% intact pour vos rapports de direction et le journal d'audit.
+
+---
+
+## 6. Utilisation en Mode `TEAM_FULL` vs Mode `SOLO_EXPERT`
+
+L'écran **Machines Enregistrées** conserve exactement la même structure hiérarchique (**Familles ➔ Templates ➔ Machines Registered**) dans les deux modes, tout en adaptant ses colonnes et formulaires au contexte terrain :
+
+| Élément d'interface | Mode `TEAM_FULL` (Équipe Complète) | Mode `SOLO_EXPERT` (Ingénieur Autonome) |
+| :--- | :--- | :--- |
+| **Création Machine (`+ Nouvelle Machine`)** | Étapes Famille, Template, **Blueprint**, Zone, **Technicien**, **Coût d'arrêt horaire** et Valeur d'acquisition. | Étapes épurées : **Famille, Template & Ligne Mère**, puis Zone & Régime. Les champs Blueprint, Technicien et Coûts sont masqués par défaut. |
+| **Colonnes du Tableau** | Affiche **Blueprint**, **Zone & Technicien (F+G)** et les coûts d'arrêt / Rollup financier. | Masque la colonne Blueprint, condense en **Zone / Secteur (F)** et masque les montants financiers pour se concentrer sur le statut, les pannes et les compteurs. |
+| **Mode Pilotage Terrain (Édition rapide)** | Permet d'éditer en ligne : Statut, **Technicien**, Régime et **Coût d'arrêt**. | Permet d'éditer en ligne : **Statut** et **Régime** uniquement. |
+| **Passeport 360° — Onglet `BOM`** | Affiche la nomenclature réelle + lien vers le Blueprint associé. | Propose un **formulaire d'ajout direct Tier 2** (`Composant`, `Part` ou `PDR`) sur la machine **sans nécessiter de Blueprint** (bloqué sur `SYSTEM_GENERAL`). |
+| **Passeport 360° — Santé & Coûts** | Affiche Score Santé `/100`, **TCO 12M** (en devise ISO active) et alertes BER techniques + économiques. | Affiche uniquement la **Santé Technique `/100`**, les heures d'arrêt, les pannes et les alertes **BER techniques** ($\ge 3$ pannes / 12 mois). |
+
+> **Astuce :** Vous pouvez basculer librement entre `TEAM_FULL` et `SOLO_EXPERT` dans *Paramètres ➔ Sécurité & Comptes* sans jamais perdre un seul enregistrement machine, coût ou Blueprint.

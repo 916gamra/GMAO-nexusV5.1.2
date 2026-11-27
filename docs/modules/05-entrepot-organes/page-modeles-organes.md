@@ -54,23 +54,25 @@ Chaque modèle enregistre :
 3. **Code Modèle (`code_template` ou `code`) :** Mnémonique atelier facilement identifiable par les équipes de terrain.
 4. **Référence Constructeur Officielle (`ref_constructeur` ou `ref_fabricant`) :** Référence de catalogue exacte indispensable aux achats.
 5. **Constructeur / Fabricant :** Marque d'origine (Siemens, ABB, SEW, Bonfiglioli, Schneider, Grundfos...).
-6. **Spécifications Techniques Structurées (`specs`) :**
-   - Puissance nominale (kW ou CV)
-   - Vitesse de rotation (tr/min)
-   - Tension (V) et Fréquence (Hz)
-   - Courant nominal (A)
-   - Facteur de service et Classe d'isolation
+6. **Plaque Signalétique & Politique Réparation (`C2`) :**
+   - `puissance` (kW), `vitesse` (tr/min), `tension_nominale` (ex. `400V`), `courant_nominal_a` (A), `indice_protection` (ex. `IP55`), `type_fixation` (`B3`, `B5`, `B14`, `B35`) et `mode_reparation_defaut` (`BOBINAGE`, `REVISION_INTERNE`, `ECHANGE_STANDARD`, `SOUS_TRAITANCE_EXTERNE`, `REMPLACEMENT_NEUF`).
 
 ---
 
-## 4. Filtrage Dynamique & Liaison Entrepôt
+## 4. Filtrage Dynamique, Tri & Liaison Entrepôt
 
-- **Filtrage en Cascade :** Le sélecteur supérieur permet de filtrer d'abord par Groupe (ex. `MOTEUR`), puis par Famille (ex. `MOT-3PH`).
-- **Lien Direct avec le Stock Réel :** Chaque modèle affiche le nombre d'organes physiques existant dans l'usine (`X en stock / Y installés sur machines`). En cliquant sur ce lien, vous accédez directement à la liste des organes physiques correspondants dans l'entrepôt.
+- **Filtrage en Cascade & Pré-sélection :** Le sélecteur supérieur permet de filtrer par Groupe et par Famille ; lors de la création d'un nouveau modèle, la famille filtrée est automatiquement pré-sélectionnée avec génération d'ID sans collision (`max + 1`).
+- **Tri calculé & compteurs exacts :** Tri disponible sur le **Groupe parent (`groupe`)** et le nombre d'**Organes en Entrepôt (`warehouse_count`)** calculé strictement via `isWarehouseComponent`.
 
 ---
 
-## 5. Règle de Verrouillage & Intégrité
+## 5. Règles de Verrouillage, Unicité & Export
 
-- Un modèle ne peut être supprimé tant qu'il existe au moins un organe physique (en stock ou installé) basé sur ce template.
-- Si le modèle est obsolète et ne doit plus être acheté, il doit être basculé sur le statut `Archivé` plutôt que supprimé.
+- **Anti-doublon & Protection orphelins :** Les codes/IDs dupliqués sont rejetés en maintenant le formulaire ouvert, et le bouton de confirmation de suppression reste bloqué tant qu'au moins un organe physique (`isWarehouseComponent`) référence ce modèle.
+- **Export Excel (Type B) :** Génère un CSV opérationnel sécurisé contre l'injection de formules `(Type B)`.
+
+---
+
+## 6. Comportement en Mode `TEAM_FULL` vs `SOLO_EXPERT`
+
+- **Parité totale :** L'écran **Modèles & Templates d'Organes (Niveau 3)** fonctionne à l'identique en `TEAM_FULL` et `SOLO_EXPERT`, assurant l'héritage automatique de la plaque signalétique dans l'Entrepôt.

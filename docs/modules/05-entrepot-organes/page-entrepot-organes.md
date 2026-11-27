@@ -37,64 +37,47 @@ Contrairement aux petites pièces fongibles du magasin général (vis, joints, r
 
 ---
 
-## 2. Double Vue : Organes Complets vs Pièces Détachées
+## 2. Double Vue : Organes Complets (`Components`) vs Pièces d'Atelier (`Parts`)
 
-L'écran propose deux onglets principaux en haut de page :
+L'écran propose deux onglets principaux qui respectent chacun une hiérarchie complète en **4 niveaux** :
 
-1. **Onglet « Organes / Sous-Ensembles » (Composants complets) :**
-   - Présente tous les équipements rotatifs et actionneurs.
-   - Colonnes : Code Organe, Numéro de Série, Modèle / Template, Spécifications techniques (puissance kW, vitesse tr/min, tension), Emplacement en rayon, Statut d'activité, Machine rattachée (le cas échéant), Indice d'usure.
-2. **Onglet « Pièces de Structure / Détachées » :**
-   - Présente les pièces mécaniques élémentaires (carters, flasques, arbres, engrenages, clavettes spécifiques).
-   - Liées aux types et désignations de pièces.
-
----
-
-## 3. Comprendre les Statuts Opérationnels d'un Organe
-
-Chaque organe porte un badge de statut visuel explicite :
-
-- 🟢 **DISPONIBLE (En Stock) :** L'organe est révisé, testé et prêt à être installé immédiatement en cas d'urgence de production.
-- 🔵 **INSTALLÉ (En Service) :** L'organe est monté sur une machine active. Son code machine est affiché sous forme de lien cliquable vers le passeport santé de l'équipement.
-- 🟠 **EN RÉPARATION / BOBINAGE :** L'organe est actuellement démonté et subit une intervention corrective ou a été confié à un atelier spécialisé externe.
-- ⚫ **RÉFORMÉ :** L'organe a atteint sa fin de vie technique (dépassement du seuil de rentabilité de réparation) et est archivé.
+1. **Onglet « Composants / Organes » (`nature: 'COMPONENT'`) :**
+   - **Chaîne de création :** `Groupes Organes (#comp_groups) ➔ Familles (#comp_families) ➔ Modèles (#comp_templates) ➔ Entrepôt`.
+   - **Colonnes réelles :** Code Composant & Réf Fabricant (A), Famille & Template (D), Désignation & Spécifications / Plaque signalétique / Alertes Usure (C), Machine & Localisation (E), Responsable (F — affiché en `TEAM_FULL`), Statut (G), Stock Actuel & Seuil (H), Actions (`•••`).
+2. **Onglet « Pièces / Parts » (`nature: 'PART'`) :**
+   - **Chaîne de création :** `Groupes Parts (#part_groups) ➔ Types Parts (#part_types) ➔ Désignations Parts (#part_designations) ➔ Entrepôt`.
+   - **Colonnes réelles :** Code Part (A), Type & Désignation (D), Description & Politiques Matières (C), Machine / Zone / Emplacement (E), Responsable (F — affiché en `TEAM_FULL`), Statut (G), Stock Actuel & Seuil (H), Actions (`•••`).
 
 ---
 
-## 4. Procédure Pas-à-Pas : Enregistrer un Nouvel Organe
+## 3. Comprendre les Statuts Opérationnels & Badges
 
-1. Cliquez sur le bouton principal **« + Nouvel Organe »** en haut à droite.
-2. Renseignez les informations de la fiche :
-   - **Famille & Modèle (Template) :** Sélectionnez le modèle dans la liste. Les spécifications techniques (puissance, tr/min, ampérage, constructeur) sont immédiatement importées automatiquement.
-   - **Numéro de Série Constructeur (N° Série) :** Indispensable pour la traçabilité unitaire de la machine tournante.
-   - **Emplacement en Entrepôt :** Indiquez le rayon, l'allée ou l'étagère (ex. `Magasin Élec - Rayon B-03`).
-   - **Quantité / Stock Initial :** Généralement 1 pour un organe unitaire sérialisé.
-   - **Seuil d'Alerte :** Quantité minimale de sécurité avant déclenchement d'un réapprovisionnement.
-   - **Machine de Rattachement (Optionnel) :** Si l'organe est déjà physiquement en place sur une machine lors de la saisie initiale, sélectionnez la machine cible.
-3. Validez en cliquant sur **« Enregistrer »**.
+Chaque élément porte un badge normalisé dans la colonne **Statut (G)** :
+
+- 🟢 **En service :** L'organe ou la pièce est monté sur une machine active (son code machine est cliquable vers la fiche machine).
+- 🔵 **En stock :** L'élément est disponible en entrepôt et prêt à être prélevé ou monté.
+- 🟠 **En révision :** L'organe est démonté et envoyé en réparation atelier ou en rebobinage externe.
+- 🔴 **Arrêt / Archivé (`ARCHIVEE`) :** Élément hors service ou archivé avec conservation complète de son historique.
 
 ---
 
-## 5. Montage et Démontage Rapide sur Machine
+## 4. Mouvements Rapides, Fiche Technique 360° & Archivage Sécurisé
 
-Lors d'un dépannage ou d'un échange standard :
-
-1. Repérez l'organe disponible dans la liste.
-2. Cliquez sur l'icône d'action **« Installer sur Machine »** (icône ⚙️).
-3. Choisissez la machine de destination dans la liste déroulante des machines actives de l'atelier.
-4. Confirmez :
-   - Le statut passe instantanément à `INSTALLÉ`.
-   - L'organe est rattaché à l'arborescence Nexus de la machine.
-   - Le stock disponible en entrepôt est actualisé en temps réel.
-5. Pour démonter un organe usé :
-   - Cliquez sur **« Démonter »** : choisissez si l'organe retourne en stock disponible ou part en réparation/rebobinage.
+Depuis le menu d'actions (`•••`) ou le bouton **Sortie** sur chaque ligne :
+- **Sortie / Retour / Réception / Ajustement (`QuickMovementModal`) :** Enregistre un mouvement rapide indexé strictement sur `id_warehouse_item`, avec sélection de la machine active cible (`filterActiveMachines`) et de la zone.
+- **Fiche Technique & Détails (`EntrepotDetailsModal`) :** Affiche la plaque signalétique héritée du Modèle/Template, l'historique des interventions et rebobinages, ainsi que le **Score de Santé Technique (`/100`)** et les alertes d'usure/réforme.
+- **Suppression contrôlée & Archivage Sécurisé (`Safe Archive`) :**
+  - Si l'élément est **monté sur une machine active**, la suppression est **bloquée** jusqu'à son démontage préalable.
+  - Si l'élément possède un **historique** (mouvements, BT correctifs, préventifs, sorties externes ou rebobinages), il est **archivé (`ARCHIVEE`)** sans effacement afin de préserver la traçabilité et le registre `AUDIT_EVENTS`.
+- **Export Excel (Type B) :** Le bouton **« Export Excel (Type B) »** génère un fichier CSV opérationnel sécurisé contre l'injection de formules (destiné à l'analyse et non réimportable).
 
 ---
 
-## 6. Score d'Usure & Santé Composant
+## 5. Utilisation en Mode `TEAM_FULL` vs Mode `SOLO_EXPERT`
 
-La colonne **Santé / Usure** applique un code couleur prédictif :
-- **0 à 25% (Vert) :** Organe neuf ou récemment révisé à haut niveau de fiabilité.
-- **26 à 60% (Bleu/Jaune) :** Usure normale d'exploitation.
-- **61 à 85% (Orange) :** Équipement à surveiller lors des prochaines rondes préventives.
-- **> 85% (Rouge) :** Risque élevé de défaillance imminente ou historique de rebobinages excessifs ; prévoir un organe de secours prêt en rayon.
+| Aspect | Mode `TEAM_FULL` (Équipe Complète) | Mode `SOLO_EXPERT` (Ingénieur Terrain) |
+| :--- | :--- | :--- |
+| **Structure & Hiérarchie d'ajout** | Double hiérarchie complète 4 niveaux (`Components` & `Parts`) | **100 % identique** : les 7 écrans et le même ordre hiérarchique sont conservés |
+| **Colonne `Responsable` & Sélecteur Technicien** | Affichés dans les tableaux, les formulaires d'ajout/édition et `QuickMovementModal` | **Masqués** ; les mouvements rapides sont automatiquement attribués à votre session active |
+| **Valorisation & Coûts BER** | Coûts cumulés de réparation, valeur de remplacement et ratio économique affichés dans la **devise ISO active** (`useCurrency`) | **Masqués** (`showFinance: false`) ; seule la **Santé Technique (`/100`)**, les pannes 6 mois et les cycles de rebobinage restent affichés |
+| **Stock initial `0` & Seuils `0`** | Préservés exactement sans substitution par défaut | Préservés exactement sans substitution par défaut |

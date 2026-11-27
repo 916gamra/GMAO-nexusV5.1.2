@@ -63,9 +63,14 @@ Dans le tableau des groupes :
 
 ---
 
-## 5. Règle de Sécurité : Protection Contre la Suppression Orpheline
+## 5. Règles de Sécurité, Unicité & Export
 
-La suppression d'un groupe est **strictement verrouillée** :
-- Si au moins une famille (`CompFamily`) est rattachée au groupe, le bouton de suppression est désactivé et un message d'alerte explicite signale :  
-  *« Suppression impossible : ce groupe contient des familles d'organes actives. Réaffectez ou supprimez les familles rattachées au préalable. »*
-- Cette règle garantit qu'aucune famille ou modèle ne devienne orphelin dans la base de données.
+- **Auto-ID sans collision (`max + 1`) & Anti-doublon :** Toute tentative de créer un groupe avec un identifiant ou un code déjà existant est bloquée immédiatement avec un message d'erreur clair dans le formulaire (et tracée dans `AUDIT_EVENTS`).
+- **Protection contre les orphelins :** Tant qu'au moins une **Famille**, un **Modèle** ou un **Composant en Entrepôt** (`isWarehouseComponent`) est rattaché à ce groupe, le bouton de confirmation de suppression reste désactivé.
+- **Export Excel (Type B) :** L'export CSV du tableau est protégé contre l'injection de formules et clairement identifié `(Type B)` pour consultation/reporting.
+
+---
+
+## 6. Comportement en Mode `TEAM_FULL` vs `SOLO_EXPERT`
+
+- **Parité totale :** L'écran **Groupes d'Organes (Niveau 1)** fonctionne de manière **strictement identique** en mode `TEAM_FULL` et en mode `SOLO_EXPERT`, afin de conserver exactement la même rigueur de classification `Groupes ➔ Familles ➔ Modèles ➔ Entrepôt`.

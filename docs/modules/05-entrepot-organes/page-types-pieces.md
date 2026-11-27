@@ -5,13 +5,13 @@ groupTitle: Entrepôt Organes & Pièces Détachées
 docType: page
 audience: user
 tabId: part_types
-title: Types de Pièces Détachées
-subtitle: Catégorisation technique des composants élémentaires et pièces d'usure (Carters, Arbres, Flasques, Engrenages)
-summary: Guide d'utilisation pour la gestion des Types de Pièces Détachées. Présente la classification structurelle des pièces mécaniques et électriques ne constituant pas un organe autonome, et leur liaison avec l'Entrepôt.
+title: Types de Pièces Détachées (Niveau 2 — Parts)
+subtitle: Catégorisation technique rattachée aux Groupes Parts (Carters, Arbres, Flasques, Engrenages)
+summary: Guide d'utilisation pour la gestion des Types de Pièces Détachées (Niveau 2 : PartGroup ➔ PartType ➔ PartDesignation ➔ Entrepôt), tri calculé, filtres en cascade et protection contre les suppressions orphelines.
 relatedTabs:
+  - part_groups
   - part_designations
   - entrepot
-  - comp_groups
 ---
 
 # 🏷️ Guide Utilisateur : Types de Pièces Détachées
@@ -38,9 +38,10 @@ L'écran **Types de Pièces Détachées** assure la classification des pièces m
 ## 2. Structure d'un Type de Pièce
 
 Chaque enregistrement comprend :
-1. **Identifiant Unique Système (`id_type`) :** Code court standardisé (ex. `CARTER`, `ARBRE`, `ENGRENAGE`).
-2. **Libellé Complet (`libelle`) :** Intitulé en français (ex. *« Arbres de Transmission et Pignons Intégrés »*).
-3. **Domaine Mécanique :** Catégorisation interne permettant de regrouper les familles d'usinage.
+1. **Identifiant Unique Système (`id_type`) :** Code normalisé en majuscules avec auto-incrémentation sans collision (`max + 1`).
+2. **Groupe Parts Parent (`id_group`) :** Rattachement au Niveau 1 (`#part_groups`) permettant le filtrage en cascade (avec filtre dédié *Non classé*).
+3. **Libellé Complet (`libelle`) :** Intitulé en français (ex. *« Arbres de Transmission et Pignons Intégrés »*).
+4. **Domaine Mécanique :** Catégorisation interne permettant de regrouper les familles d'usinage.
 
 ---
 
@@ -62,7 +63,14 @@ Dans le tableau des types de pièces :
 
 ---
 
-## 5. Règle d'Intégrité Référentielle
+## 5. Règles d'Intégrité Référentielle, Tri & Export
 
-- Un type de pièce ne peut pas être supprimé s'il possède encore des désignations de pièces ou des articles physiques enregistrés dans l'entrepôt.
-- Cette protection prévient toute rupture de cohérence dans les inventaires de pièces d'usure.
+- **Compteurs & Tri calculés :** Les compteurs de **Désignations** et de **Pièces en Entrepôt** (filtrées strictement via `isWarehousePart`, sans jamais mélanger les composants) sont triables directement depuis les en-têtes du tableau.
+- **Anti-doublon & Suppression bloquée :** Toute clé dupliquée est rejetée sans fermer la fenêtre, et la confirmation de suppression est désactivée tant que des désignations ou des pièces en entrepôt y sont rattachées.
+- **Export Excel (Type B) :** Exporte le référentiel des Types Parts au format CSV sécurisé `(Type B)`.
+
+---
+
+## 6. Comportement en Mode `TEAM_FULL` vs `SOLO_EXPERT`
+
+- **Parité totale :** L'écran **Types de Pièces (Niveau 2)** est strictement identique en `TEAM_FULL` et en `SOLO_EXPERT`.

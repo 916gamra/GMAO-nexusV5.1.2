@@ -1,4 +1,5 @@
 import { AuthorizationService, type AuthActorInput } from '../../../core/security/AuthorizationService';
+import { loadWorkspaceProfile, type WorkspaceProfile } from '../../../core/workspace/workspaceProfile';
 import { STORAGE_KEYS } from '../../../infrastructure/persistence/storageKeys';
 import { storageService } from '../../../utils/storageService';
 
@@ -467,6 +468,63 @@ export const ROLE_QUICK_TRACKS: Readonly<Record<CanonicalGuideRole, readonly Rol
   ],
 };
 
+export const SOLO_EXPERT_QUICK_TRACK: readonly RoleQuickTrackStep[] = [
+  {
+    tabId: 'settings_workspace_modes',
+    groupId: '07-settings-systeme',
+    label: {
+      fr: 'Guide Complet Solo Expert & Modes',
+      ar: 'الدليل الشامل لوضع Solo Expert والأوضاع',
+      en: 'Solo Expert & Workspace Modes Guide',
+    },
+  },
+  {
+    tabId: 'machines',
+    groupId: '02-parc-machines',
+    label: {
+      fr: 'Parc Machines (Sans Blueprint + BOM 360°)',
+      ar: 'حظيرة الآلات (بدون Blueprint + BOM 360°)',
+      en: 'Machine Fleet (Direct BOM, No Blueprint)',
+    },
+  },
+  {
+    tabId: 'entrepot',
+    groupId: '05-entrepot-organes',
+    label: {
+      fr: 'Entrepôt Organes & Pièces (4 Niveaux)',
+      ar: 'مستودع الأعضاء والقطع (4 مستويات)',
+      en: 'Components & Parts Warehouse (4 Levels)',
+    },
+  },
+  {
+    tabId: 'corrective_bt',
+    groupId: '04-corrective-di-bt',
+    label: {
+      fr: 'Correctif Direct (DI / BT / Atelier)',
+      ar: 'الصيانة العلاجية المباشرة (DI / BT / ورشة)',
+      en: 'Direct Corrective (DI / WO / Workshop)',
+    },
+  },
+  {
+    tabId: 'preventive',
+    groupId: '03-preventive-meters',
+    label: {
+      fr: 'Préventif & Compteurs Terrain',
+      ar: 'الصيانة الوقائية والعدادات الميدانية',
+      en: 'Field Preventive & Meters',
+    },
+  },
+  {
+    tabId: 'sortie',
+    groupId: '01-stock-pdr',
+    label: {
+      fr: 'Sortie Rapide PDR (Journal Retrait)',
+      ar: 'السحب السريع لقطع الغيار (Sortie Rapide)',
+      en: 'Quick PDR Issue Log',
+    },
+  },
+];
+
 export function resolveCanonicalGuideRole(user: AuthActorInput): CanonicalGuideRole {
   if (!user) return 'VIEWER';
   const raw = (typeof user === 'string' ? user : String(user.role || '')).trim().toUpperCase();
@@ -478,11 +536,20 @@ export function resolveCanonicalGuideRole(user: AuthActorInput): CanonicalGuideR
   return 'VIEWER';
 }
 
-export function getQuickTrackForUser(user: AuthActorInput): {
-  role: CanonicalGuideRole;
+export function getQuickTrackForUser(
+  user: AuthActorInput,
+  workspaceProfile: WorkspaceProfile = loadWorkspaceProfile()
+): {
+  role: CanonicalGuideRole | 'SOLO_EXPERT';
   steps: readonly RoleQuickTrackStep[];
 } {
   const role = resolveCanonicalGuideRole(user);
+  if (workspaceProfile?.preset === 'SOLO_EXPERT' && role === 'ADMIN') {
+    return {
+      role: 'SOLO_EXPERT',
+      steps: SOLO_EXPERT_QUICK_TRACK,
+    };
+  }
   return {
     role,
     steps: ROLE_QUICK_TRACKS[role],

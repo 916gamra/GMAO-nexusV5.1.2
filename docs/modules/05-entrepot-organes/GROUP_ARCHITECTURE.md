@@ -26,7 +26,7 @@ relatedTabs:
 
 ## 1. Vue d'Ensemble & Distinction Fondamentale des 3 Familles (`PDR` vs `Components` vs `Parts`)
 
-Dans **CIOB GMAO Nexus v5.0.2**, la philosophie industrielle distingue strictement **trois univers matériels** qui ne partagent jamais la même table de groupes :
+Dans **CIOB GMAO Nexus v5.1.2**, la philosophie industrielle distingue strictement **trois univers matériels** qui ne partagent jamais la même table de groupes :
 
 1. **Magasin PDR classique (`rawStock` / `gmao_pdr_groups_v1` — `#pdr_groups`) :**
    - Articles fongibles et consommables achetés sur catalogue : roulements, filtres, fusibles, joints toriques, courroies, huiles.
@@ -120,20 +120,31 @@ Chaque organe enregistré dans `warehouseItems` se trouve dans un état opérati
 
 ---
 
-## 6. Évaluation de l'Usure & Santé Composant (`evaluateComponentWearAndLifecycle`)
+## 6. Évaluation de l'Usure, Santé Composant & Devise Dynamique (`evaluateComponentWearAndLifecycle`)
 
-Le service `src/utils/componentHealthScore.ts` évalue l'indice de santé d'un composant monté :
-- Durée cumulée d'installation (en jours ou heures réelles machine).
-- Nombre de réparations ou rebobinages antérieurs.
-- Fréquence des défaillances associées dans les Bons de Travail (`BT`).
-- Alerte visuelle : 🟢 *Excellent* (0–25%), 🟡 *Surveillance* (26–60%), 🟠 *À réviser* (61–85%), 🔴 *Remplacement préconisé* (> 85%).
+Le service `src/utils/componentHealthScore.ts` évalue l'indice de santé technique (`/100`) d'un composant (`wearScore`, `bobinageCount`, `recentBreakdowns6Months`, `cumulativeRepairCost`, `costRatioPercent`, `shouldReform`) :
+- **En mode `TEAM_FULL` (`showFinance: true`) :** Affiche le score technique **et** le ratio économique BER (`coût cumulé / valeur de remplacement`) formaté exclusivement via `useCurrency().formatCurrency` (aucune chaîne `DH` en dur).
+- **En mode `SOLO_EXPERT` (`showFinance: false`) :** Masque les montants financiers et la jauge de coût pour afficher une **jauge de santé technique pure (`/100`)**, le nombre de pannes sur 6 mois et le nombre de cycles de rebobinage.
 
 ---
 
-## 7. Protection de l'Intégrité Référentielle (Cascading & Safe Guards)
+## 7. Intégrité Référentielle, Sécurité CSV & Journal d'Audit (`AUDIT_EVENTS`)
 
-Le système interdit toute rupture de lien orphelin :
-1. **Suppression d'un Groupe d'Organes (`CompGroup`) ou de Pièces (`PartGroup`) :** Bloquée si au moins une Famille (`CompFamily`) ou un Type de Pièce (`PartType`) y est rattaché (bascule en désactivation sécurisée `is_active: false` pour `PartGroup`).
-2. **Suppression d'une Famille (`CompFamily`) ou d'un Type de Pièce (`PartType`) :** Bloquée si des Modèles (`CompTemplate`), des Désignations (`PartDesignation`) ou des éléments d'entrepôt y font référence.
-3. **Suppression d'un Modèle (`CompTemplate`) ou d'une Désignation (`PartDesignation`) :** Bloquée si des éléments physiques sont présents en entrepôt ou montés sur des machines.
-4. **Suppression d'un Élément d'Entrepôt (`WarehouseItem`) :** Bloquée s'il est au statut `MONTE` sur une machine active. Il doit d'abord être formellement démonté.
+Le système interdit toute rupture de lien orphelin ou corruption d'identifiant :
+1. **Unicité des clés primaires (`PK`) & Auto-ID sans collision (`max + 1`) :** Toutes les créations (`CompGroup`, `CompFamily`, `CompTemplate`, `PartGroup`, `PartType`, `PartDesignation`, `WarehouseItem`) normalisent la clé en majuscules, rejettent les doublons (retour `false`, modale maintenue ouverte avec erreur inline), préservent explicitement la valeur `0` (`stockInitial`, `stockActuel`, `seuil`) et enregistrent un événement immuable dans `STORAGE_KEYS.AUDIT_EVENTS`.
+2. **Classification canonique (`isWarehouseComponent` / `isWarehousePart`) :** Unifie tous les compteurs et filtres entre `COMPONENT / COMPOSANT` et `PART / PARTIE / ORGANE` sur les 7 écrans du groupe.
+3. **Suppression bloquée & Archivage Sécurisé (`Safe Archive`) :**
+   - `CompGroup`, `CompFamily`, `CompTemplate`, `PartGroup`, `PartType`, `PartDesignation` bloquent la suppression dès qu'au moins un sous-niveau ou un article d'entrepôt y fait référence (`PartGroup` bascule en désactivation `is_active: false`).
+   - `WarehouseItem` bloque la suppression tant que l'élément est monté sur une machine active (`attachedMachine`), et convertit automatiquement la suppression en **Archivage (`ARCHIVEE`)** dès qu'un historique existe (mouvements, BT correctifs, préventifs, sorties externes ou bobinage).
+4. **Export Excel Opérationnel (`Type B`) sécurisé :** Tous les exports du groupe passent par `exportTypeBCsv` (`escapeCsvCell`, neutralisation OWASP contre l'injection de formules `= + - @`) et portent la mention explicite `(Type B)` non réimportable.
+
+---
+
+## 8. Parité & Adaptation `TEAM_FULL` vs `SOLO_EXPERT`
+
+| Aspect | Mode `TEAM_FULL` (Défaut) | Mode `SOLO_EXPERT` (Ingénieur Terrain) |
+| :--- | :--- | :--- |
+| **Écrans & Double Hiérarchie 4 Niveaux** | 7 écrans (`Components` 4 niveaux + `Parts` 4 niveaux + `Entrepôt`) | **Strictement identique** : mêmes 7 écrans et même séquence d'ajout |
+| **Colonne `Responsable` & Sélecteur Technicien (`showTeamManagement`)** | Affichés dans `ComponentsTable`, `PartsTable`, `EntrepotFormModals` et `QuickMovementModal` | **Masqués** ; l'attribution des mouvements rapides (`QuickMovementModal`) se fait automatiquement sur l'acteur connecté |
+| **Indicateurs Financiers (`showFinance`)** | Coût cumulé, valeur de remplacement et ratio BER en devise ISO dynamique (`useCurrency`) | **Masqués** ; seule la santé technique (`/100`), les pannes et les cycles de rebobinage sont affichés |
+| **Traçabilité & Garde-fous (`AUDIT_EVENTS`, Safe Archive, `id_warehouse_item`)** | 100 % actifs | **100 % actifs** (aucun compromis sur l'intégrité) |

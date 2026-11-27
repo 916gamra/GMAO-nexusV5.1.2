@@ -26,8 +26,17 @@ import WorkspaceModeSelectorCard from '../../presentation/pages/settings/compone
 import MachinePassport360Modal from '../../presentation/pages/machines/components/MachinePassport360Modal';
 import {
   canNavigateToGuideTab,
+  getQuickTrackForUser,
   resolveGuideTabNavigation,
 } from '../../presentation/pages/system/guideNavigation';
+import GuideView from '../../presentation/pages/system/GuideView';
+import { I18nProvider } from '../../i18n/I18nContext';
+
+vi.mock('../../context/AuthContext', () => ({
+  useAuth: () => ({
+    currentUser: { id: 'admin-1', username: 'admin', name: 'Admin', role: 'ADMIN' },
+  }),
+}));
 
 describe('SOLO-EXPERT-P1 — Workspace Operating Modes, Fail-Closed SOLO_DIRECT & Direct Tier 2 BOM', () => {
   let container: HTMLDivElement;
@@ -350,5 +359,48 @@ describe('SOLO-EXPERT-P1 — Workspace Operating Modes, Fail-Closed SOLO_DIRECT 
     expect(canNavigateToGuideTab({ role: 'ADMIN' }, 'settings_workspace_modes')).toBe(true);
     expect(canNavigateToGuideTab({ role: 'TECHNICIEN' }, 'settings_workspace_modes')).toBe(false);
     expect(canNavigateToGuideTab({ role: 'VIEWER' }, 'settings_workspace_modes')).toBe(false);
+  });
+
+  it('renders dedicated Solo Expert usage section in GuideView and switches Quick Track + active mode badge', () => {
+    // TEAM_FULL default
+    applyWorkspacePreset('TEAM_FULL');
+    const teamTrack = getQuickTrackForUser({ id: '1', role: 'ADMIN' });
+    expect(teamTrack.role).toBe('ADMIN');
+
+    React.act(() => {
+      root.render(
+        <I18nProvider>
+          <GuideView onNavigateToTab={vi.fn()} />
+        </I18nProvider>
+      );
+    });
+
+    const soloSection = container.querySelector('[data-testid="guide-solo-expert-section"]');
+    const badge = container.querySelector('[data-testid="guide-active-workspace-badge"]');
+    expect(soloSection).not.toBeNull();
+    expect(badge?.textContent).toContain('TEAM_FULL');
+    expect(soloSection?.textContent).toContain('Parc Machines');
+    expect(soloSection?.textContent).toContain('Entrepôt');
+
+    // Switch to SOLO_EXPERT
+    React.act(() => {
+      applyWorkspacePreset('SOLO_EXPERT');
+    });
+
+    const soloTrack = getQuickTrackForUser({ id: '1', role: 'ADMIN' });
+    expect(soloTrack.role).toBe('SOLO_EXPERT');
+    expect(soloTrack.steps.map((s) => s.tabId)).toEqual([
+      'settings_workspace_modes',
+      'machines',
+      'entrepot',
+      'corrective_bt',
+      'preventive',
+      'sortie',
+    ]);
+
+    expect(container.querySelector('[data-testid="guide-active-workspace-badge"]')?.textContent).toContain(
+      'SOLO_EXPERT'
+    );
+    expect(container.textContent).toContain('TEAM');
   });
 });

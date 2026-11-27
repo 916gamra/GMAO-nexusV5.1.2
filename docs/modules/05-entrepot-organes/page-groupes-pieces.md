@@ -25,7 +25,7 @@ relatedTabs:
 
 ## 1. Pourquoi un Référentiel `Groupes Parts` Indépendant ?
 
-Dans l'**Entrepôt Technique** de **CIOB GMAO Nexus v5.0.2**, les équipements stockés se divisent en deux grandes familles physiques qui possèdent chacune leur propre hiérarchie à 4 niveaux :
+Dans l'**Entrepôt Technique** de **CIOB GMAO Nexus v5.1.2**, les équipements stockés se divisent en deux grandes familles physiques qui possèdent chacune leur propre hiérarchie à 4 niveaux :
 
 1. **Branche A — `Components` (Organes complets rotatifs : `#comp_groups ➔ #comp_families ➔ #comp_templates ➔ #entrepot`)** :
    - Moteurs électriques, réducteurs, pompes, variateurs.
@@ -54,11 +54,19 @@ Chaque enregistrement dans **Groupes Parts** comprend :
 Depuis le tableau **Groupes Parts** :
 1. **Badge « X Types »** : Indique le nombre de `Types de Pièces` (`PartType`) rattachés à ce groupe via `id_group`. Cliquez dessus pour ouvrir **Types Parts (`#part_types`)** filtré sur ce groupe.
 2. **Badge « Y Désignations »** : Indique le nombre de désignations techniques (`PartDesignation`) appartenant aux types de ce groupe.
-3. **Badge « Z en Entrepôt »** : Indique le nombre d'éléments physiques (`nature: 'PART'`) présents dans l'entrepôt. Cliquez dessus pour ouvrir **Entrepôt (`#entrepot`)** directement sur l'onglet **Parts** filtré sur ce groupe.
+3. **Badge « Z en Entrepôt »** : Indique le nombre d'éléments physiques de type **Part** (`isWarehousePart`, excluant strictement les `COMPONENT`/`COMPOSANT`) présents dans l'entrepôt. Cliquez dessus pour ouvrir **Entrepôt (`#entrepot`)** directement sur l'onglet **Parts** filtré sur ce groupe.
 
 ---
 
-## 4. Protection Contre les Orphelins (`Safe Archive`)
+## 4. Protection Contre les Orphelins, Doublons & Export
 
+- **Auto-ID sans collision & Anti-doublon :** Toute clé/code dupliqué est refusé dans le formulaire avec audit dans `AUDIT_EVENTS`.
 - **Groupe sans enfant (`0` Type rattaché)** : Peut être supprimé définitivement.
 - **Groupe relié à des `PartTypes` ou à des pièces en entrepôt** : La suppression destructive est bloquée ; le groupe passe en **Désactivation sécurisée (`is_active: false`)**, préservant l'intégrité référentielle de tous les plans et pièces d'atelier existants.
+- **Export Excel (Type B) :** Exporte le tableau au format CSV sécurisé `(Type B)` contre l'injection de formules.
+
+---
+
+## 5. Comportement en Mode `TEAM_FULL` vs `SOLO_EXPERT`
+
+- **Parité totale :** L'écran **Groupes Parts (Niveau 1)** reste 100 % identique en `TEAM_FULL` et en `SOLO_EXPERT`, conservant la chaîne complète `Groupes Parts ➔ Types Parts ➔ Désignations Parts ➔ Entrepôt`.

@@ -72,7 +72,14 @@ Lors de la consultation :
 
 ---
 
-## 5. Règle d'Intégrité Référentielle
+## 5. Règles d'Intégrité Référentielle, Tri & Export
 
-- Une famille ne peut pas être supprimée si des modèles constructeurs (`CompTemplate`) lui sont rattachés.
-- Cette protection prévient les anomalies dans le moteur d'inventaire et les plans de maintenance préventive.
+- **Tri calculé & compteurs exacts :** Vous pouvez trier le tableau par nombre de **Modèles (`templates_count`)** ou d'**Organes en Entrepôt (`warehouse_items`)**, calculés uniquement sur les composants (`isWarehouseComponent`).
+- **Protection contre les doublons & orphelins :** Les codes/IDs dupliqués sont rejetés sans fermer le formulaire, et le bouton de confirmation de suppression est bloqué tant que des modèles (`CompTemplate`) ou des organes physiques sont rattachés à la famille.
+- **Export Excel (Type B) :** Exporte la table complète (incluant la colonne **Groupe Parent**) au format CSV sécurisé `(Type B)`.
+
+---
+
+## 6. Comportement en Mode `TEAM_FULL` vs `SOLO_EXPERT`
+
+- **Parité totale :** L'écran **Familles d'Organes (Niveau 2)** est conservé à l'identique en `TEAM_FULL` et en `SOLO_EXPERT` dans la séquence `Groupes ➔ Familles ➔ Modèles ➔ Entrepôt`.

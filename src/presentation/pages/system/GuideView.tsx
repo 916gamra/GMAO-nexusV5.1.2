@@ -31,11 +31,16 @@ import {
 import { useAuth } from '../../../context/AuthContext';
 import { useTranslation } from '../../../i18n/I18nContext';
 import {
+  isTabVisibleInWorkspace,
+  useWorkspaceProfile,
+} from '../../../core/workspace/workspaceProfile';
+import {
   canNavigateToGuideTab,
   executeGuideTabNavigation,
   findGuideDocForTab,
   getQuickTrackForUser,
   resolveGuideInternalHref,
+  SOLO_EXPERT_QUICK_TRACK,
 } from './guideNavigation';
 
 interface GuideViewProps {
@@ -100,9 +105,9 @@ const MODULE_ROADMAP: RoadmapGroupMeta[] = [
       en: 'Machine Fleet, Blueprints & 3-Tier Architecture',
     },
     description: {
-      fr: 'Machines enregistrées, hiérarchie opérationnelle (MACHINE / LINE), Familles, Modèles constructeurs, Blueprints cognitifs et Passeport Santé.',
-      ar: 'الآلات المسجلة، تجميع الخطوط التشغيلية (MACHINE / LINE)، العائلات، نماذج المصنّعين، المخططات المعرفية وجواز صحة المعدة.',
-      en: 'Registered machines, operational line grouping (MACHINE / LINE), Families, OEM Templates, cognitive Blueprints, and Asset Health Passport.',
+      fr: 'Machines enregistrées, hiérarchie opérationnelle (MACHINE / LINE), Familles ➔ Templates ➔ Machines (identique en TEAM_FULL & SOLO_EXPERT), Blueprints cognitifs (optionnels en Solo Expert) et Passeport Santé 360° avec BOM directe.',
+      ar: 'الآلات المسجلة، تجميع الخطوط (MACHINE / LINE)، هرمية العائلات ➔ النماذج ➔ الآلات (متطابقة في TEAM_FULL وSOLO_EXPERT)، المخططات المعرفية (اختيارية في Solo Expert) وجواز الصحة 360° مع BOM مباشرة.',
+      en: 'Registered machines, operational line grouping (MACHINE / LINE), Families ➔ Templates ➔ Machines (identical in TEAM_FULL & SOLO_EXPERT), cognitive Blueprints (optional in Solo Expert), and 360° Health Passport with direct BOM.',
     },
     icon: Factory,
     tabs: [
@@ -165,9 +170,9 @@ const MODULE_ROADMAP: RoadmapGroupMeta[] = [
       en: 'Rotating Components & Workshop Parts Warehouse',
     },
     description: {
-      fr: 'Double hiérarchie 4 niveaux : Organes complets rotatifs (Groupes ➔ Familles ➔ Modèles ➔ Entrepôt) et Pièces d’atelier (Groupes Parts ➔ Types Parts ➔ Désignations Parts ➔ Entrepôt).',
-      ar: 'هرمية مزدوجة من 4 مستويات للأعضاء الدوّارة (محركات، مخفضات) وقطع التصنيع مع تتبع حالة التركيب (MONTE) والبوبيناج الخارجي.',
-      en: 'Dual 4-level hierarchy for complete rotating organs (motors, gearboxes) and machined workshop parts with MONTE lifecycle tracking.',
+      fr: 'Double hiérarchie 4 niveaux conservée à l’identique en TEAM_FULL et SOLO_EXPERT : Organes rotatifs (Groupes ➔ Familles ➔ Modèles ➔ Entrepôt) et Pièces d’atelier (Groupes Parts ➔ Types ➔ Désignations ➔ Entrepôt), santé technique, archivage sécurisé et export Type B.',
+      ar: 'هرمية مزدوجة من 4 مستويات مطابقة تماماً في TEAM_FULL وSOLO_EXPERT للأعضاء الدوّارة (Groupes ➔ Familles ➔ Modèles ➔ Entrepôt) وقطع الورشة (Groupes Parts ➔ Types ➔ Désignations ➔ Entrepôt) مع الصحة التقنية والأرشفة الآمنة.',
+      en: 'Dual 4-level hierarchy preserved identically in TEAM_FULL & SOLO_EXPERT: rotating Components (Groups ➔ Families ➔ Templates ➔ Warehouse) and Workshop Parts (Groups ➔ Types ➔ Designations ➔ Warehouse), technical health, safe archive, and Type B export.',
     },
     icon: Cpu,
     tabs: [
@@ -793,6 +798,8 @@ export function MarkdownBodyRenderer({
 export default function GuideView({ onNavigateToTab }: GuideViewProps) {
   const { currentUser } = useAuth();
   const { t, language } = useTranslation();
+  const workspaceProfile = useWorkspaceProfile();
+  const isSoloExpertActive = workspaceProfile.preset === 'SOLO_EXPERT';
   const langKey: GuideLang = language === 'ar' || language === 'en' ? language : 'fr';
 
   const [allDocs, setAllDocs] = useState<ParsedMarkdownDoc[]>(() =>
@@ -816,7 +823,10 @@ export default function GuideView({ onNavigateToTab }: GuideViewProps) {
 
   const totalDocsCount = DOC_PATH_INDEX.length;
   const isReaderOpen = selectedGroupId !== null;
-  const quickTrack = useMemo(() => getQuickTrackForUser(currentUser), [currentUser]);
+  const quickTrack = useMemo(
+    () => getQuickTrackForUser(currentUser, workspaceProfile),
+    [currentUser, workspaceProfile]
+  );
 
   const docsCountByGroup = useMemo(() => {
     const counts: Record<string, { total: number; pages: number; arch: number }> = {};
@@ -1008,10 +1018,14 @@ export default function GuideView({ onNavigateToTab }: GuideViewProps) {
   const floatingNeutralDepth =
     'shadow-[0_8px_20px_-4px_rgba(15,23,42,0.14),0_3px_8px_-2px_rgba(15,23,42,0.08),inset_0_1px_1px_rgba(255,255,255,0.95)]';
 
-  const roleLabel = t(
-    `guide.quickTrack.roles.${quickTrack.role}`,
-    quickTrack.role
-  );
+  const roleLabel =
+    quickTrack.role === 'SOLO_EXPERT'
+      ? langKey === 'ar'
+        ? 'Solo Expert (مهندس صيانة ميداني)'
+        : langKey === 'en'
+        ? 'Solo Expert (Field Engineer)'
+        : 'Solo Expert (Ingénieur Terrain)'
+      : t(`guide.quickTrack.roles.${quickTrack.role}`, quickTrack.role);
 
   return (
     <AnimatedPage className="space-y-5 pb-10 font-sans">
@@ -1032,6 +1046,16 @@ export default function GuideView({ onNavigateToTab }: GuideViewProps) {
                 {t('guide.header.documentsCount', `${totalDocsCount} documents`, {
                   count: totalDocsCount,
                 })}
+              </span>
+              <span
+                data-testid="guide-active-workspace-badge"
+                className={`px-2.5 py-0.5 text-[10px] font-mono font-black rounded-full border ${
+                  isSoloExpertActive
+                    ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
+                    : 'bg-slate-100 text-slate-700 border-slate-200'
+                }`}
+              >
+                {isSoloExpertActive ? 'MODE ACTIF : SOLO_EXPERT' : 'MODE ACTIF : TEAM_FULL'}
               </span>
             </div>
             <p className="text-xs text-slate-500 mt-1 max-w-2xl leading-snug">
@@ -1305,6 +1329,145 @@ export default function GuideView({ onNavigateToTab }: GuideViewProps) {
                   </div>
                 );
               })}
+              </div>
+          </div>
+
+          {/* Section dédiée Modes d'Exploitation : TEAM_FULL vs SOLO_EXPERT (Guide d'Utilisation Pratique) */}
+          <div
+            data-testid="guide-solo-expert-section"
+            className={`rounded-2xl border p-4 sm:p-5 space-y-3.5 ${
+              isSoloExpertActive
+                ? 'bg-gradient-to-br from-emerald-50/85 via-white to-teal-50/40 border-emerald-200/90'
+                : 'bg-gradient-to-br from-slate-50/90 via-white to-emerald-50/40 border-slate-200/90'
+            }`}
+          >
+            <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-2.5">
+              <div className="flex items-start gap-2.5">
+                <div className="w-9 h-9 rounded-xl bg-emerald-100 border border-emerald-200 flex items-center justify-center text-emerald-700 shrink-0 mt-0.5">
+                  <Wrench className="w-4.5 h-4.5" />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <h3 className="text-xs sm:text-sm font-black text-slate-900">
+                      {langKey === 'ar'
+                        ? 'دليل الاستخدام العملي : وضع Solo Expert مقارنة بوضع Équipe Complète (TEAM_FULL)'
+                        : langKey === 'en'
+                        ? 'Practical Usage Guide: Solo Expert Mode vs Full Team (TEAM_FULL)'
+                        : 'Guide Pratique : Mode Solo Expert vs Équipe Complète (TEAM_FULL)'}
+                    </h3>
+                    <span
+                      className={`px-2 py-0.5 rounded-full text-[9.5px] font-mono font-black border ${
+                        isSoloExpertActive
+                          ? 'bg-emerald-600 text-white border-emerald-600'
+                          : 'bg-emerald-50 text-emerald-800 border-emerald-200'
+                      }`}
+                    >
+                      {isSoloExpertActive ? 'SOLO_EXPERT ACTIF' : 'BASCULE RÉVERSIBLE • ZÉRO PERTE'}
+                    </span>
+                  </div>
+                  <p className="text-[11.5px] text-slate-600 mt-0.5 leading-relaxed">
+                    {langKey === 'ar'
+                      ? 'وضع Solo Expert مصمم لمهندس الصيانة الميداني المستقل: تنفيذ مباشر (SOLO_DIRECT) بدون مصادقة مزدوجة، إخفاء واجهات المالية/المخزن/الفريق وBlueprints مع الحفاظ الكامل على هرمية Parc Machines وEntrepôt (4 مستويات).'
+                      : langKey === 'en'
+                      ? 'Solo Expert is built for autonomous field engineers: direct execution (SOLO_DIRECT) without dual approval, Finance/Stock/Team & Blueprints hidden by default, while keeping Machine Fleet and Entrepôt 4-level hierarchies 100% intact.'
+                      : 'Pensé pour l’ingénieur maintenance autonome : exécution directe (SOLO_DIRECT) sans double validation, interfaces Finance/Magasin/Équipe et Blueprints masquées par défaut, tout en conservant à l’identique la hiérarchie Parc Machines et les 4 niveaux de l’Entrepôt.'}
+                  </p>
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => void handleSelectDocByTab('settings_workspace_modes', '07-settings-systeme')}
+                className="inline-flex items-center justify-center gap-1.5 px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold shadow-xs transition cursor-pointer shrink-0"
+              >
+                <BookOpen className="w-3.5 h-3.5" />
+                <span>
+                  {langKey === 'ar'
+                    ? 'قراءة الدليل الكامل للأوضاع'
+                    : langKey === 'en'
+                    ? 'Read Full Modes Guide'
+                    : 'Lire le Guide Complet des Modes'}
+                </span>
+                <ArrowUpRight className="w-3.5 h-3.5" />
+              </button>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-2.5 text-[11.5px]">
+              <div className="p-3 rounded-xl bg-white/90 border border-slate-200/80 space-y-1">
+                <div className="font-black text-slate-900 flex items-center gap-1.5">
+                  <Factory className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                  <span>
+                    {langKey === 'ar'
+                      ? '1. حظيرة الآلات (Parc Machines)'
+                      : langKey === 'en'
+                      ? '1. Machine Fleet (Parc Machines)'
+                      : '1. Parc Machines (Sans Blueprint)'}
+                  </span>
+                </div>
+                <p className="text-slate-600 leading-relaxed">
+                  {langKey === 'ar'
+                    ? 'نفس الترتيب الهرمي (Familles ➔ Templates ➔ Machines). يتم إخفاء Blueprints والتقني وتكلفة التوقف، مع إتاحة ربط Components/Parts/PDR مباشرة من تبويب BOM داخل Passeport 360°.'
+                    : langKey === 'en'
+                    ? 'Same hierarchy (Families ➔ Templates ➔ Machines). Blueprints, Technician & Downtime Cost are hidden; attach Components/Parts/PDR directly in Passport 360° BOM tab.'
+                    : 'Même hiérarchie (Familles ➔ Templates ➔ Machines). Blueprints, Technicien et Coût d’arrêt sont masqués ; ajout direct de Components/Parts/PDR dans le Passeport 360° (onglet BOM).'}
+                </p>
+              </div>
+
+              <div className="p-3 rounded-xl bg-white/90 border border-slate-200/80 space-y-1">
+                <div className="font-black text-slate-900 flex items-center gap-1.5">
+                  <Cpu className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                  <span>
+                    {langKey === 'ar'
+                      ? '2. المستودع (Entrepôt — 4 مستويات)'
+                      : langKey === 'en'
+                      ? '2. Warehouse (Entrepôt — 4 Levels)'
+                      : '2. Entrepôt Organes & Parts (4 Niveaux)'}
+                  </span>
+                </div>
+                <p className="text-slate-600 leading-relaxed">
+                  {langKey === 'ar'
+                    ? 'نفس الشاشات الـ7 ونفس التسلسل المزدوج للـ Components والـ Parts. يُخفى عمود Responsable والمبالغ المالية مع الاحتفاظ بمؤشر الصحة التقنية (/100) والأرشفة الآمنة.'
+                    : langKey === 'en'
+                    ? 'All 7 screens & exact dual 4-level hierarchy preserved. Responsable column and financial amounts are hidden while technical health (/100) and safe archive remain active.'
+                    : 'Les 7 écrans et la double hiérarchie 4 niveaux restent identiques. La colonne Responsable et les montants financiers sont masqués ; la santé technique (/100) et l’archivage sécurisé restent actifs.'}
+                </p>
+              </div>
+
+              <div className="p-3 rounded-xl bg-white/90 border border-slate-200/80 space-y-1">
+                <div className="font-black text-slate-900 flex items-center gap-1.5">
+                  <Settings className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                  <span>
+                    {langKey === 'ar'
+                      ? '3. التبديل الآمن والتحكم الجزئي'
+                      : langKey === 'en'
+                      ? '3. Reversible Switch & Modular Toggles'
+                      : '3. Bascule Réversible & Interrupteurs'}
+                  </span>
+                </div>
+                <p className="text-slate-600 leading-relaxed">
+                  {langKey === 'ar'
+                    ? 'من Paramètres ➔ Sécurité & Comptes يمكنك التبديل بين TEAM_FULL وSOLO_EXPERT دون فقدان أي بيانات، أو إعادة إظهار أي وحدة (Blueprints، Finance، Stock، Équipe) بشكل فردي.'
+                    : langKey === 'en'
+                    ? 'Switch between TEAM_FULL and SOLO_EXPERT anytime in Settings ➔ Security & Accounts with zero data loss, or re-enable Blueprints, Finance, Stock, or Team individually.'
+                    : 'Basculez entre TEAM_FULL et SOLO_EXPERT dans Paramètres ➔ Sécurité & Comptes sans aucune perte de données, ou réactivez à la carte Blueprints, Finance, Stock ou Équipe.'}
+                </p>
+              </div>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-1.5 pt-1">
+              {SOLO_EXPERT_QUICK_TRACK.map((step, idx) => (
+                <button
+                  key={`solo-card-${step.tabId}`}
+                  type="button"
+                  onClick={() => void handleSelectDocByTab(step.tabId, step.groupId)}
+                  className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-white border border-emerald-200/90 text-[11px] font-bold text-slate-800 hover:bg-emerald-600 hover:text-white hover:border-emerald-600 transition cursor-pointer"
+                >
+                  <span className="w-4 h-4 rounded-md bg-emerald-100 text-emerald-900 font-black text-[10px] flex items-center justify-center shrink-0">
+                    {idx + 1}
+                  </span>
+                  <span>{step.label[langKey]}</span>
+                </button>
+              ))}
             </div>
           </div>
         </div>
@@ -1460,6 +1623,7 @@ export default function GuideView({ onNavigateToTab }: GuideViewProps) {
                 <div className="pt-2.5 border-t border-slate-200/70 flex flex-wrap items-center gap-1.5">
                   {group.tabs.map((tab) => {
                     const canOpenScreen = canNavigateToGuideTab(currentUser, tab.tabId);
+                    const isVisibleInCurrentMode = isTabVisibleInWorkspace(tab.tabId, workspaceProfile);
                     const isClickable = isDocumented || (Boolean(onNavigateToTab) && canOpenScreen);
                     return (
                       <button
@@ -1473,12 +1637,16 @@ export default function GuideView({ onNavigateToTab }: GuideViewProps) {
                         className={`inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[10.5px] font-bold transition ${
                           !isClickable
                             ? 'bg-slate-50 border border-slate-200 text-slate-400 cursor-not-allowed opacity-70'
+                            : !isVisibleInCurrentMode
+                            ? 'bg-slate-50 border border-slate-200/90 text-slate-500 hover:bg-amber-600 hover:text-white hover:border-amber-600 cursor-pointer'
                             : isDocumented
                             ? 'bg-white border border-amber-200/90 text-amber-900 hover:bg-amber-600 hover:text-white hover:border-amber-600 cursor-pointer'
                             : 'bg-white border border-slate-200 text-slate-600 hover:border-slate-400 hover:text-slate-900 cursor-pointer'
                         }`}
                         title={
-                          isDocumented
+                          !isVisibleInCurrentMode
+                            ? `${tab.label} — Masqué en mode SOLO_EXPERT (actif par défaut en TEAM_FULL). Cliquez pour lire la documentation.`
+                            : isDocumented
                             ? t('guide.cards.readGuide', `Lire le guide de l'écran ${tab.label}`, {
                                 label: tab.label,
                               })
@@ -1492,6 +1660,11 @@ export default function GuideView({ onNavigateToTab }: GuideViewProps) {
                         }
                       >
                         <span>{tab.label}</span>
+                        {!isVisibleInCurrentMode && (
+                          <span className="px-1 py-0.2 rounded bg-slate-200/80 text-slate-600 font-mono text-[8.5px] uppercase">
+                            TEAM
+                          </span>
+                        )}
                         <ArrowUpRight className="w-3 h-3 opacity-70" />
                       </button>
                     );
