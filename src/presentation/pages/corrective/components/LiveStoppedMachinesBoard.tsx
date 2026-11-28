@@ -180,7 +180,7 @@ export function LiveStoppedMachinesBoard({
           </span>
         </div>
 
-        {workspaceProfile.showFinance && totalEstimatedLoss > 0 && (
+        {workspaceProfile.moduleVisibility.showFinance && totalEstimatedLoss > 0 && (
           <div
             data-testid="live-stopped-total-loss"
             className="inline-flex items-center gap-1.5 px-3 py-1 rounded-xl bg-white border border-rose-300 text-rose-900 text-xs font-mono font-black shadow-2xs self-start sm:self-auto"
@@ -262,7 +262,7 @@ export function LiveStoppedMachinesBoard({
                       <span className="truncate max-w-[110px]">{item.intervenant}</span>
                     </span>
                   )}
-                  {workspaceProfile.showFinance && hourlyRate > 0 && (
+                  {workspaceProfile.moduleVisibility.showFinance && hourlyRate > 0 && (
                     <span className="text-[10.5px] font-black text-rose-800">
                       ~{estimatedLoss.toLocaleString()} {symbol}
                     </span>

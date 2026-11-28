@@ -771,7 +771,7 @@ export default function BonsTravailTab({
               <span className="truncate">
                 {internalStatut ? `Atelier: ${workshopCode} (${internalStatut})` : workshopCode}
               </span>
-              {workspaceProfile.showFinance &&
+              {workspaceProfile.moduleVisibility.showFinance &&
                 !primaryInternal &&
                 Number(primaryWorkshop?.cout_bobinage ?? bt.cout_atelier ?? 0) > 0 && (
                 <span className="text-[9.5px] opacity-80">

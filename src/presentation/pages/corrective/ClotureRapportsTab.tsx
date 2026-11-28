@@ -1552,7 +1552,7 @@ export default function ClotureRapportsTab({
                     </div>
 
                     {/* Ventilation Coûts & TCO */}
-                    {workspaceProfile.showFinance && (() => {
+                    {workspaceProfile.moduleVisibility.showFinance && (() => {
                       const linkedMachine = machineMap.get(
                         String(previewItem.code_machine || '').trim().toUpperCase()
                       );

@@ -239,7 +239,7 @@ export default function DemandesInterventionModals({
               </div>
 
               {/* Pannes fréquentes du blueprint (BP-5) */}
-              {workspaceProfile.showBlueprintsInPrimaryNav && blueprintCommonFailures.length > 0 && (
+              {workspaceProfile.moduleVisibility.showBlueprintsInPrimaryNav && blueprintCommonFailures.length > 0 && (
                 <div className="p-3 rounded-2xl bg-indigo-50/70 border border-indigo-200/80 space-y-2">
                   <div className="flex items-center justify-between gap-2 flex-wrap">
                     <span className="text-[10.5px] font-extrabold uppercase tracking-wider text-indigo-950 flex items-center gap-1.5">

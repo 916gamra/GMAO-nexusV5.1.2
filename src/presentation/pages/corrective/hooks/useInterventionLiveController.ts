@@ -1099,7 +1099,13 @@ export function useInterventionLiveController({
         correctiveInterventions: interventions,
         preventiveExecutions: storePreventiveExecutions,
       });
-      if (reconciliation.hasDuplicateSortie || !reconciliation.canApproveWithDeduction) {
+      const hasDuplicateOrCandidateMatch =
+        Boolean(reconciliation.exactMovementMatch) ||
+        reconciliation.candidateStoreMovements.length > 0 ||
+        reconciliation.alerts.some(
+          (a) => a.code === 'DUPLICATE_BON' || a.code === 'CANDIDATE_STORE_BON_MATCH'
+        );
+      if (reconciliation.hasCritical || hasDuplicateOrCandidateMatch) {
         showToast?.(
           'Ce BT est en attente de validation Maker-Checker avec une alerte de réconciliation stock (double sortie ou rupture). Veuillez l’arbitrer depuis l’onglet Bons de Travail (BT).',
           'warning'

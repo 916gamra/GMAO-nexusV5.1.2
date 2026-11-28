@@ -675,7 +675,8 @@ describe('Corrective Phase 1 Audit Hardening — C1 Double Stock Deduction Defen
     } as any);
     expect(viewerDi).toBeNull();
     expect(useGmaoStore.getState().handleConvertToBt('DI-1', { intervenant: 'Ali' })).toBeNull();
-    expect(useGmaoStore.getState().handleStartLiveIntervention('BT-1', 'Ali')).toBeFalsy();
+    useGmaoStore.getState().handleStartLiveIntervention('BT-1');
+    expect(useGmaoStore.getState().activeLiveInterventionId).toBeNull();
     expect(
       useGmaoStore.getState().handleClotureIntervention('BT-1', {
         action_realisee: 'Tentative viewer',

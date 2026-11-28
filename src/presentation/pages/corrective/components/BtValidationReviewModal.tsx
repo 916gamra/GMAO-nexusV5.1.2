@@ -504,7 +504,7 @@ export default function BtValidationReviewModal({
                           <span className="text-[11px] opacity-80">
                             • {ord.fournisseur_externe}
                           </span>
-                          {workspaceProfile.showFinance && (
+                          {workspaceProfile.moduleVisibility.showFinance && (
                             <span className="font-mono font-bold text-[11px] bg-white/80 px-2 py-0.5 rounded">
                               {Number(ord.cout_bobinage || 0).toLocaleString()} {symbol}
                             </span>

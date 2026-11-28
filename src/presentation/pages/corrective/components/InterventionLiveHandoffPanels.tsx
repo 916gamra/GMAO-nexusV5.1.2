@@ -523,7 +523,7 @@ export function InterventionLiveHandoffPanels({
                     className="w-full py-2 px-2.5 text-xs font-mono font-bold rounded-lg border border-amber-300 bg-white"
                   />
                 </div>
-                {workspaceProfile.showFinance && (
+                {workspaceProfile.moduleVisibility.showFinance && (
                   <div>
                     <label className="block text-[10px] font-bold text-slate-700 uppercase mb-1">
                       Coût atelier {symbol} (opt.)

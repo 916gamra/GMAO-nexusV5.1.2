@@ -60,7 +60,7 @@ export default function AnalyseCorrectiveTab({
   const [periodFilter, setPeriodFilter] = useState<PeriodFilterState>({ preset: 'ALL' });
   const [rawParetoDimension, setParetoDimension] = useState<ParetoDimension>('COUNT');
   const paretoDimension: ParetoDimension =
-    !workspaceProfile.showFinance && rawParetoDimension === 'COST' ? 'COUNT' : rawParetoDimension;
+    !workspaceProfile.moduleVisibility.showFinance && rawParetoDimension === 'COST' ? 'COUNT' : rawParetoDimension;
 
   // Fast Lookup Maps
   const machineMap = useMemo(() => {
@@ -546,7 +546,7 @@ export default function AnalyseCorrectiveTab({
           Dimension_Classement: dimLabel,
           Occurrences: r.count,
           Arret_Minutes: r.downtimeMinutes,
-          ...(workspaceProfile.showFinance
+          ...(workspaceProfile.moduleVisibility.showFinance
             ? {
                 [`Cout_PDR_${symbol}`]: r.coutPdr,
                 [`Cout_Atelier_${symbol}`]: r.coutAtelier,
