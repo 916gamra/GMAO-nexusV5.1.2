@@ -628,8 +628,27 @@ export const AuthProvider = ({ children }) => {
   );
 };
 
-export const useAuth = () => useContext(AuthContext);
+const FALLBACK_AUTH_CONTEXT: any = Object.freeze({
+  __isFallbackContext: true,
+  user: null,
+  currentUser: null,
+  accounts: [],
+  isVaultExists: false,
+  isVaultUnlocked: false,
+  licenseRecord: null,
+  isLicenseActive: false,
+  rememberedLicenseKey: '',
+  serverSessionError: null,
+  isServerSessionActive: false,
+  getAvailableAccounts: () => [],
+  getAccountForPersonnel: () => null,
+  getCurrentSessionUser: () => null,
+  isPinConfigured: () => false,
+});
+
+export const useAuth = () => useContext(AuthContext) ?? FALLBACK_AUTH_CONTEXT;
 
 export default AuthContext;
+
 
 

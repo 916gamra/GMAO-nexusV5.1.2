@@ -267,10 +267,13 @@ export default function InterventionReportModal({
   onSaveReport,
   showToast,
 }: InterventionReportModalProps) {
-  const { user } = useAuth();
+  const auth = useAuth();
+  const user = auth?.user ?? auth?.currentUser ?? null;
+  const isStandaloneWithoutProvider = !auth || auth.__isFallbackContext === true;
   const canEditReport =
-    !user ||
-    (!AuthorizationService.isReadOnly(user) &&
+    isStandaloneWithoutProvider ||
+    (Boolean(user) &&
+      !AuthorizationService.isReadOnly(user) &&
       (AuthorizationService.hasPermission(user, 'corrective.execute') ||
         AuthorizationService.hasPermission(user, 'corrective.manage')));
   const draftKey = useMemo(() => getInterventionReportDraftKey(intervention), [intervention]);

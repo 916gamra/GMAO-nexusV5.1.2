@@ -217,4 +217,58 @@ describe('InterventionReportModal (RPT-MODAL-P0)', () => {
 
     expect(printSpy).toHaveBeenCalledTimes(1);
   });
+
+  it('enforces fail-closed RBAC inside AuthContext (blocks VIEWER & null user, allows TECHNICIEN)', async () => {
+    const { default: AuthContext } = await import('../../context/AuthContext');
+
+    // 1. Read-only VIEWER inside AuthContext cannot see Save button
+    await act(async () => {
+      root = createRoot(container);
+      root.render(
+        <AuthContext.Provider
+          value={{ user: { id: 'u-viewer', username: 'viewer', role: 'VIEWER' } }}
+        >
+          <InterventionReportModal isOpen={true} onClose={() => {}} />
+        </AuthContext.Provider>
+      );
+    });
+
+    let portal = document.body.querySelector('#gmao-report-print-portal')!;
+    let saveBtn = Array.from(portal.querySelectorAll('button')).find((b) =>
+      b.textContent?.includes('Enregistrer brouillon')
+    );
+    expect(saveBtn).toBeUndefined();
+
+    // 2. Unauthenticated null user inside AuthContext fails closed (no Save button)
+    await act(async () => {
+      root?.render(
+        <AuthContext.Provider value={{ user: null }}>
+          <InterventionReportModal isOpen={true} onClose={() => {}} />
+        </AuthContext.Provider>
+      );
+    });
+
+    portal = document.body.querySelector('#gmao-report-print-portal')!;
+    saveBtn = Array.from(portal.querySelectorAll('button')).find((b) =>
+      b.textContent?.includes('Enregistrer brouillon')
+    );
+    expect(saveBtn).toBeUndefined();
+
+    // 3. Authorized TECHNICIEN inside AuthContext can see Save button
+    await act(async () => {
+      root?.render(
+        <AuthContext.Provider
+          value={{ user: { id: 'u-tech', username: 'tech1', role: 'TECHNICIEN' } }}
+        >
+          <InterventionReportModal isOpen={true} onClose={() => {}} />
+        </AuthContext.Provider>
+      );
+    });
+
+    portal = document.body.querySelector('#gmao-report-print-portal')!;
+    saveBtn = Array.from(portal.querySelectorAll('button')).find((b) =>
+      b.textContent?.includes('Enregistrer brouillon')
+    );
+    expect(saveBtn).toBeDefined();
+  });
 });
