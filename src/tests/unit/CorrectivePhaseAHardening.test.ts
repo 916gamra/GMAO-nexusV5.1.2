@@ -577,3 +577,258 @@ describe('Corrective Phase A — Excel Formula Injection Defense (Type B Export)
     expect(sanitizedJson[0].duree).toBe(30);
   });
 });
+
+describe('Corrective Phase 1 Audit Hardening — C1 Double Stock Deduction Defense, C2 Store RBAC & Referential Integrity, M3 Solo Expert Audit', () => {
+  beforeEach(() => {
+    resetStoreState();
+    useGmaoStore.setState({
+      machines: [
+        { id_machine: 'M-ACTIVE', code_machine: 'M-ACTIVE', nom: 'CNC Active', status: 'OPERATIONNELLE' } as any,
+        { id_machine: 'M-ARCH', code_machine: 'M-ARCH', nom: 'Old Press', status: 'ARCHIVEE' } as any,
+      ],
+    });
+  });
+
+  afterEach(() => {
+    resetStoreState();
+  });
+
+  it('C1: prevents double stock deduction (2x) even if onAddMouvement re-inserts the same movement into setMouvements', () => {
+    useGmaoStore.setState({
+      rawStock: [
+        {
+          id: 'PDR-100',
+          ref: 'PDR-100',
+          reference: 'PDR-100',
+          designation: 'Contacteur 24V',
+          stockInitial: 10,
+          stockMin: 2,
+          prix_unitaire: 55,
+        } as any,
+      ],
+      mouvements: [],
+      correctiveInterventions: [
+        {
+          id: 'BT-C1',
+          num_bt: 'BT-2026-100',
+          code_machine: 'M-ACTIVE',
+          statut: 'EN_COURS',
+        } as CorrectiveInterventionItem,
+      ],
+    });
+
+    const closed = useGmaoStore.getState().handleClotureIntervention(
+      'BT-C1',
+      {
+        date_debut: '2026-06-01',
+        heure_debut: '08:00',
+        date_fin: '2026-06-01',
+        heure_fin: '09:30',
+        action_realisee: 'Remplacement contacteur',
+        arret_machine: true,
+        pdr_utilisees: [{ ref: 'PDR-100', designation: 'Contacteur 24V', quantite: 2 }],
+      },
+      // Simulate a legacy callback that re-pushes the movement into setMouvements
+      (mv) => {
+        useGmaoStore.getState().setMouvements((prev) => [mv, ...prev]);
+      }
+    );
+
+    expect(closed).not.toBeNull();
+    expect(closed?.statut).toBe('CLOTURE');
+    // Must strictly record ONLY 1 movement (quantity = 2, NOT 2 movements totaling 4)
+    const mvts = useGmaoStore.getState().mouvements;
+    expect(mvts).toHaveLength(1);
+    expect(Number(mvts[0].quantite)).toBe(2);
+    const totalDeducted = mvts.reduce((acc, m) => acc + Number(m.quantite || 0), 0);
+    expect(totalDeducted).toBe(2);
+  });
+
+  it('C2: blocks VIEWER and RESPONSABLE_MAGASIN from corrective mutations and blocks OPERATEUR from workshop/need creation', () => {
+    useGmaoStore.setState({
+      correctiveInterventions: [
+        {
+          id: 'DI-1',
+          num_bt: 'DI-2026-001',
+          code_machine: 'M-ACTIVE',
+          statut: 'DEMANDE',
+        } as CorrectiveInterventionItem,
+        {
+          id: 'BT-1',
+          num_bt: 'BT-2026-001',
+          code_machine: 'M-ACTIVE',
+          statut: 'EN_COURS',
+        } as CorrectiveInterventionItem,
+      ],
+    });
+
+    // 1. VIEWER blocked across DI creation, BT conversion, live start, and closure
+    SecurityService.saveSessionSecure('gmao_session_v2', {
+      userId: 'VW-01',
+      nom: 'Auditeur',
+      role: 'VIEWER',
+    });
+    const viewerDi = useGmaoStore.getState().handleAddDemandeIntervention({
+      code_machine: 'M-ACTIVE',
+      anomalie: 'Test viewer',
+    } as any);
+    expect(viewerDi).toBeNull();
+    expect(useGmaoStore.getState().handleConvertToBt('DI-1', { intervenant: 'Ali' })).toBeNull();
+    expect(useGmaoStore.getState().handleStartLiveIntervention('BT-1', 'Ali')).toBeFalsy();
+    expect(
+      useGmaoStore.getState().handleClotureIntervention('BT-1', {
+        action_realisee: 'Tentative viewer',
+      })
+    ).toBeNull();
+
+    // 2. RESPONSABLE_MAGASIN blocked from closing or deleting BTs or converting DI -> BT
+    SecurityService.saveSessionSecure('gmao_session_v2', {
+      userId: 'MAG-01',
+      nom: 'Magasinier Chef',
+      role: 'RESPONSABLE_MAGASIN',
+    });
+    expect(useGmaoStore.getState().handleConvertToBt('DI-1', { intervenant: 'Ali' })).toBeNull();
+    expect(
+      useGmaoStore.getState().handleClotureIntervention('BT-1', {
+        action_realisee: 'Tentative magasinier',
+      })
+    ).toBeNull();
+    expect(useGmaoStore.getState().handleDeleteCorrectiveIntervention('BT-1')).toBe(false);
+
+    // 3. OPERATEUR can create a DI, but cannot create Workshop Orders or Need Requests
+    SecurityService.saveSessionSecure('gmao_session_v2', {
+      userId: 'OP-01',
+      nom: 'Opérateur Ligne',
+      role: 'OPERATEUR',
+    });
+    const opDi = useGmaoStore.getState().handleAddDemandeIntervention({
+      code_machine: 'M-ACTIVE',
+      anomalie: 'Bruit suspect',
+    } as any);
+    expect(opDi).not.toBeNull();
+    expect(opDi?.id).toBeTruthy();
+    expect(
+      useGmaoStore.getState().handleCreateWorkshopOrder({
+        id_bt: 'BT-1',
+        code_machine: 'M-ACTIVE',
+        organe_nom: 'Broche',
+        nature_travail: 'USINAGE',
+        description_travail: 'Rectification',
+      } as any)
+    ).toBeNull();
+    expect(
+      useGmaoStore.getState().handleCreateNeedRequest({
+        id_bt: 'BT-1',
+        code_machine: 'M-ACTIVE',
+        designation: 'Joint torique',
+        classe_materiel: 'PDR',
+        canal_cible: 'STOCK',
+        quantite: 1,
+      } as any)
+    ).toBeNull();
+  });
+
+  it('C2: rejects archived machines on DI creation and BT conversion, and protects BTs with active workshop orders or open need requests from deletion', () => {
+    SecurityService.saveSessionSecure('gmao_session_v2', {
+      userId: 'ADM-01',
+      nom: 'Admin',
+      role: 'ADMIN',
+    });
+
+    // Reject DI on archived machine
+    const archivedDi = useGmaoStore.getState().handleAddDemandeIntervention({
+      code_machine: 'M-ARCH',
+      anomalie: 'Panne sur machine archivée',
+    } as any);
+    expect(archivedDi).toBeNull();
+
+    // Valid DI on active machine emits CORRECTIVE_DI_CREATED audit event
+    const validDi = useGmaoStore.getState().handleAddDemandeIntervention({
+      code_machine: 'M-ACTIVE',
+      anomalie: 'Défaut capteur',
+    } as any);
+    expect(validDi).not.toBeNull();
+    expect(
+      useGmaoStore.getState().auditEvents.some(
+        (e) => e.actionType === 'CORRECTIVE_DI_CREATED' && e.entityId === validDi.id
+      )
+    ).toBe(true);
+
+    // Valid conversion emits CORRECTIVE_DI_CONVERTED_TO_BT audit event
+    const bt = useGmaoStore.getState().handleConvertToBt(validDi.id, { intervenant: 'Karim' });
+    expect(bt).not.toBeNull();
+    expect(
+      useGmaoStore.getState().auditEvents.some(
+        (e) => e.actionType === 'CORRECTIVE_DI_CONVERTED_TO_BT' && e.entityId === validDi.id
+      )
+    ).toBe(true);
+
+    // Attach active workshop order -> deletion MUST be blocked
+    useGmaoStore.setState({
+      workshopOrders: [
+        {
+          id: 'OT-ATEL-1',
+          code_bon: 'BR-2026-001',
+          id_bt: validDi.id,
+          statut: 'EN_COURS_FABRICATION',
+        } as any,
+      ],
+    });
+    expect(useGmaoStore.getState().handleDeleteCorrectiveIntervention(validDi.id)).toBe(false);
+
+    // Once workshop order is terminal (RECEPTIONNE_MONTAGE), deletion succeeds and detaches id_bt cleanly
+    useGmaoStore.setState({
+      workshopOrders: [
+        {
+          id: 'OT-ATEL-1',
+          code_bon: 'BR-2026-001',
+          id_bt: validDi.id,
+          statut: 'RECEPTIONNE_MONTAGE',
+        } as any,
+      ],
+    });
+    expect(useGmaoStore.getState().handleDeleteCorrectiveIntervention(validDi.id)).toBe(true);
+    expect(useGmaoStore.getState().workshopOrders[0].id_bt).toBeNull();
+  });
+
+  it('M3: tags CORRECTIVE_BT_CLOSED audit event with executionMode=SOLO_DIRECT when SOLO_EXPERT profile is active', () => {
+    localStorage.setItem(
+      'gmao_workspace_profile_v1',
+      JSON.stringify({ preset: 'SOLO_EXPERT', governanceMode: 'SOLO_DIRECT' })
+    );
+    SecurityService.saveSessionSecure('gmao_session_v2', {
+      userId: 'ADM-SOLO',
+      nom: 'Ingénieur Maintenance Solo',
+      role: 'ADMIN',
+    });
+
+    useGmaoStore.setState({
+      correctiveInterventions: [
+        {
+          id: 'BT-SOLO',
+          num_bt: 'BT-2026-777',
+          code_machine: 'M-ACTIVE',
+          statut: 'EN_COURS',
+        } as CorrectiveInterventionItem,
+      ],
+    });
+
+    const closed = useGmaoStore.getState().handleClotureIntervention('BT-SOLO', {
+      date_debut: '2026-06-01',
+      heure_debut: '08:00',
+      date_fin: '2026-06-01',
+      heure_fin: '09:00',
+      action_realisee: 'Réglage capteur solo expert',
+      pdr_utilisees: [],
+    });
+
+    expect(closed).not.toBeNull();
+    expect(closed?.statut).toBe('CLOTURE');
+    const auditEvent = useGmaoStore
+      .getState()
+      .auditEvents.find((e) => e.actionType === 'CORRECTIVE_BT_CLOSED' && e.entityId === 'BT-SOLO');
+    expect(auditEvent).toBeDefined();
+    expect((auditEvent?.after as any)?.executionMode).toBe('SOLO_DIRECT');
+  });
+});
+

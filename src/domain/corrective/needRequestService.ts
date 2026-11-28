@@ -432,10 +432,19 @@ export function validateNeedRequestTransition(
   }
 
   const roleNorm = String(context.actorRole || '').trim().toUpperCase();
+  if (roleNorm === 'VIEWER' || roleNorm === 'OBSERVATEUR') {
+    return {
+      valid: false,
+      reason: `Sécurité RBAC : un profil Observateur en lecture seule ne peut pas modifier le statut de la demande de besoin (${from} ➔ ${to}).`,
+    };
+  }
+
   const isTech =
     context.isTechnician === true ||
     roleNorm === 'TECHNICIEN' ||
-    roleNorm === 'OPERATEUR';
+    roleNorm === 'TECHNICIAN' ||
+    roleNorm === 'OPERATEUR' ||
+    roleNorm === 'OPERATOR';
 
   // Supervisor-only transitions: REVUE_SUPERVISEUR, APPROVISIONNEMENT, RECU_STRUCTURE, REMIS_TECHNICIEN, REJETE
   const supervisorOnlyTargets: ReadonlyArray<NeedRequestStatus> = [

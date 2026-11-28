@@ -66,6 +66,7 @@ export default function EquipeIntervenantsTab({
 
   const storeInterventions = useGmaoStore((s) => s.correctiveInterventions) || [];
   const storePreventiveTasks = useGmaoStore((s) => s.preventiveTasks) || [];
+  const storeTechnicians = useGmaoStore((s) => s.technicians) || [];
 
   const toggleFormHabilitation = (code: HabilitationCode) => {
     setFormHabilitations((prev) =>
@@ -99,7 +100,14 @@ export default function EquipeIntervenantsTab({
 
   // Modal Handlers
   const handleOpenAddModal = () => {
-    const nextSeq = String((totalIntervenantsCount || 0) + 1).padStart(2, '0');
+    const allKnownTechnicians = [...storeTechnicians, ...(filteredIntervenants || [])];
+    const maxSeq = allKnownTechnicians.reduce((maxAcc, tech) => {
+      const rawId = String(tech?.id_technician || tech?.id || '');
+      const match = rawId.match(/TECH-(\d+)/i);
+      const parsed = match ? parseInt(match[1], 10) : 0;
+      return Number.isFinite(parsed) && parsed > maxAcc ? parsed : maxAcc;
+    }, Number(totalIntervenantsCount) || 0);
+    const nextSeq = String(maxSeq + 1).padStart(2, '0');
     setFormId(`TECH-${nextSeq}`);
     setFormNom('');
     const defaultZone = zones.length > 0 ? (zones[0].id_zone || zones[0].nom || 'AFM') : 'Toutes zones';

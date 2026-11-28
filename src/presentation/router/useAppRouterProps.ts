@@ -326,7 +326,7 @@ export function useAppRouterProps({
           id: string,
           decisionData: Record<string, unknown>,
           customMvtHandler?: (...args: unknown[]) => unknown
-        ) => handleReviewInterventionValidation(id, decisionData, customMvtHandler || handleAddMouvement),
+        ) => handleReviewInterventionValidation(id, decisionData, customMvtHandler || null),
         onReviewPreventiveValidation: (
           id: string,
           decisionData: Record<string, unknown>,
@@ -335,7 +335,7 @@ export function useAppRouterProps({
           handleReviewPreventiveExecutionValidation(
             id,
             decisionData,
-            customMvtHandler || handleAddMouvement
+            customMvtHandler || null
           ),
         onReviewSortieDemandValidation: (
           id: string,
@@ -345,7 +345,7 @@ export function useAppRouterProps({
           handleReviewSortieDemandValidation?.(
             id,
             decisionData,
-            customMvtHandler || handleAddMouvement
+            customMvtHandler || null
           ),
         onAddMouvement: handleAddMouvement,
         onNavigateToTab: navigateTo,
@@ -1073,12 +1073,12 @@ export function useAppRouterProps({
           id: string,
           decisionData: Record<string, unknown>,
           customMvtHandler?: (...args: unknown[]) => unknown
-        ) => handleReviewInterventionValidation(id, decisionData, customMvtHandler || handleAddMouvement),
+        ) => handleReviewInterventionValidation(id, decisionData, customMvtHandler || null),
         onClotureIntervention: (
           id: string,
           clotureData: Record<string, unknown>,
           customMvtHandler?: (...args: unknown[]) => unknown
-        ) => handleClotureIntervention(id, clotureData, customMvtHandler || handleAddMouvement),
+        ) => handleClotureIntervention(id, clotureData, customMvtHandler || null),
         onUpdateIntervention: handleUpdateCorrectiveIntervention,
         onDeleteIntervention: handleDeleteCorrectiveIntervention,
         onBulkImport: handleBulkImportCorrective,

@@ -166,9 +166,14 @@ const NON_DESTRUCTIVE_ROLES = new Set([
   'TECHNICIAN',
   'OPERATEUR',
   'OPERATOR',
+  'RESPONSABLE_MAGASIN',
+  'MAGASINIER',
+  'STOREKEEPER',
   'VIEWER',
   'OBSERVATEUR',
 ]);
+
+const READ_ONLY_ROLES = new Set(['VIEWER', 'OBSERVATEUR']);
 
 const CORRECTIVE_VALIDATION_MANAGER_ROLES = new Set([
   'ADMIN',
@@ -176,12 +181,92 @@ const CORRECTIVE_VALIDATION_MANAGER_ROLES = new Set([
   'RESPONSABLE_MAINTENANCE',
 ]);
 
-function canManageCorrectiveValidationSession(explicitRole?: unknown): boolean {
-  const role = String(explicitRole || resolveActiveSessionRole() || '')
+const CORRECTIVE_EXECUTE_ROLES = new Set([
+  'ADMIN',
+  'RESPONSABLE',
+  'RESPONSABLE_MAINTENANCE',
+  'TECHNICIEN',
+  'TECHNICIAN',
+  'OPERATEUR',
+  'OPERATOR',
+]);
+
+const WORKSHOP_CREATE_ROLES = new Set([
+  'ADMIN',
+  'RESPONSABLE',
+  'RESPONSABLE_MAINTENANCE',
+  'TECHNICIEN',
+  'TECHNICIAN',
+]);
+
+const NEED_CREATE_ROLES = new Set([
+  'ADMIN',
+  'RESPONSABLE',
+  'RESPONSABLE_MAINTENANCE',
+  'RESPONSABLE_MAGASIN',
+  'MAGASINIER',
+  'STOREKEEPER',
+  'TECHNICIEN',
+  'TECHNICIAN',
+]);
+
+function normalizeSessionRole(explicitRole?: unknown): string {
+  return String(explicitRole || resolveActiveSessionRole() || '')
     .trim()
     .toUpperCase();
+}
+
+function canManageCorrectiveValidationSession(explicitRole?: unknown): boolean {
+  const role = normalizeSessionRole(explicitRole);
   if (!role) return true; // Headless unit test without active browser session
   return CORRECTIVE_VALIDATION_MANAGER_ROLES.has(role);
+}
+
+function canCreateCorrectiveRequestSession(explicitRole?: unknown): boolean {
+  const role = normalizeSessionRole(explicitRole);
+  if (!role) return true;
+  if (READ_ONLY_ROLES.has(role)) return false;
+  if (role === 'RESPONSABLE_MAGASIN' || role === 'MAGASINIER' || role === 'STOREKEEPER') {
+    return false;
+  }
+  return CORRECTIVE_EXECUTE_ROLES.has(role);
+}
+
+function canExecuteCorrectiveSession(explicitRole?: unknown): boolean {
+  const role = normalizeSessionRole(explicitRole);
+  if (!role) return true;
+  if (READ_ONLY_ROLES.has(role)) return false;
+  if (role === 'RESPONSABLE_MAGASIN' || role === 'MAGASINIER' || role === 'STOREKEEPER') {
+    return false;
+  }
+  return CORRECTIVE_EXECUTE_ROLES.has(role);
+}
+
+function canCreateWorkshopOrderSession(explicitRole?: unknown): boolean {
+  const role = normalizeSessionRole(explicitRole);
+  if (!role) return true;
+  return WORKSHOP_CREATE_ROLES.has(role);
+}
+
+function canCreateNeedRequestSession(explicitRole?: unknown): boolean {
+  const role = normalizeSessionRole(explicitRole);
+  if (!role) return true;
+  return NEED_CREATE_ROLES.has(role);
+}
+
+function isMachineArchivedInStore(machines: any[], codeMachine: unknown): boolean {
+  const target = String(codeMachine || '').trim().toUpperCase();
+  if (!target || !Array.isArray(machines) || machines.length === 0) return false;
+  const matched = machines.find((m: any) => {
+    const k1 = String(m?.id_machine_registered || '').trim().toUpperCase();
+    const k2 = String(m?.code_machine || '').trim().toUpperCase();
+    const k3 = String(m?.id || '').trim().toUpperCase();
+    return (k1 && k1 === target) || (k2 && k2 === target) || (k3 && k3 === target);
+  });
+  if (!matched) return false;
+  if (matched.is_active === false || matched.actif === false) return true;
+  const statusNorm = String(matched.status || matched.statut || '').trim().toUpperCase();
+  return statusNorm.startsWith('ARCHIV');
 }
 
 function normalizeTypePanne(raw: unknown): string {
@@ -421,6 +506,10 @@ export function createCorrectiveSlice(set: StoreSet, get: StoreGet): CorrectiveS
     },
 
     handleAddCorrectiveActionForPanne: (panneKey: string, actionText: string) => {
+      if (!canManageCorrectiveValidationSession()) {
+        Logger.warn('[CorrectiveSlice] RBAC blocked handleAddCorrectiveActionForPanne');
+        return;
+      }
       const cleanKey = String(panneKey || '').trim();
       const cleanText = String(actionText || '').trim();
       if (!cleanKey || !cleanText) return;
@@ -432,6 +521,10 @@ export function createCorrectiveSlice(set: StoreSet, get: StoreGet): CorrectiveS
     },
 
     handleUpdateCorrectiveActionForPanne: (panneKey: string, actionIndex: number, newActionText: string) => {
+      if (!canManageCorrectiveValidationSession()) {
+        Logger.warn('[CorrectiveSlice] RBAC blocked handleUpdateCorrectiveActionForPanne');
+        return;
+      }
       const cleanText = String(newActionText || '').trim();
       if (!cleanText) return;
       get().setCorrectiveActionsByPanne((prev) => {
@@ -443,6 +536,10 @@ export function createCorrectiveSlice(set: StoreSet, get: StoreGet): CorrectiveS
     },
 
     handleDeleteCorrectiveActionForPanne: (panneKey: string, actionIndex: number) => {
+      if (!canManageCorrectiveValidationSession()) {
+        Logger.warn('[CorrectiveSlice] RBAC blocked handleDeleteCorrectiveActionForPanne');
+        return;
+      }
       get().setCorrectiveActionsByPanne((prev) => {
         const current = Array.isArray(prev[panneKey]) ? [...prev[panneKey]] : [];
         if (actionIndex < 0 || actionIndex >= current.length) return prev;
@@ -452,6 +549,10 @@ export function createCorrectiveSlice(set: StoreSet, get: StoreGet): CorrectiveS
     },
 
     handleAddPanne: (category: string, panneCode: string) => {
+      if (!canManageCorrectiveValidationSession()) {
+        Logger.warn('[CorrectiveSlice] RBAC blocked handleAddPanne');
+        return;
+      }
       const cleanCat = String(category || 'M').trim();
       const cleanCode = String(panneCode || '').trim();
       if (!cleanCode) return;
@@ -463,6 +564,10 @@ export function createCorrectiveSlice(set: StoreSet, get: StoreGet): CorrectiveS
     },
 
     handleUpdatePanne: (category: string, oldCode: string, newCode: string) => {
+      if (!canManageCorrectiveValidationSession()) {
+        Logger.warn('[CorrectiveSlice] RBAC blocked handleUpdatePanne');
+        return;
+      }
       const cleanNew = String(newCode || '').trim();
       if (!cleanNew) return;
       get().setCorrectivePanneCategories((prev) => {
@@ -475,6 +580,10 @@ export function createCorrectiveSlice(set: StoreSet, get: StoreGet): CorrectiveS
     },
 
     handleDeletePanne: (category: string, panneCode: string) => {
+      if (!canManageCorrectiveValidationSession()) {
+        Logger.warn('[CorrectiveSlice] RBAC blocked handleDeletePanne');
+        return;
+      }
       get().setCorrectivePanneCategories((prev) => {
         const list = Array.isArray(prev[category]) ? prev[category] : [];
         return {
@@ -485,6 +594,10 @@ export function createCorrectiveSlice(set: StoreSet, get: StoreGet): CorrectiveS
     },
 
     handleAddTravail: (travailText: string) => {
+      if (!canManageCorrectiveValidationSession()) {
+        Logger.warn('[CorrectiveSlice] RBAC blocked handleAddTravail');
+        return;
+      }
       const clean = String(travailText || '').trim();
       if (!clean) return;
       get().setCorrectiveTravauxAFaire((prev) =>
@@ -493,6 +606,10 @@ export function createCorrectiveSlice(set: StoreSet, get: StoreGet): CorrectiveS
     },
 
     handleUpdateTravail: (oldText: string, newText: string) => {
+      if (!canManageCorrectiveValidationSession()) {
+        Logger.warn('[CorrectiveSlice] RBAC blocked handleUpdateTravail');
+        return;
+      }
       const cleanNew = String(newText || '').trim();
       if (!cleanNew) return;
       get().setCorrectiveTravauxAFaire((prev) =>
@@ -501,12 +618,20 @@ export function createCorrectiveSlice(set: StoreSet, get: StoreGet): CorrectiveS
     },
 
     handleDeleteTravail: (travailText: string) => {
+      if (!canManageCorrectiveValidationSession()) {
+        Logger.warn('[CorrectiveSlice] RBAC blocked handleDeleteTravail');
+        return;
+      }
       get().setCorrectiveTravauxAFaire((prev) =>
         (prev || []).filter((t) => t !== travailText)
       );
     },
 
     handleResetCorrectiveActions: async () => {
+      if (!canManageCorrectiveValidationSession()) {
+        Logger.warn('[CorrectiveSlice] RBAC blocked handleResetCorrectiveActions');
+        return;
+      }
       DataGateway.syncCmCatalogBaseline({
         setCorrectiveActionsByPanne: (val) => get().setCorrectiveActionsByPanne(val),
         setCorrectivePanneCategories: (val) => get().setCorrectivePanneCategories(val),
@@ -515,6 +640,17 @@ export function createCorrectiveSlice(set: StoreSet, get: StoreGet): CorrectiveS
     },
 
     handleForceSyncCorrectiveSeed: async () => {
+      if (!canManageCorrectiveValidationSession()) {
+        Logger.warn('[CorrectiveSlice] RBAC blocked handleForceSyncCorrectiveSeed');
+        return {
+          interventionsCount: (get().correctiveInterventions || []).length,
+          pannesCount: 0,
+          categoriesCount: Object.keys(get().correctivePanneCategories || {}).length,
+          travauxCount: (get().correctiveTravauxAFaire || []).length,
+          actionsCount: Object.keys(get().correctiveActionsByPanne || {}).length,
+          intervenantsCount: (get().correctiveIntervenants || []).length,
+        };
+      }
       const synced = DataGateway.syncCmCatalogBaseline({
         setCorrectiveActionsByPanne: (val) => get().setCorrectiveActionsByPanne(val),
         setCorrectivePanneCategories: (val) => get().setCorrectivePanneCategories(val),
@@ -531,14 +667,25 @@ export function createCorrectiveSlice(set: StoreSet, get: StoreGet): CorrectiveS
     },
 
     handleAddDemandeIntervention: (data) => {
+      if (!canCreateCorrectiveRequestSession((data as any)?.actorRole)) {
+        Logger.warn('[CorrectiveSlice] RBAC blocked handleAddDemandeIntervention');
+        return null as any;
+      }
+      const codeMachine = String(data?.code_machine || data?.id_machine_registered || '').trim();
+      if (codeMachine && isMachineArchivedInStore(get().machines || [], codeMachine)) {
+        Logger.warn(`[CorrectiveSlice] Refused DI creation on archived machine: ${codeMachine}`);
+        return null as any;
+      }
       const nowIso = new Date().toISOString();
       const today = nowIso.slice(0, 10);
       const timeNow = nowIso.slice(11, 16);
       const requiresLoto = Boolean(data?.requires_loto);
+      const actor = resolveActiveActorContext();
+      const sessionRole = normalizeSessionRole((data as any)?.actorRole);
       const created: CorrectiveInterventionItem = {
         ...data,
         id: String(data?.id || safeId('DI')).trim(),
-        code_machine: String(data?.code_machine || data?.id_machine_registered || '').trim(),
+        code_machine: codeMachine,
         type_panne: normalizeTypePanne(data?.type_panne),
         priorite: normalizePriorite(data?.priorite),
         statut: 'DEMANDE',
@@ -563,13 +710,44 @@ export function createCorrectiveSlice(set: StoreSet, get: StoreGet): CorrectiveS
       };
 
       get().setCorrectiveInterventions((prev) => [created, ...(prev || [])]);
+
+      get().appendAuditEvent?.({
+        actorId: actor.actorId,
+        actorName: actor.actorName,
+        actorRole: sessionRole || actor.actorRole,
+        actionType: 'CORRECTIVE_DI_CREATED',
+        entityType: 'CORRECTIVE_DI',
+        entityId: String(created.id),
+        before: null,
+        after: {
+          id: created.id,
+          code_machine: created.code_machine,
+          type_panne: created.type_panne,
+          anomalie: created.anomalie || '',
+          priorite: created.priorite,
+          requires_loto: requiresLoto,
+        },
+      });
+
       return created;
     },
 
     handleConvertToBt: (id, btDetails: Record<string, any> = {}) => {
+      if (!canManageCorrectiveValidationSession(btDetails?.actorRole)) {
+        Logger.warn('[CorrectiveSlice] RBAC blocked handleConvertToBt');
+        return null;
+      }
       const current = get().correctiveInterventions || [];
       const existing = current.find((i) => matchesIntervention(i, id));
       if (!existing) return null;
+
+      const targetMachineCode = String(
+        btDetails?.code_machine || existing.code_machine || existing.machine || ''
+      ).trim();
+      if (targetMachineCode && isMachineArchivedInStore(get().machines || [], targetMachineCode)) {
+        Logger.warn(`[CorrectiveSlice] Refused DI->BT conversion on archived machine: ${targetMachineCode}`);
+        return null;
+      }
 
       const requiresLoto = Boolean(btDetails?.requires_loto ?? existing.requires_loto);
       const targetStatut = String(
@@ -590,13 +768,15 @@ export function createCorrectiveSlice(set: StoreSet, get: StoreGet): CorrectiveS
 
       const check = WorkOrderStateMachine.validateTransition(candidateRecord, targetStatut, {
         ...btDetails,
-        code_machine: btDetails.code_machine || existing.code_machine || existing.machine,
+        code_machine: targetMachineCode,
       });
       if (!check.valid) return null;
 
       const nowIso = new Date().toISOString();
       const today = nowIso.slice(0, 10);
       const timeNow = nowIso.slice(11, 16);
+      const actor = resolveActiveActorContext();
+      const sessionRole = normalizeSessionRole(btDetails?.actorRole);
 
       const updated: CorrectiveInterventionItem = {
         ...existing,
@@ -623,10 +803,36 @@ export function createCorrectiveSlice(set: StoreSet, get: StoreGet): CorrectiveS
       get().setCorrectiveInterventions((prev) =>
         (prev || []).map((i) => (matchesIntervention(i, id) ? updated : i))
       );
+
+      get().appendAuditEvent?.({
+        actorId: actor.actorId,
+        actorName: actor.actorName,
+        actorRole: sessionRole || actor.actorRole,
+        actionType: 'CORRECTIVE_DI_CONVERTED_TO_BT',
+        entityType: 'CORRECTIVE_BT',
+        entityId: String(updated.id || id),
+        before: {
+          statut: existing.statut,
+          num_bt: existing.num_bt || null,
+          intervenant: existing.intervenant || null,
+        },
+        after: {
+          statut: updated.statut,
+          num_bt: updated.num_bt,
+          code_machine: updated.code_machine,
+          intervenant: updated.intervenant || null,
+          requires_loto: updated.requires_loto,
+        },
+      });
+
       return updated;
     },
 
     handleStartLiveIntervention: (id) => {
+      if (!canExecuteCorrectiveSession()) {
+        Logger.warn('[CorrectiveSlice] RBAC blocked handleStartLiveIntervention');
+        return;
+      }
       const current = get().correctiveInterventions || [];
       const existing = current.find((i) => matchesIntervention(i, id));
       if (!existing) return;
@@ -654,6 +860,10 @@ export function createCorrectiveSlice(set: StoreSet, get: StoreGet): CorrectiveS
     },
 
     handleSubmitInterventionForValidation: (id, submissionData: Record<string, any> = {}) => {
+      if (!canExecuteCorrectiveSession(submissionData?.actorRole)) {
+        Logger.warn('[CorrectiveSlice] RBAC blocked handleSubmitInterventionForValidation');
+        return null;
+      }
       const current = get().correctiveInterventions || [];
       const existing = current.find((i) => matchesIntervention(i, id));
       if (!existing) return null;
@@ -1102,15 +1312,25 @@ export function createCorrectiveSlice(set: StoreSet, get: StoreGet): CorrectiveS
       if (!existing) return null;
 
       // Maker-Checker guard: Technicians / Operators cannot bypass supervisor validation on closure
-      const effectiveRole = String(
-        clotureData?.actorRole || resolveActiveSessionRole() || ''
-      )
-        .trim()
-        .toUpperCase();
+      const effectiveRole = normalizeSessionRole(clotureData?.actorRole);
+      if (READ_ONLY_ROLES.has(effectiveRole)) {
+        Logger.warn('[CorrectiveSlice] RBAC blocked handleClotureIntervention for read-only role');
+        return null;
+      }
+      if (
+        effectiveRole === 'RESPONSABLE_MAGASIN' ||
+        effectiveRole === 'MAGASINIER' ||
+        effectiveRole === 'STOREKEEPER'
+      ) {
+        Logger.warn('[CorrectiveSlice] RBAC blocked handleClotureIntervention for storekeeper role');
+        return null;
+      }
       if (
         clotureData?.isTechnician === true ||
         effectiveRole === 'TECHNICIEN' ||
-        effectiveRole === 'OPERATEUR'
+        effectiveRole === 'TECHNICIAN' ||
+        effectiveRole === 'OPERATEUR' ||
+        effectiveRole === 'OPERATOR'
       ) {
         return get().handleSubmitInterventionForValidation(id, {
           ...clotureData,
@@ -1122,6 +1342,10 @@ export function createCorrectiveSlice(set: StoreSet, get: StoreGet): CorrectiveS
           date_fin_proposee: clotureData?.date_fin_proposee ?? clotureData?.date_fin,
           heure_fin_proposee: clotureData?.heure_fin_proposee ?? clotureData?.heure_fin,
         });
+      }
+      if (!canManageCorrectiveValidationSession(effectiveRole)) {
+        Logger.warn('[CorrectiveSlice] RBAC blocked handleClotureIntervention for unauthorized role');
+        return null;
       }
 
       // Check linked open workshop/external orders or incomplete need requests
@@ -1401,10 +1625,11 @@ export function createCorrectiveSlice(set: StoreSet, get: StoreGet): CorrectiveS
         (prev || []).map((i) => (matchesIntervention(i, id) ? closedBt : i))
       );
 
+      const resolvedAuditRole = effectiveRole || actor.actorRole;
       get().appendAuditEvent?.({
         actorId: String(clotureData?.validated_by_id || actor.actorId),
         actorName: String(clotureData?.validated_by_name || actor.actorName),
-        actorRole: effectiveRole || actor.actorRole,
+        actorRole: resolvedAuditRole,
         actionType: 'CORRECTIVE_BT_CLOSED',
         entityType: 'CORRECTIVE_BT',
         entityId: String(existing.id || id),
@@ -1418,6 +1643,9 @@ export function createCorrectiveSlice(set: StoreSet, get: StoreGet): CorrectiveS
           temps_intervention_mins: resolvedRepairMins,
           temps_arret_minutes: resolvedDowntimeMins,
           emitted_movement_ids: emittedIds,
+          ...(isSoloDirectAllowedForActor(resolvedAuditRole)
+            ? { executionMode: 'SOLO_DIRECT' }
+            : {}),
         },
       });
 
@@ -1447,6 +1675,10 @@ export function createCorrectiveSlice(set: StoreSet, get: StoreGet): CorrectiveS
     },
 
     handleUpdateCorrectiveIntervention: (id, patch = {}) => {
+      if (!canExecuteCorrectiveSession((patch as any)?.actorRole)) {
+        Logger.warn('[CorrectiveSlice] RBAC blocked handleUpdateCorrectiveIntervention');
+        return false;
+      }
       const current = get().correctiveInterventions || [];
       const target = current.find((i) => matchesIntervention(i, id));
       if (!target) return false;
@@ -1493,8 +1725,24 @@ export function createCorrectiveSlice(set: StoreSet, get: StoreGet): CorrectiveS
       const target = current.find((i) => matchesIntervention(i, id));
       if (!target) return false;
 
+      // Referential integrity guard: refuse deleting a BT that still has an active workshop order or open need request
+      const linkedWorkshopOrders = getLinkedWorkshopOrdersForIntervention(
+        target,
+        get().workshopOrders || []
+      );
+      if (linkedWorkshopOrders.some((o) => isWorkshopOrderActive(o))) {
+        Logger.warn('[CorrectiveSlice] Refused BT deletion: active workshop order linked');
+        return false;
+      }
+      if (hasBlockingNeedRequestForIntervention(target, get().needRequests || [])) {
+        Logger.warn('[CorrectiveSlice] Refused BT deletion: open need request linked');
+        return false;
+      }
+
       const actor = resolveActiveActorContext();
       const targetId = String(target.id || id || '').trim();
+      const targetBtCode = String(target.num_bt || '').trim().toUpperCase();
+      const targetIdUpper = targetId.toUpperCase();
       const emittedSet = new Set(
         Array.isArray(target.emitted_movement_ids) ? target.emitted_movement_ids.map(String) : []
       );
@@ -1512,6 +1760,31 @@ export function createCorrectiveSlice(set: StoreSet, get: StoreGet): CorrectiveS
             if (fallbackBon && String(m?.code_bon || '') === fallbackBon) return false;
             return true;
           })
+        );
+      }
+
+      // Detach terminal workshopOrders / needRequests references so no dangling orphan FK points to deleted BT
+      const matchBtKey = (val: unknown) => {
+        const k = String(val || '').trim().toUpperCase();
+        return Boolean(k && (k === targetIdUpper || (targetBtCode && k === targetBtCode)));
+      };
+      if (linkedWorkshopOrders.length > 0) {
+        get().setWorkshopOrders((prev) =>
+          (prev || []).map((o) =>
+            matchBtKey(o.id_bt) || matchBtKey(o.id_di)
+              ? { ...o, id_bt: null, id_di: null }
+              : o
+          )
+        );
+      }
+      const currentNeeds = get().needRequests || [];
+      if (currentNeeds.some((n) => matchBtKey(n.id_bt) || matchBtKey(n.id_di))) {
+        get().setNeedRequests((prev) =>
+          (prev || []).map((n) =>
+            matchBtKey(n.id_bt) || matchBtKey(n.id_di)
+              ? { ...n, id_bt: null, id_di: null }
+              : n
+          )
         );
       }
 
@@ -1546,6 +1819,14 @@ export function createCorrectiveSlice(set: StoreSet, get: StoreGet): CorrectiveS
     },
 
     handleResetCorrectiveToSeed: async () => {
+      if (!canManageCorrectiveValidationSession()) {
+        Logger.warn('[CorrectiveSlice] RBAC blocked handleResetCorrectiveToSeed');
+        return {
+          cancelled: true,
+          restoredCount: 0,
+          orphanCountAfter: 0,
+        };
+      }
       const demoFlag = storageService.getItem(STORAGE_KEYS.DEMO_MODE);
       const startMode = storageService.getItem(STORAGE_KEYS.START_MODE);
       const isExplicitDemoMode =
@@ -1572,6 +1853,10 @@ export function createCorrectiveSlice(set: StoreSet, get: StoreGet): CorrectiveS
 
     handleCreateWorkshopOrder: (payload) => {
       try {
+        if (!canCreateWorkshopOrderSession((payload as any)?.actorRole)) {
+          Logger.warn('[CorrectiveSlice] RBAC blocked handleCreateWorkshopOrder');
+          return null;
+        }
         const existingOrders = get().workshopOrders || [];
         const created = createWorkshopOrderRecord(payload, existingOrders);
         get().setWorkshopOrders([created, ...existingOrders]);
@@ -1607,6 +1892,12 @@ export function createCorrectiveSlice(set: StoreSet, get: StoreGet): CorrectiveS
       observation?: string,
       costDetails?: { heures_atelier?: number; cout_atelier?: number }
     ) => {
+      if (!canManageCorrectiveValidationSession()) {
+        return {
+          valid: false,
+          reason: "Sécurité RBAC : seul un Administrateur ou Responsable Maintenance peut piloter le statut d'un Bon d'Atelier.",
+        };
+      }
       const orders = get().workshopOrders || [];
       const target = orders.find(
         (o) => String(o.id) === String(orderId) || String(o.code_bon) === String(orderId)
@@ -1688,6 +1979,10 @@ export function createCorrectiveSlice(set: StoreSet, get: StoreGet): CorrectiveS
 
     handleCreateNeedRequest: (payload: CreateNeedRequestInput) => {
       try {
+        if (!canCreateNeedRequestSession((payload as any)?.actorRole)) {
+          Logger.warn('[CorrectiveSlice] RBAC blocked handleCreateNeedRequest');
+          return null;
+        }
         const existing = get().needRequests || [];
         const materialClass = String(payload.material_class || 'PDR')
           .trim()
@@ -1825,9 +2120,9 @@ export function createCorrectiveSlice(set: StoreSet, get: StoreGet): CorrectiveS
           : {}),
         ...(createdWorkshopOrder
           ? {
-              id_workshop_order: createdWorkshopOrder.id,
-              code_workshop_order: createdWorkshopOrder.code_bon,
-            }
+               id_workshop_order: createdWorkshopOrder.id,
+               code_workshop_order: createdWorkshopOrder.code_bon,
+             }
           : {}),
         date_statut: nowIso,
         timestamps: {
@@ -1858,8 +2153,10 @@ export function createCorrectiveSlice(set: StoreSet, get: StoreGet): CorrectiveS
         ? (get().workshopOrders || []).find((o) => String(o.id) === String(target.id_workshop_order)) || null
         : null;
 
+      const resolvedRole = normalizeSessionRole(context.actorRole);
+
       const check = validateNeedRequestTransition(target.statut, nextStatus, {
-        actorRole: context.actorRole,
+        actorRole: resolvedRole,
         isTechnician: context.isTechnician,
         existingCanalAppro: target.canal_appro ?? null,
         linkedWorkshopOrder: linkedWo,

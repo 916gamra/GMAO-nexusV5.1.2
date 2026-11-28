@@ -237,7 +237,15 @@ export function createStockSlice(set: StoreSet, get: StoreGet): StockSliceKeys {
 
     setMouvements: (updater: StateUpdater<IMouvement[]>) => {
       const prev = get().mouvements || [];
-      const next = resolveUpdate(updater, prev);
+      const rawNext = resolveUpdate(updater, prev);
+      const seenIds = new Set<string>();
+      const next = (Array.isArray(rawNext) ? rawNext : []).filter((m) => {
+        const idKey = String(m?.id ?? '').trim();
+        if (!idKey) return true;
+        if (seenIds.has(idKey)) return false;
+        seenIds.add(idKey);
+        return true;
+      });
       trackRemovedEntityIds('mouvements', prev, next);
       DataGateway.saveMouvements(next, { stock: get().rawStock, strict: false });
       set({ mouvements: next });

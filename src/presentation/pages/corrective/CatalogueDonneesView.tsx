@@ -77,6 +77,7 @@ export default function CatalogueDonneesView({
       }).length;
 
       return {
+        ...tech,
         id: tech.id_technician || tech.id || `TECH-${tech.nom}`,
         id_technician: tech.id_technician || tech.id || `TECH-${tech.nom}`,
         nom: tech.nom || tech.name || 'Technicien',
