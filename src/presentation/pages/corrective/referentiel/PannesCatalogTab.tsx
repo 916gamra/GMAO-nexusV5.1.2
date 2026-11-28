@@ -18,7 +18,7 @@ import {
 
 export default function PannesCatalogTab({
   filteredPannes = [],
-  totalPannesCount: _totalPannesCount = 0,
+  totalPannesCount = 0,
   selectedCategory = 'ALL',
   CATEGORY_META = {},
   expandedPanne = null,
@@ -487,7 +487,9 @@ export default function PannesCatalogTab({
                 </div>
                 <div>
                   <h3 className="text-sm font-black text-slate-900">Nouvelle Anomalie / Panne</h3>
-                  <p className="text-[11px] text-slate-400">Ajout au référentiel des 282+ pannes</p>
+                  <p className="text-[11px] text-slate-400">
+                    Ajout au référentiel des {totalPannesCount || filteredPannes.length} pannes
+                  </p>
                 </div>
               </div>
               <button

@@ -1,5 +1,5 @@
 import type { Dispatch, SetStateAction } from 'react';
-import { Cpu } from 'lucide-react';
+import { Cpu, User } from 'lucide-react';
 import type { IWarehouseItem } from '../../../../types/domain';
 import type { CorrectiveInterventionItem } from '../../../../types/store';
 import type {
@@ -15,6 +15,8 @@ interface InterventionLiveLifecycleStepProps {
   machineParts: IWarehouseItem[];
   isWizardMode: boolean;
   liveWorkingTime: { formatted: string; minutes: number };
+  isTechUser?: boolean;
+  activeTechnicianOptions?: Array<{ id_technician: string; nom: string; specialite: string }>;
 }
 
 export function InterventionLiveLifecycleStep({
@@ -25,9 +27,63 @@ export function InterventionLiveLifecycleStep({
   machineParts,
   isWizardMode,
   liveWorkingTime,
+  isTechUser = false,
+  activeTechnicianOptions = [],
 }: InterventionLiveLifecycleStepProps) {
   return (
     <div className="space-y-4">
+      {/* Intervenant exécutant (Attribution / Modification directe pour Solo Expert & Responsable) */}
+      {!isTechUser && (
+        <div className="p-3.5 rounded-2xl bg-indigo-50/50 border border-indigo-200/80 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div className="flex items-center gap-2">
+            <User className="w-4 h-4 text-indigo-700 shrink-0" />
+            <div>
+              <div className="text-[10.5px] font-black uppercase tracking-wider text-indigo-950">
+                Technicien / Intervenant Exécutant (Col D)
+              </div>
+              <div className="text-[10px] text-indigo-700">
+                Permet d&apos;affecter ou d&apos;ajuster l&apos;intervenant réel avant clôture pour le calcul MTTR
+              </div>
+            </div>
+          </div>
+          <select
+            data-testid="live-closure-intervenant-select"
+            value={formState.intervenant || activeIntervention.intervenant || ''}
+            onChange={(e) => {
+              const nextName = e.target.value;
+              const matched = activeTechnicianOptions.find(
+                (t) => t.nom.toLowerCase() === nextName.toLowerCase()
+              );
+              setFormState((prev) => ({
+                ...prev,
+                intervenant: nextName,
+                technicien_matricule: matched?.id_technician || prev.technicien_matricule || '',
+              }));
+            }}
+            className="py-1.5 px-3 text-xs font-bold rounded-xl border border-indigo-200 bg-white text-slate-900 focus:border-indigo-400 focus:outline-hidden min-w-[220px]"
+          >
+            <option value="">— Sélectionner un intervenant —</option>
+            {activeTechnicianOptions.map((tech) => (
+              <option key={tech.id_technician || tech.nom} value={tech.nom}>
+                {tech.nom} ({tech.specialite})
+              </option>
+            ))}
+            {Boolean(formState.intervenant || activeIntervention.intervenant) &&
+              !activeTechnicianOptions.some(
+                (t) =>
+                  t.nom.toLowerCase() ===
+                  String(formState.intervenant || activeIntervention.intervenant || '')
+                    .trim()
+                    .toLowerCase()
+              ) && (
+                <option value={String(formState.intervenant || activeIntervention.intervenant)}>
+                  {String(formState.intervenant || activeIntervention.intervenant)}
+                </option>
+              )}
+          </select>
+        </div>
+      )}
+
       {/* Organe / Composant (Cycle de vie) & Part (Localisation Structurelle — Sans déstockage) */}
       {(machineComponents.length > 0 ||
         machineParts.length > 0 ||

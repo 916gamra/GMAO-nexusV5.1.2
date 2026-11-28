@@ -2,6 +2,8 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { FileText, Plus, Printer, RotateCcw, Save, Trash2, X } from 'lucide-react';
 import { useGmaoStore } from '../../../../store/useGmaoStore';
+import { useAuth } from '../../../../context/AuthContext';
+import { AuthorizationService } from '../../../../core/security/AuthorizationService';
 import type { ICorrectiveTechnicalReport } from '../../../../types/store';
 
 export interface InterventionReportFields {
@@ -265,6 +267,12 @@ export default function InterventionReportModal({
   onSaveReport,
   showToast,
 }: InterventionReportModalProps) {
+  const { user } = useAuth();
+  const canEditReport =
+    !user ||
+    (!AuthorizationService.isReadOnly(user) &&
+      (AuthorizationService.hasPermission(user, 'corrective.execute') ||
+        AuthorizationService.hasPermission(user, 'corrective.manage')));
   const draftKey = useMemo(() => getInterventionReportDraftKey(intervention), [intervention]);
   const btTargetId = intervention?.id ?? intervention?.num_bt ?? null;
 
@@ -408,6 +416,13 @@ export default function InterventionReportModal({
   };
 
   const handleSaveDraft = () => {
+    if (!canEditReport) {
+      showToast?.(
+        'Action refusée : votre rôle est en lecture seule sur les rapports techniques.',
+        'warning'
+      );
+      return;
+    }
     const nowIso = new Date().toISOString();
     const payload: InterventionReportDraft = {
       fields,
@@ -461,6 +476,13 @@ export default function InterventionReportModal({
   };
 
   const handleResetDraft = () => {
+    if (!canEditReport) {
+      showToast?.(
+        'Action refusée : votre rôle est en lecture seule sur les rapports techniques.',
+        'warning'
+      );
+      return;
+    }
     if (btTargetId !== null) {
       const saveFn = onSaveReport ?? useGmaoStore.getState().handleSaveInterventionReport;
       if (typeof saveFn === 'function') {
@@ -740,7 +762,7 @@ export default function InterventionReportModal({
         </div>
 
         <div className="flex items-center gap-2 flex-wrap">
-          {hasSavedDraft && (
+          {canEditReport && hasSavedDraft && (
             <button
               type="button"
               onClick={handleResetDraft}
@@ -752,14 +774,16 @@ export default function InterventionReportModal({
             </button>
           )}
 
-          <button
-            type="button"
-            onClick={handleSaveDraft}
-            className="px-3.5 py-1.5 rounded-xl border border-blue-700 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold transition flex items-center gap-1.5 cursor-pointer shadow-xs active:scale-95"
-          >
-            <Save className="w-3.5 h-3.5 text-white" />
-            <span>Enregistrer brouillon</span>
-          </button>
+          {canEditReport && (
+            <button
+              type="button"
+              onClick={handleSaveDraft}
+              className="px-3.5 py-1.5 rounded-xl border border-blue-700 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold transition flex items-center gap-1.5 cursor-pointer shadow-xs active:scale-95"
+            >
+              <Save className="w-3.5 h-3.5 text-white" />
+              <span>Enregistrer brouillon</span>
+            </button>
+          )}
 
           <button
             type="button"

@@ -45,6 +45,9 @@ import {
   WORKSHOP_STATUS_LABELS,
   type WorkshopOrderType,
 } from '../../../domain/corrective/workshopOrderService';
+import { AuthorizationService } from '../../../core/security/AuthorizationService';
+import { useCurrency } from '../../../utils/currencyService';
+import { useWorkspaceProfile } from '../../../core/workspace/workspaceProfile';
 import InterventionReportModal from './components/InterventionReportModal';
 
 export default function ClotureRapportsTab({
@@ -57,8 +60,16 @@ export default function ClotureRapportsTab({
   showToast,
 }: any) {
   const { t } = useI18n();
+  const { symbol } = useCurrency();
+  const workspaceProfile = useWorkspaceProfile();
   const { user } = useAuth();
   const isTechUser = isTechnicianRole(user);
+  const canEmitWorkshopOrder =
+    Boolean(user) &&
+    !AuthorizationService.isReadOnly(user) &&
+    (AuthorizationService.hasPermission(user, 'workshop.create') ||
+      AuthorizationService.hasPermission(user, 'corrective.execute') ||
+      AuthorizationService.hasPermission(user, 'corrective.manage'));
   const workshopOrders = useGmaoStore((s) => s.workshopOrders || []);
   const handleCreateWorkshopOrder = useGmaoStore((s) => s.handleCreateWorkshopOrder);
   const handleSaveInterventionReport = useGmaoStore(
@@ -1541,7 +1552,7 @@ export default function ClotureRapportsTab({
                     </div>
 
                     {/* Ventilation Coûts & TCO */}
-                    {(() => {
+                    {workspaceProfile.showFinance && (() => {
                       const linkedMachine = machineMap.get(
                         String(previewItem.code_machine || '').trim().toUpperCase()
                       );
@@ -1570,14 +1581,14 @@ export default function ClotureRapportsTab({
                               Ventilation Coûts &amp; TCO Industriel
                             </span>
                             <span className="font-mono font-black text-xs text-purple-900 bg-purple-50 px-2.5 py-0.5 rounded-lg border border-purple-200">
-                              Total TCO : {cost.coutTotalTco.toLocaleString('fr-FR')} DH
+                              Total TCO : {cost.coutTotalTco.toLocaleString('fr-FR')} {symbol}
                             </span>
                           </div>
                           <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-[11px]">
                             <div className="p-2 rounded-xl bg-white border border-slate-200">
                               <span className="text-[10px] font-bold text-slate-400 uppercase block">PDR Stock</span>
                               <span className="font-mono font-black text-slate-900">
-                                {cost.coutPdr.toLocaleString('fr-FR')} DH
+                                {cost.coutPdr.toLocaleString('fr-FR')} {symbol}
                               </span>
                             </div>
                             <div className="p-2 rounded-xl bg-white border border-slate-200">
@@ -1585,13 +1596,13 @@ export default function ClotureRapportsTab({
                                 Main-d&apos;Œuvre ({cost.repairHours}h × {cost.tauxHoraire})
                               </span>
                               <span className="font-mono font-black text-blue-800">
-                                {cost.coutMainOeuvre.toLocaleString('fr-FR')} DH
+                                {cost.coutMainOeuvre.toLocaleString('fr-FR')} {symbol}
                               </span>
                             </div>
                             <div className="p-2 rounded-xl bg-white border border-slate-200">
                               <span className="text-[10px] font-bold text-slate-400 uppercase block">Atelier / Externe</span>
                               <span className="font-mono font-black text-indigo-800">
-                                {cost.coutAtelier.toLocaleString('fr-FR')} DH
+                                {cost.coutAtelier.toLocaleString('fr-FR')} {symbol}
                               </span>
                             </div>
                             <div className="p-2 rounded-xl bg-white border border-slate-200">
@@ -1599,7 +1610,7 @@ export default function ClotureRapportsTab({
                                 Perte Arrêt ({cost.downtimeHours}h)
                               </span>
                               <span className="font-mono font-black text-rose-700">
-                                {cost.coutArretProduction.toLocaleString('fr-FR')} DH
+                                {cost.coutArretProduction.toLocaleString('fr-FR')} {symbol}
                               </span>
                             </div>
                           </div>
@@ -1673,15 +1684,17 @@ export default function ClotureRapportsTab({
                             Ouvrir Suivi Atelier
                           </button>
                         )}
-                        <button
-                          type="button"
-                          onClick={() => setShowModalAtelierForm((v) => !v)}
-                          className="px-2.5 py-1 rounded-lg bg-amber-600 hover:bg-amber-700 text-white font-bold text-[11px] cursor-pointer"
-                        >
-                          {showModalAtelierForm
-                            ? 'Fermer'
-                            : '+ Demande Réalisation / Rectification'}
-                        </button>
+                        {canEmitWorkshopOrder && (
+                          <button
+                            type="button"
+                            onClick={() => setShowModalAtelierForm((v) => !v)}
+                            className="px-2.5 py-1 rounded-lg bg-amber-600 hover:bg-amber-700 text-white font-bold text-[11px] cursor-pointer"
+                          >
+                            {showModalAtelierForm
+                              ? 'Fermer'
+                              : '+ Demande Réalisation / Rectification'}
+                          </button>
+                        )}
                       </div>
                     </div>
 

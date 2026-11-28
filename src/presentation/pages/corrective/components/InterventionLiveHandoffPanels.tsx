@@ -18,6 +18,8 @@ import {
   type WorkshopOrderType,
 } from '../../../../domain/corrective/workshopOrderService';
 import { SortieExterneService } from '../../../../application/services/SortieExterneService';
+import { useCurrency } from '../../../../utils/currencyService';
+import { useWorkspaceProfile } from '../../../../core/workspace/workspaceProfile';
 
 interface NeedFormState {
   material_class: NeedMaterialClass;
@@ -107,6 +109,9 @@ export function InterventionLiveHandoffPanels({
   handleQuickCreateWorkshopOrder,
   showToast,
 }: InterventionLiveHandoffPanelsProps) {
+  const { symbol } = useCurrency();
+  const workspaceProfile = useWorkspaceProfile();
+
   return (
     <>
       {/* COR-HANDOFF-P0: Demande de Besoin & Chaîne de Remise Terrain (NeedRequest) */}
@@ -118,10 +123,10 @@ export function InterventionLiveHandoffPanels({
           <div>
             <span className="text-xs font-black uppercase tracking-wider text-purple-950 flex items-center gap-1.5">
               <Package className="w-4 h-4 text-purple-700" />
-              Demande de Besoin & Remise Terrain (`COR-HANDOFF`)
+              Demande de Besoin & Remise Terrain (COR-HANDOFF)
             </span>
             <p className="text-[11px] text-purple-800 mt-0.5">
-              Déclarez un besoin matière (`PDR`, `Part`, `Composant`). Le responsable choisit le canal (`STOCK`, `ACHAT`, `ATELIER`, `EXTERNE`), puis vous validez la pose et l’essai (`POSE_ESSAI` ➔ `CLOTURE_FIELD`).
+              Déclarez un besoin matière (PDR, Part, Composant). Le responsable choisit le canal (STOCK, ACHAT, ATELIER, EXTERNE), puis vous validez la pose et l’essai (POSE_ESSAI ➔ CLOTURE_FIELD).
             </p>
           </div>
           <div className="flex items-center gap-2 shrink-0">
@@ -218,7 +223,7 @@ export function InterventionLiveHandoffPanels({
 
             <div>
               <label className="block text-[10px] font-bold text-slate-700 uppercase mb-1">
-                Politique & Nature du Besoin (`POLICY-TAGS`)
+                Politique & Nature du Besoin (POLICY-TAGS)
               </label>
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                 {(['REPLACING', 'REPAIRABLE', 'MODIFYING'] as MaintenancePolicyTag[]).map((tag) => {
@@ -275,7 +280,7 @@ export function InterventionLiveHandoffPanels({
                 onClick={handleEmitNeedRequest}
                 className="px-4 py-1.5 rounded-lg bg-purple-700 hover:bg-purple-800 text-white text-xs font-black uppercase shadow-xs cursor-pointer"
               >
-                Émettre Demande de Besoin (`DEMANDE_TECH`)
+                Émettre Demande de Besoin (DEMANDE_TECH)
               </button>
             </div>
           </div>
@@ -518,26 +523,28 @@ export function InterventionLiveHandoffPanels({
                     className="w-full py-2 px-2.5 text-xs font-mono font-bold rounded-lg border border-amber-300 bg-white"
                   />
                 </div>
-                <div>
-                  <label className="block text-[10px] font-bold text-slate-700 uppercase mb-1">
-                    Coût atelier DH (opt.)
-                  </label>
-                  <input
-                    type="number"
-                    min={0}
-                    step={10}
-                    data-testid="bon-atelier-cout-input"
-                    value={bonAtelierForm.cout_atelier || ''}
-                    onChange={(e) =>
-                      setBonAtelierForm((p) => ({
-                        ...p,
-                        cout_atelier: Math.max(0, Number(e.target.value) || 0),
-                      }))
-                    }
-                    placeholder="Ex: 450 DH"
-                    className="w-full py-2 px-2.5 text-xs font-mono font-bold rounded-lg border border-amber-300 bg-white"
-                  />
-                </div>
+                {workspaceProfile.showFinance && (
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-700 uppercase mb-1">
+                      Coût atelier {symbol} (opt.)
+                    </label>
+                    <input
+                      type="number"
+                      min={0}
+                      step={10}
+                      data-testid="bon-atelier-cout-input"
+                      value={bonAtelierForm.cout_atelier || ''}
+                      onChange={(e) =>
+                        setBonAtelierForm((p) => ({
+                          ...p,
+                          cout_atelier: Math.max(0, Number(e.target.value) || 0),
+                        }))
+                      }
+                      placeholder={`Ex: 450 ${symbol}`}
+                      className="w-full py-2 px-2.5 text-xs font-mono font-bold rounded-lg border border-amber-300 bg-white"
+                    />
+                  </div>
+                )}
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
                 <div className="sm:col-span-2">
@@ -666,23 +673,25 @@ export function InterventionLiveHandoffPanels({
                     className="w-full py-2 px-2.5 text-xs rounded-lg border border-slate-200 bg-white"
                   />
                 </div>
-                <div>
-                  <label className="block text-[10px] font-bold text-slate-600 uppercase mb-1">
-                    Coût devis / estimé (DH)
-                  </label>
-                  <input
-                    type="number"
-                    min={0}
-                    value={workshopQuickForm.cout_bobinage}
-                    onChange={(e) =>
-                      setWorkshopQuickForm((p) => ({
-                        ...p,
-                        cout_bobinage: Math.max(0, Number(e.target.value) || 0),
-                      }))
-                    }
-                    className="w-full py-2 px-2.5 text-xs font-mono font-bold rounded-lg border border-slate-200 bg-white"
-                  />
-                </div>
+                {workspaceProfile.showFinance && (
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-600 uppercase mb-1">
+                      Coût devis / estimé ({symbol})
+                    </label>
+                    <input
+                      type="number"
+                      min={0}
+                      value={workshopQuickForm.cout_bobinage}
+                      onChange={(e) =>
+                        setWorkshopQuickForm((p) => ({
+                          ...p,
+                          cout_bobinage: Math.max(0, Number(e.target.value) || 0),
+                        }))
+                      }
+                      className="w-full py-2 px-2.5 text-xs font-mono font-bold rounded-lg border border-slate-200 bg-white"
+                    />
+                  </div>
+                )}
               </div>
 
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pt-1 border-t border-slate-100">
@@ -753,9 +762,9 @@ export function InterventionLiveHandoffPanels({
                           {ord.heures_atelier}h
                         </span>
                       )}
-                      {Number(ord.cout_atelier || 0) > 0 && (
+                      {workspaceProfile.showFinance && Number(ord.cout_atelier || 0) > 0 && (
                         <span className="font-mono font-bold text-[10.5px] bg-white/80 px-1.5 py-0.5 rounded border border-amber-200">
-                          {Number(ord.cout_atelier).toLocaleString()} DH
+                          {Number(ord.cout_atelier).toLocaleString()} {symbol}
                         </span>
                       )}
                     </div>
@@ -816,9 +825,11 @@ export function InterventionLiveHandoffPanels({
                         {ord.nature_travail || ord.type_probleme}
                       </span>
                       <span className="text-[11px] opacity-80">• {ord.fournisseur_externe}</span>
-                      <span className="font-mono font-bold text-[11px] bg-white/80 px-2 py-0.5 rounded">
-                        {Number(ord.cout_bobinage || 0).toLocaleString()} DH
-                      </span>
+                      {workspaceProfile.showFinance && (
+                        <span className="font-mono font-bold text-[11px] bg-white/80 px-2 py-0.5 rounded">
+                          {Number(ord.cout_bobinage || 0).toLocaleString()} {symbol}
+                        </span>
+                      )}
                     </div>
                     <div className="flex items-center gap-2 shrink-0">
                       <span

@@ -1,6 +1,7 @@
 import React from 'react';
 import { Flame, X, Wrench, BookOpen, Check, Play } from 'lucide-react';
 import { useI18n } from '../../../../i18n/I18nContext';
+import { useWorkspaceProfile } from '../../../../core/workspace/workspaceProfile';
 import type {
   IBlueprintCommonFailureItem,
   IStockItem,
@@ -118,6 +119,7 @@ export interface DemandesInterventionModalsProps {
   travauxSearchTerm: string;
   setTravauxSearchTerm: (v: string) => void;
   filteredStandardTravaux: string[];
+  totalTravauxCount?: number;
   showToast?: (msg: string, type?: 'success' | 'error' | 'warning' | 'info' | string) => void;
   showConvertModal: CorrectiveInterventionItem | null;
   setShowConvertModal: (di: CorrectiveInterventionItem | null) => void;
@@ -154,6 +156,7 @@ export default function DemandesInterventionModals({
   travauxSearchTerm,
   setTravauxSearchTerm,
   filteredStandardTravaux,
+  totalTravauxCount,
   showToast,
   showConvertModal,
   setShowConvertModal,
@@ -168,6 +171,8 @@ export default function DemandesInterventionModals({
   convertReservationEval,
 }: DemandesInterventionModalsProps) {
   const { t } = useI18n();
+  const workspaceProfile = useWorkspaceProfile();
+  const dynamicTravauxCount = totalTravauxCount ?? filteredStandardTravaux.length;
 
   return (
     <>
@@ -234,7 +239,7 @@ export default function DemandesInterventionModals({
               </div>
 
               {/* Pannes fréquentes du blueprint (BP-5) */}
-              {blueprintCommonFailures.length > 0 && (
+              {workspaceProfile.showBlueprintsInPrimaryNav && blueprintCommonFailures.length > 0 && (
                 <div className="p-3 rounded-2xl bg-indigo-50/70 border border-indigo-200/80 space-y-2">
                   <div className="flex items-center justify-between gap-2 flex-wrap">
                     <span className="text-[10.5px] font-extrabold uppercase tracking-wider text-indigo-950 flex items-center gap-1.5">
@@ -528,7 +533,11 @@ export default function DemandesInterventionModals({
                       className="px-2 py-0.5 rounded-lg border border-blue-300 bg-blue-50 hover:bg-blue-100 text-blue-900 font-bold text-[10.5px] transition flex items-center gap-1 cursor-pointer shadow-2xs"
                     >
                       <BookOpen className="w-3 h-3 text-blue-600" />
-                      <span>{showTravauxSelector ? 'Fermer catalogue' : 'Choisir parmi les 114 travaux standard'}</span>
+                      <span>
+                        {showTravauxSelector
+                          ? 'Fermer catalogue'
+                          : `Choisir parmi les ${dynamicTravauxCount} travaux standard`}
+                      </span>
                     </button>
                   </div>
                 </div>
@@ -538,7 +547,7 @@ export default function DemandesInterventionModals({
                   <div className="mb-2 p-2.5 rounded-xl bg-blue-50/70 border border-blue-200 space-y-2 animate-in fade-in duration-150">
                     <div className="flex items-center justify-between gap-2">
                       <span className="text-[10.5px] font-black uppercase tracking-wider text-blue-900">
-                        Catalogue des 114 Travaux Standard d&apos;Atelier (Cliquer pour insérer) :
+                        Catalogue des {dynamicTravauxCount} Travaux Standard d&apos;Atelier (Cliquer pour insérer) :
                       </span>
                       <button
                         type="button"
@@ -553,7 +562,7 @@ export default function DemandesInterventionModals({
                       type="text"
                       value={travauxSearchTerm}
                       onChange={(e) => setTravauxSearchTerm(e.target.value)}
-                      placeholder="Filtrer parmi les 114 travaux (ex: démonter, huile, moteur, graissage...)"
+                      placeholder={`Filtrer parmi les ${dynamicTravauxCount} travaux (ex: démonter, huile, moteur, graissage...)`}
                       className="w-full py-1.5 px-2.5 text-xs rounded-lg border border-blue-200 bg-white focus:outline-hidden focus:border-blue-400"
                     />
 

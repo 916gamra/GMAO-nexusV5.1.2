@@ -47,6 +47,7 @@ import DemandesInterventionModals from './components/DemandesInterventionModals'
 
 export default function DemandesInterventionTab({
   interventions = [],
+  allInterventions,
   onAddDemande,
   onConvertToBt,
   onStartLive,
@@ -718,12 +719,31 @@ export default function DemandesInterventionTab({
     setShowCreateModal(false);
   };
 
-  // Open convert modal
+  // Open convert modal with sequential unique BT number
   const handleOpenConvert = (di) => {
     setShowConvertModal(di);
-    const suffix = di.id ? String(di.id).replace(/\D/g, '').slice(-4) || '1001' : '1001';
+    const sourceList = Array.isArray(allInterventions) && allInterventions.length > 0 ? allInterventions : interventions;
+    let maxBtSeq = 1000;
+    const usedBtNumbers = new Set<string>();
+    for (const item of sourceList || []) {
+      const rawBt = String(item?.num_bt || '').trim().toUpperCase();
+      if (!rawBt) continue;
+      usedBtNumbers.add(rawBt);
+      const match = rawBt.match(/(\d+)$/);
+      if (match) {
+        const num = parseInt(match[1], 10);
+        if (Number.isFinite(num) && num >= 1000 && num < 999999 && num > maxBtSeq) {
+          maxBtSeq = num;
+        }
+      }
+    }
+    let candidateBt = `BT-${maxBtSeq + 1}`;
+    while (usedBtNumbers.has(candidateBt.toUpperCase())) {
+      maxBtSeq += 1;
+      candidateBt = `BT-${maxBtSeq + 1}`;
+    }
     setConvertForm({
-      num_bt: di.num_bt || `BT-${suffix}`,
+      num_bt: di.num_bt || candidateBt,
       intervenant:
         di.intervenant ||
         (isTechUser && techDisplayName ? techDisplayName : allTechnicianOptions[0]?.nom || ''),
@@ -1772,6 +1792,7 @@ export default function DemandesInterventionTab({
         travauxSearchTerm={travauxSearchTerm}
         setTravauxSearchTerm={setTravauxSearchTerm}
         filteredStandardTravaux={filteredStandardTravaux}
+        totalTravauxCount={Array.isArray(travauxAFaire) ? travauxAFaire.length : filteredStandardTravaux.length}
         showToast={showToast}
         showConvertModal={showConvertModal}
         setShowConvertModal={setShowConvertModal}

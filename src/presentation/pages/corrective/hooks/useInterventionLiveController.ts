@@ -13,6 +13,7 @@ import {
 } from '../../../../core/security/technicianScope';
 import { SortieExterneService } from '../../../../application/services/SortieExterneService';
 import { AuthorizationService } from '../../../../core/security/AuthorizationService';
+import { reconcileFieldClaim } from '../../../../core/security/validationReconciliation';
 import { canCloseWorkOrderWithLoto } from '../../../../domain/corrective/lotoService';
 import {
   getLinkedWorkshopOrdersForIntervention,
@@ -59,6 +60,8 @@ export interface LiveInterventionFormState {
   id_part: string;
   nom_part: string;
   statut_composant_cloture: string;
+  intervenant?: string;
+  technicien_matricule?: string;
 }
 
 export type LiveWarehouseOption = IWarehouseItem & {
@@ -157,6 +160,8 @@ const EMPTY_FORM_STATE: LiveInterventionFormState = {
   id_part: '',
   nom_part: '',
   statut_composant_cloture: 'En service',
+  intervenant: '',
+  technicien_matricule: '',
 };
 
 /**
@@ -215,11 +220,22 @@ export function useInterventionLiveController({
   const { user } = useAuth();
   const isTechUser = isTechnicianRole(user);
   const isReadOnlyUser = AuthorizationService.isReadOnly(user);
+  const canExecuteLive =
+    Boolean(user) &&
+    !isReadOnlyUser &&
+    (AuthorizationService.hasPermission(user, 'corrective.execute') ||
+      AuthorizationService.hasPermission(user, 'corrective.manage'));
+  const canManageCorrective =
+    Boolean(user) &&
+    !isReadOnlyUser &&
+    (AuthorizationService.hasPermission(user, 'corrective.manage') ||
+      AuthorizationService.hasPermission(user, 'validation.approve'));
 
   const blueprints = useGmaoStore((s) => s.blueprints);
   const machineElementsLedger = useGmaoStore((s) => s.machineElementsLedger);
   const storeRawStock = useGmaoStore((s) => s.rawStock || []);
   const storeMouvements = useGmaoStore((s) => s.mouvements || []);
+  const storePreventiveExecutions = useGmaoStore((s) => s.preventiveExecutions || []);
   const storeSubmitForValidation = useGmaoStore((s) => s.handleSubmitInterventionForValidation);
   const handleStartLiveIntervention = useGmaoStore((s) => s.handleStartLiveIntervention);
   const sortiesExterne = useGmaoStore((s) => s.sortiesExterne);
@@ -244,6 +260,26 @@ export function useInterventionLiveController({
       AuthorizationService.hasPermission(user, 'need.handoff') ||
       AuthorizationService.hasPermission(user, 'corrective.manage') ||
       AuthorizationService.hasPermission(user, 'stock.edit'));
+
+  const activeTechnicianOptions = useMemo(() => {
+    const list: Array<{ id_technician: string; nom: string; specialite: string }> = [];
+    const seen = new Set<string>();
+    for (const t of technicians || []) {
+      if (!t || typeof t !== 'object') continue;
+      const rec = t as unknown as Record<string, unknown>;
+      const statut = String(rec.statut || rec.status || '').trim().toUpperCase();
+      if (rec.is_active === false || rec.actif === false || statut.startsWith('ARCHIV')) continue;
+      const nom = String(t.nom || t.name || '').trim();
+      if (!nom || seen.has(nom.toLowerCase())) continue;
+      seen.add(nom.toLowerCase());
+      list.push({
+        id_technician: String(t.id_technician || t.id || ''),
+        nom,
+        specialite: String(t.specialite || t.role || 'Maintenance'),
+      });
+    }
+    return list;
+  }, [technicians]);
 
   // Sync with reactive StockIndexStore for real-time stock balances
   useSyncExternalStore(stockIndexStore.subscribeAll, stockIndexStore.getGlobalVersion);
@@ -425,6 +461,10 @@ export function useInterventionLiveController({
       id_part: String(activeIntervention.id_part || ''),
       nom_part: String(activeIntervention.nom_part || ''),
       statut_composant_cloture: String(activeIntervention.statut_composant_cloture || 'En service'),
+      intervenant: String(activeIntervention.intervenant || ''),
+      technicien_matricule: String(
+        activeIntervention.technicien_matricule || activeIntervention.id_technician || ''
+      ),
     });
     setTravailSearch(String(activeIntervention.travail_a_faire || ''));
   }, [activeIntervention]);
@@ -908,6 +948,14 @@ export function useInterventionLiveController({
       return false;
     }
 
+    if (!canExecuteLive) {
+      showToast?.(
+        'Action non autorisée : vous ne disposez pas de la permission d’exécution corrective.',
+        'error'
+      );
+      return false;
+    }
+
     const effectiveForm: LiveInterventionFormState = overridePatch
       ? { ...formState, ...overridePatch }
       : formState;
@@ -924,9 +972,25 @@ export function useInterventionLiveController({
     }
 
     const primaryPiece = effectivePieces.length === 1 ? effectivePieces[0] : null;
+    const selectedTechName = String(
+      effectiveForm.intervenant || activeIntervention.intervenant || ''
+    ).trim();
+    const matchedTechObj = activeTechnicianOptions.find(
+      (t) => t.nom.toLowerCase() === selectedTechName.toLowerCase()
+    );
+    const resolvedMatricule =
+      matchedTechObj?.id_technician ||
+      effectiveForm.technicien_matricule ||
+      activeIntervention.technicien_matricule ||
+      '';
+
     const normalizedFormState = {
       ...effectiveForm,
       ...(selectedNature ? { intervention_nature: selectedNature } : {}),
+      ...(selectedTechName ? { intervenant: selectedTechName } : {}),
+      ...(resolvedMatricule
+        ? { technicien_matricule: resolvedMatricule, id_technician: resolvedMatricule }
+        : {}),
       pieces_utilisees: effectivePieces,
       pdr_ref: primaryPiece ? primaryPiece.ref : effectiveForm.pdr_ref,
       pdr_designation: primaryPiece ? primaryPiece.designation : effectiveForm.pdr_designation,
@@ -1015,6 +1079,36 @@ export function useInterventionLiveController({
     }
 
     // 2. ADMIN / SUPERVISOR PATH: Direct approved closure & single stock deduction
+    if (!canManageCorrective) {
+      showToast?.(
+        'Action non autorisée : rôle superviseur ou administrateur requis pour clôturer directement un Bon de Travail.',
+        'error'
+      );
+      return false;
+    }
+
+    const isPendingMakerChecker = activeIntervention.validation_status === 'PENDING_VALIDATION';
+    if (isPendingMakerChecker) {
+      const reconciliation = reconcileFieldClaim({
+        claimType: 'CORRECTIVE',
+        claimId: String(activeIntervention.id),
+        numBonSaisi: normalizedFormState.num_bon_saisi_par_tech || activeIntervention.num_bon_saisi_par_tech,
+        proposedSpares: effectivePieces,
+        stockItems: enrichedStockItems,
+        mouvements: storeMouvements,
+        correctiveInterventions: interventions,
+        preventiveExecutions: storePreventiveExecutions,
+      });
+      if (reconciliation.hasDuplicateSortie || !reconciliation.canApproveWithDeduction) {
+        showToast?.(
+          'Ce BT est en attente de validation Maker-Checker avec une alerte de réconciliation stock (double sortie ou rupture). Veuillez l’arbitrer depuis l’onglet Bons de Travail (BT).',
+          'warning'
+        );
+        onNavigateToTab?.('corrective_bt');
+        return false;
+      }
+    }
+
     if (openWorkshopOrders.length > 0) {
       const openCodes = openWorkshopOrders
         .map((o) => ('code_bon' in o ? o.code_bon : o.code))
@@ -1070,6 +1164,13 @@ export function useInterventionLiveController({
       }
     }
 
+    const effectiveDateFin = isPendingMakerChecker
+      ? activeIntervention.date_fin_proposee || dateFin
+      : dateFin;
+    const effectiveHeureFin = isPendingMakerChecker
+      ? activeIntervention.heure_fin_proposee || heureFin
+      : heureFin;
+
     const closedResult =
       typeof onClotureIntervention === 'function'
         ? onClotureIntervention(activeIntervention.id, {
@@ -1078,8 +1179,8 @@ export function useInterventionLiveController({
             isTechnician: isTechUser,
             zone: machineZone,
             machine_designation: machineDesignation,
-            date_fin: activeIntervention.date_fin_proposee || dateFin,
-            heure_fin: activeIntervention.heure_fin_proposee || heureFin,
+            date_fin: effectiveDateFin,
+            heure_fin: effectiveHeureFin,
             temps_intervention_calc: liveWorkingTime.formatted,
             temps_intervention_mins: liveWorkingTime.minutes,
             temps_minutes: liveWorkingTime.minutes,
@@ -1149,7 +1250,10 @@ export function useInterventionLiveController({
     user,
     isTechUser,
     isReadOnlyUser,
+    canExecuteLive,
+    canManageCorrective,
     canFastTrackNeed,
+    activeTechnicianOptions,
     actorName,
     actorRole,
     activeIntervention,

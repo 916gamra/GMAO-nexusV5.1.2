@@ -29,6 +29,10 @@ import { useI18n } from '../../../i18n/I18nContext';
 import { useAuth } from '../../../context/AuthContext';
 import { AuthorizationService } from '../../../core/security/AuthorizationService';
 import { Logger } from '../../../core/logger/LoggerService';
+import { useCurrency } from '../../../utils/currencyService';
+import { useWorkspaceProfile } from '../../../core/workspace/workspaceProfile';
+import { useGmaoStore } from '../../../store/useGmaoStore';
+import { computeTechnicianShiftWorkload } from '../../../domain/workforce/workforceCapacityService';
 
 export default function AnalyseCorrectiveTab({
   interventions = [],
@@ -44,6 +48,9 @@ export default function AnalyseCorrectiveTab({
   showToast,
 }) {
   const { t } = useI18n();
+  const { symbol } = useCurrency();
+  const workspaceProfile = useWorkspaceProfile();
+  const storePreventiveTasks = useGmaoStore((s) => s.preventiveTasks || []);
   const { user } = useAuth();
   const canManagePreventive =
     Boolean(user) && AuthorizationService.hasPermission(user, 'preventive.manage');
@@ -51,7 +58,9 @@ export default function AnalyseCorrectiveTab({
   const [selectedZone, setSelectedZone] = useState('ALL');
   const [selectedTypePanne, setSelectedTypePanne] = useState('ALL');
   const [periodFilter, setPeriodFilter] = useState<PeriodFilterState>({ preset: 'ALL' });
-  const [paretoDimension, setParetoDimension] = useState<ParetoDimension>('COUNT');
+  const [rawParetoDimension, setParetoDimension] = useState<ParetoDimension>('COUNT');
+  const paretoDimension: ParetoDimension =
+    !workspaceProfile.showFinance && rawParetoDimension === 'COST' ? 'COUNT' : rawParetoDimension;
 
   // Fast Lookup Maps
   const machineMap = useMemo(() => {
@@ -230,23 +239,95 @@ export default function AnalyseCorrectiveTab({
       .sort((a, b) => b.count - a.count);
   }, [filteredInterventions]);
 
-  // Breakdown by Technician
+  // Full Technician Performance & Shift Workload Breakdown (All Active Technicians + MTTR + Shift Capacity)
   const techBreakdown = useMemo(() => {
-    const counts: Record<string, number> = {};
+    const byTechKey = new Map<
+      string,
+      {
+        techId: string;
+        tech: string;
+        specialite: string;
+        zone: string;
+        rawTech: any;
+        interventions: any[];
+      }
+    >();
+
+    // 1. Seed all active registered technicians so 0-intervention technicians remain visible in team supervision
+    (technicians || []).forEach((t: any) => {
+      if (!t || typeof t !== 'object') return;
+      const statut = String(t.statut || t.status || '').trim().toUpperCase();
+      if (t.is_active === false || t.actif === false || statut.startsWith('ARCHIV')) return;
+      const nom = String(t.nom || t.name || '').trim();
+      if (!nom) return;
+      const key = nom.toLowerCase();
+      if (!byTechKey.has(key)) {
+        byTechKey.set(key, {
+          techId: String(t.id_technician || t.id || nom),
+          tech: nom,
+          specialite: String(t.specialite || t.role || 'Maintenance'),
+          zone: String(t.id_zone || t.zone || 'Atelier'),
+          rawTech: t,
+          interventions: [],
+        });
+      }
+    });
+
+    // 2. Group filtered interventions by technician (resolving matricule or display name)
     filteredInterventions.forEach((item: any) => {
-      const t = item.intervenant || 'Non assigné';
-      counts[t] = (counts[t] || 0) + 1;
+      const matKey = String(item.technicien_matricule || item.id_technician || '').trim().toUpperCase();
+      const matchedFromMap = matKey ? technicianMap.get(matKey) : null;
+      const resolvedName = String(
+        matchedFromMap?.nom || item.intervenant || 'Non assigné'
+      ).trim();
+      const key = resolvedName.toLowerCase();
+      const existing = byTechKey.get(key);
+      if (existing) {
+        existing.interventions.push(item);
+      } else {
+        byTechKey.set(key, {
+          techId: String(matchedFromMap?.id_technician || item.technicien_matricule || resolvedName),
+          tech: resolvedName,
+          specialite: String(matchedFromMap?.specialite || 'Intervenant'),
+          zone: String(matchedFromMap?.id_zone || item.zone || 'Atelier'),
+          rawTech: matchedFromMap || { id_technician: resolvedName, nom: resolvedName },
+          interventions: [item],
+        });
+      }
     });
 
     const total = filteredInterventions.length || 1;
-    return Object.entries(counts)
-      .map(([tech, count]) => ({
-        tech,
-        count,
-        percentage: Math.round((count / total) * 100),
-      }))
-      .sort((a, b) => b.count - a.count);
-  }, [filteredInterventions]);
+    return Array.from(byTechKey.values())
+      .map((entry) => {
+        const count = entry.interventions.length;
+        const closedCount = entry.interventions.filter(
+          (i) => String(i.statut || '').toUpperCase() === 'CLOTURE'
+        ).length;
+        const mttrFormatted =
+          closedCount > 0 ? AvailabilityCalculationService.formatMTTR(entry.interventions) : '—';
+        const workload =
+          entry.tech !== 'Non assigné'
+            ? computeTechnicianShiftWorkload({
+                technician: entry.rawTech,
+                activeInterventions: interventions,
+                preventiveTasks: storePreventiveTasks,
+              })
+            : null;
+        return {
+          techId: entry.techId,
+          tech: entry.tech,
+          specialite: entry.specialite,
+          zone: entry.zone,
+          count,
+          closedCount,
+          activeBtCount: workload?.activeBtCount ?? 0,
+          utilizationRatePct: workload?.utilizationRatePct ?? 0,
+          mttrFormatted,
+          percentage: filteredInterventions.length > 0 ? Math.round((count / total) * 100) : 0,
+        };
+      })
+      .sort((a, b) => b.count - a.count || b.activeBtCount - a.activeBtCount || a.tech.localeCompare(b.tech));
+  }, [filteredInterventions, technicians, technicianMap, interventions, storePreventiveTasks]);
 
   // Pareto Breakdown by Organe (Component) & Localisation Structurelle (Part) (P3)
   const organeAndPartBreakdown = useMemo(() => {
@@ -453,7 +534,7 @@ export default function AnalyseCorrectiveTab({
     try {
       const dimLabel =
         paretoDimension === 'COST'
-          ? 'Coût TCO (DH)'
+          ? `Coût TCO (${symbol})`
           : paretoDimension === 'DOWNTIME'
           ? 'Arrêt (min)'
           : 'Fréquence';
@@ -465,11 +546,15 @@ export default function AnalyseCorrectiveTab({
           Dimension_Classement: dimLabel,
           Occurrences: r.count,
           Arret_Minutes: r.downtimeMinutes,
-          Cout_PDR_DH: r.coutPdr,
-          Cout_Atelier_DH: r.coutAtelier,
-          Cout_Main_Oeuvre_DH: r.coutMainOeuvre,
-          Perte_Arret_DH: r.downtimeCost,
-          Cout_Total_TCO_DH: r.totalCost,
+          ...(workspaceProfile.showFinance
+            ? {
+                [`Cout_PDR_${symbol}`]: r.coutPdr,
+                [`Cout_Atelier_${symbol}`]: r.coutAtelier,
+                [`Cout_Main_Oeuvre_${symbol}`]: r.coutMainOeuvre,
+                [`Perte_Arret_${symbol}`]: r.downtimeCost,
+                [`Cout_Total_TCO_${symbol}`]: r.totalCost,
+              }
+            : {}),
           Part_Pct: r.percentage,
           Cumul_Pct: r.cumulativePercentage,
           Zone_ABC: r.isPareto80 ? 'A (80%)' : 'B/C',
@@ -623,85 +708,89 @@ export default function AnalyseCorrectiveTab({
         </div>
 
         {/* Coût Global TCO */}
-        <div
-          data-testid="analyse-tco-kpi-card"
-          className="bg-white p-4 sm:p-5 rounded-2xl border border-slate-200/90 hover:border-purple-300/80 shadow-[0_4px_16px_-2px_rgba(0,0,0,0.05)] hover:shadow-[0_12px_28px_-4px_rgba(168,85,247,0.12)] hover:-translate-y-1 transition-all duration-300 relative overflow-hidden group flex flex-col justify-between"
-        >
-          <div className="absolute -top-10 -right-10 w-24 h-24 bg-purple-500/5 rounded-full blur-xl pointer-events-none group-hover:bg-purple-500/10 transition-colors" />
-          <div>
-            <div className="flex items-center justify-between mb-2.5">
-              <span className="text-[10px] font-extrabold text-slate-500 uppercase tracking-wider">
-                Coût Global TCO
-              </span>
-              <BarChart3 className="w-5 h-5 text-purple-600 shrink-0 group-hover:scale-110 transition-transform" />
+        {workspaceProfile.showFinance && (
+          <div
+            data-testid="analyse-tco-kpi-card"
+            className="bg-white p-4 sm:p-5 rounded-2xl border border-slate-200/90 hover:border-purple-300/80 shadow-[0_4px_16px_-2px_rgba(0,0,0,0.05)] hover:shadow-[0_12px_28px_-4px_rgba(168,85,247,0.12)] hover:-translate-y-1 transition-all duration-300 relative overflow-hidden group flex flex-col justify-between"
+          >
+            <div className="absolute -top-10 -right-10 w-24 h-24 bg-purple-500/5 rounded-full blur-xl pointer-events-none group-hover:bg-purple-500/10 transition-colors" />
+            <div>
+              <div className="flex items-center justify-between mb-2.5">
+                <span className="text-[10px] font-extrabold text-slate-500 uppercase tracking-wider">
+                  Coût Global TCO
+                </span>
+                <BarChart3 className="w-5 h-5 text-purple-600 shrink-0 group-hover:scale-110 transition-transform" />
+              </div>
+              <div className="flex items-baseline gap-1.5">
+                <span className="text-2xl sm:text-3xl font-black text-purple-600 font-mono tracking-tight">
+                  {executiveKpis.totalTco.toLocaleString()}
+                </span>
+                <span className="text-[11px] font-bold text-slate-400 font-mono">{symbol}</span>
+              </div>
+              <div className="mt-2 text-[10.5px] text-slate-500 flex items-center gap-1 flex-wrap">
+                <span className="text-purple-700 font-bold bg-purple-50 px-1.5 py-0.5 rounded border border-purple-200 font-mono">
+                  Direct: {executiveKpis.directCost.toLocaleString()} {symbol}
+                </span>
+              </div>
             </div>
-            <div className="flex items-baseline gap-1.5">
-              <span className="text-2xl sm:text-3xl font-black text-purple-600 font-mono tracking-tight">
-                {executiveKpis.totalTco.toLocaleString()}
-              </span>
-              <span className="text-[11px] font-bold text-slate-400 font-mono">DH</span>
-            </div>
-            <div className="mt-2 text-[10.5px] text-slate-500 flex items-center gap-1 flex-wrap">
-              <span className="text-purple-700 font-bold bg-purple-50 px-1.5 py-0.5 rounded border border-purple-200 font-mono">
-                Direct: {executiveKpis.directCost.toLocaleString()} DH
+            <div className="mt-2.5 pt-2.5 border-t border-slate-100 flex items-center justify-between text-[10.5px]">
+              <span className="text-slate-400 font-medium">PDR + MO + Atelier :</span>
+              <span className="font-mono font-bold text-purple-700">
+                {executiveKpis.total} BT
               </span>
             </div>
           </div>
-          <div className="mt-2.5 pt-2.5 border-t border-slate-100 flex items-center justify-between text-[10.5px]">
-            <span className="text-slate-400 font-medium">PDR + MO + Atelier :</span>
-            <span className="font-mono font-bold text-purple-700">
-              {executiveKpis.total} BT
-            </span>
-          </div>
-        </div>
+        )}
       </div>
 
       {/* 1.25. Ventilation Financière TCO (Direct vs Indirect Production Stoppage) */}
-      <div
-        data-testid="analyse-tco-breakdown-strip"
-        className="bg-white border border-slate-200/90 rounded-2xl p-4 shadow-xs grid grid-cols-2 lg:grid-cols-4 gap-3"
-      >
-        <div className="p-3 rounded-xl bg-cyan-50/70 border border-cyan-200/80">
-          <span className="text-[10px] font-extrabold uppercase tracking-wider text-cyan-800 block">
-            Pièces de Rechange (PDR)
-          </span>
-          <span className="text-lg font-black font-mono text-cyan-950 block mt-0.5">
-            {executiveKpis.pdrCost.toLocaleString()} DH
-          </span>
-          <span className="text-[10px] text-cyan-700">Valorisation stock magasin</span>
+      {workspaceProfile.showFinance && (
+        <div
+          data-testid="analyse-tco-breakdown-strip"
+          className="bg-white border border-slate-200/90 rounded-2xl p-4 shadow-xs grid grid-cols-2 lg:grid-cols-4 gap-3"
+        >
+          <div className="p-3 rounded-xl bg-cyan-50/70 border border-cyan-200/80">
+            <span className="text-[10px] font-extrabold uppercase tracking-wider text-cyan-800 block">
+              Pièces de Rechange (PDR)
+            </span>
+            <span className="text-lg font-black font-mono text-cyan-950 block mt-0.5">
+              {executiveKpis.pdrCost.toLocaleString()} {symbol}
+            </span>
+            <span className="text-[10px] text-cyan-700">Valorisation stock magasin</span>
+          </div>
+          <div className="p-3 rounded-xl bg-amber-50/70 border border-amber-200/80">
+            <span className="text-[10px] font-extrabold uppercase tracking-wider text-amber-800 block">
+              Main-d&apos;Œuvre Interne
+            </span>
+            <span className="text-lg font-black font-mono text-amber-950 block mt-0.5">
+              {executiveKpis.laborCost.toLocaleString()} {symbol}
+            </span>
+            <span className="text-[10px] text-amber-700">Heures ouvrées × taux horaire</span>
+          </div>
+          <div className="p-3 rounded-xl bg-indigo-50/70 border border-indigo-200/80">
+            <span className="text-[10px] font-extrabold uppercase tracking-wider text-indigo-800 block">
+              Atelier &amp; Sous-traitance
+            </span>
+            <span className="text-lg font-black font-mono text-indigo-950 block mt-0.5">
+              {executiveKpis.atelierCost.toLocaleString()} {symbol}
+            </span>
+            <span className="text-[10px] text-indigo-700">Bons externes &amp; bobinage</span>
+          </div>
+          <div className="p-3 rounded-xl bg-rose-50/70 border border-rose-200/80">
+            <span className="text-[10px] font-extrabold uppercase tracking-wider text-rose-800 block">
+              Perte d&apos;Arrêt Production
+            </span>
+            <span className="text-lg font-black font-mono text-rose-950 block mt-0.5">
+              {executiveKpis.downtimeLossCost.toLocaleString()} {symbol}
+            </span>
+            <span className="text-[10px] text-rose-700">
+              {executiveKpis.machinesWithDowntimeRateCount > 0
+                ? `${executiveKpis.machinesWithDowntimeRateCount} machine(s) tarifée(s)`
+                : `Taux arrêt machine non configuré (0 ${symbol})`}
+            </span>
+          </div>
         </div>
-        <div className="p-3 rounded-xl bg-amber-50/70 border border-amber-200/80">
-          <span className="text-[10px] font-extrabold uppercase tracking-wider text-amber-800 block">
-            Main-d&apos;Œuvre Interne
-          </span>
-          <span className="text-lg font-black font-mono text-amber-950 block mt-0.5">
-            {executiveKpis.laborCost.toLocaleString()} DH
-          </span>
-          <span className="text-[10px] text-amber-700">Heures ouvrées × taux horaire</span>
-        </div>
-        <div className="p-3 rounded-xl bg-indigo-50/70 border border-indigo-200/80">
-          <span className="text-[10px] font-extrabold uppercase tracking-wider text-indigo-800 block">
-            Atelier &amp; Sous-traitance
-          </span>
-          <span className="text-lg font-black font-mono text-indigo-950 block mt-0.5">
-            {executiveKpis.atelierCost.toLocaleString()} DH
-          </span>
-          <span className="text-[10px] text-indigo-700">Bons externes &amp; bobinage</span>
-        </div>
-        <div className="p-3 rounded-xl bg-rose-50/70 border border-rose-200/80">
-          <span className="text-[10px] font-extrabold uppercase tracking-wider text-rose-800 block">
-            Perte d&apos;Arrêt Production
-          </span>
-          <span className="text-lg font-black font-mono text-rose-950 block mt-0.5">
-            {executiveKpis.downtimeLossCost.toLocaleString()} DH
-          </span>
-          <span className="text-[10px] text-rose-700">
-            {executiveKpis.machinesWithDowntimeRateCount > 0
-              ? `${executiveKpis.machinesWithDowntimeRateCount} machine(s) tarifée(s)`
-              : 'Taux arrêt machine non configuré (0 DH)'}
-          </span>
-        </div>
-      </div>
+      )}
 
       {/* 1.5. Period Filter Bar */}
       <PeriodFilterBar
@@ -817,7 +906,9 @@ export default function AnalyseCorrectiveTab({
             [
               { id: 'COUNT', label: 'Fréquence' },
               { id: 'DOWNTIME', label: "Temps d'Arrêt" },
-              { id: 'COST', label: 'Coût TCO (DH)' },
+              ...(workspaceProfile.showFinance
+                ? [{ id: 'COST' as ParetoDimension, label: `Coût TCO (${symbol})` }]
+                : []),
             ] as Array<{ id: ParetoDimension; label: string }>
           ).map((dim) => {
             const active = paretoDimension === dim.id;
@@ -878,7 +969,7 @@ export default function AnalyseCorrectiveTab({
               dynamicParetoAnomalies.map((item, idx) => {
                 const primaryMetricText =
                   paretoDimension === 'COST'
-                    ? `${Math.round(item.totalCost).toLocaleString()} DH`
+                    ? `${Math.round(item.totalCost).toLocaleString()} ${symbol}`
                     : paretoDimension === 'DOWNTIME'
                     ? CorrectiveCalculationService.formatDurationHuman(item.downtimeMinutes)
                     : `${item.count}`;
@@ -910,8 +1001,14 @@ export default function AnalyseCorrectiveTab({
                       <span>{item.count} BT</span>
                       <span>•</span>
                       <span>Arrêt: {CorrectiveCalculationService.formatDurationHuman(item.downtimeMinutes)}</span>
-                      <span>•</span>
-                      <span>TCO: {Math.round(item.totalCost).toLocaleString()} DH</span>
+                      {workspaceProfile.showFinance && (
+                        <>
+                          <span>•</span>
+                          <span>
+                            TCO: {Math.round(item.totalCost).toLocaleString()} {symbol}
+                          </span>
+                        </>
+                      )}
                     </div>
 
                     <div className="w-full h-2 rounded-full bg-slate-100 overflow-hidden flex">
@@ -963,7 +1060,7 @@ export default function AnalyseCorrectiveTab({
               dynamicParetoMachines.map((item, idx) => {
                 const primaryMetricText =
                   paretoDimension === 'COST'
-                    ? `${Math.round(item.totalCost).toLocaleString()} DH`
+                    ? `${Math.round(item.totalCost).toLocaleString()} ${symbol}`
                     : paretoDimension === 'DOWNTIME'
                     ? CorrectiveCalculationService.formatDurationHuman(item.downtimeMinutes)
                     : `${item.count} pannes`;
@@ -993,8 +1090,14 @@ export default function AnalyseCorrectiveTab({
                       <span>{item.count} BT</span>
                       <span>•</span>
                       <span>Arrêt: {CorrectiveCalculationService.formatDurationHuman(item.downtimeMinutes)}</span>
-                      <span>•</span>
-                      <span>TCO: {Math.round(item.totalCost).toLocaleString()} DH</span>
+                      {workspaceProfile.showFinance && (
+                        <>
+                          <span>•</span>
+                          <span>
+                            TCO: {Math.round(item.totalCost).toLocaleString()} {symbol}
+                          </span>
+                        </>
+                      )}
                     </div>
 
                     <div className="w-full h-2 rounded-full bg-slate-100 overflow-hidden flex">
@@ -1036,20 +1139,57 @@ export default function AnalyseCorrectiveTab({
           </div>
         </div>
 
-        {/* Charge Techniciens */}
-        <div className="bg-white rounded-3xl border border-slate-200/90 p-6 shadow-sm space-y-4">
-          <div className="flex items-center gap-2 pb-3 border-b border-slate-100">
-            <Wrench className="w-4 h-4 text-emerald-600" />
-            <h3 className="text-xs font-black uppercase tracking-wider text-slate-900">
-              Charge d'Intervention par Intervenant (Col D)
-            </h3>
+        {/* Performance, MTTR & Charge par Intervenant (Col D — Tous les Techniciens Actifs) */}
+        <div
+          data-testid="analyse-tech-performance-panel"
+          className="bg-white rounded-3xl border border-slate-200/90 p-6 shadow-sm space-y-4"
+        >
+          <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+            <div className="flex items-center gap-2">
+              <Wrench className="w-4 h-4 text-emerald-600" />
+              <h3 className="text-xs font-black uppercase tracking-wider text-slate-900">
+                Performance, MTTR &amp; Charge par Intervenant (Col D)
+              </h3>
+            </div>
+            <span className="px-2 py-0.5 rounded-full text-[10px] font-mono font-bold bg-emerald-50 text-emerald-800 border border-emerald-200">
+              {techBreakdown.length} intervenant(s)
+            </span>
           </div>
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-            {techBreakdown.slice(0, 3).map((tech, i) => (
-              <div key={i} className="p-3 rounded-2xl bg-slate-50 border border-slate-200 space-y-1">
-                <div className="font-bold text-slate-900 text-xs truncate">{tech.tech}</div>
-                <div className="text-lg font-black font-mono text-emerald-700">{tech.count}</div>
-                <div className="text-[10px] text-slate-400 font-mono">{tech.percentage}% du volume</div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-h-72 overflow-y-auto pr-1">
+            {techBreakdown.map((tech, i) => (
+              <div
+                key={tech.techId || i}
+                data-testid={`analyse-tech-card-${tech.tech}`}
+                className="p-3 rounded-2xl bg-slate-50 border border-slate-200 space-y-1.5"
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <div className="font-bold text-slate-900 text-xs truncate">{tech.tech}</div>
+                  <span className="text-[10px] font-mono font-bold px-1.5 py-0.5 rounded bg-white border border-slate-200 text-slate-600">
+                    {tech.percentage}% vol.
+                  </span>
+                </div>
+                <div className="flex items-baseline justify-between gap-2">
+                  <div className="text-lg font-black font-mono text-emerald-700">
+                    {tech.count} <span className="text-[10px] font-semibold text-slate-500">BT ({tech.closedCount} clôt.)</span>
+                  </div>
+                  <span className="text-[10.5px] font-mono font-bold text-amber-800 bg-amber-50 px-1.5 py-0.5 rounded border border-amber-200">
+                    MTTR: {tech.mttrFormatted}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between text-[10px] text-slate-500 font-mono pt-1 border-t border-slate-200/70">
+                  <span>En cours: {tech.activeBtCount} BT</span>
+                  <span
+                    className={`font-bold ${
+                      tech.utilizationRatePct > 85
+                        ? 'text-rose-700'
+                        : tech.utilizationRatePct > 50
+                        ? 'text-amber-700'
+                        : 'text-emerald-700'
+                    }`}
+                  >
+                    Charge poste: {tech.utilizationRatePct}%
+                  </span>
+                </div>
               </div>
             ))}
           </div>

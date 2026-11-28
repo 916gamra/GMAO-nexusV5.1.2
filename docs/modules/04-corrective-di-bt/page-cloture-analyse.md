@@ -5,93 +5,86 @@ groupTitle: Maintenance Corrective (DI / BT & Clôture)
 docType: page
 audience: user
 tabId: corrective_cloture
-title: Clôture des Rapports & Analyse Corrective
-subtitle: Archive immuable des BT clôturés, valorisation financière, diagrammes de Pareto 80/20 et indicateurs MTTR/MTBF
-summary: Guide complet pour la consultation des interventions passées, l'analyse Pareto des défaillances et machines critiques, le calcul de la disponibilité opérationnelle et l'exportation des PV sous Excel.
+title: Clôture des Rapports, Rapport Technique A4 (RCA) & Analyse Pareto
+subtitle: Archive immuable des BT clôturés, Rapport d'Expertise RCA / 5 Pourquoi persisté dans le SSOT, diagrammes de Pareto 80/20 et indicateurs MTTR/MTBF
+summary: Guide opérationnel des onglets Rapports Clôturés (#corrective_cloture) et Analyse Corrective (#corrective_analyse) en TEAM_FULL et SOLO_EXPERT. Détaille la rédaction et la sauvegarde SSOT du Rapport Technique A4 (RCA), la consolidation des coûts PDR + Atelier, et l'exploitation des analyses Pareto et MTTR/MTBF.
 relatedTabs:
   - corrective_bt
   - corrective_atelier
+  - corrective_history
   - dashboard
   - finance
   - machines
 ---
 
-# 📊 Guide Utilisateur : Clôture des Rapports & Analyse Corrective
+# 📊 Guide Utilisateur : Clôture des Rapports, Rapport Technique `RCA` & Analyse Corrective (`#corrective_cloture` / `#corrective_analyse`)
 
-> **Module :** Maintenance Corrective  
+> **Module :** Maintenance Corrective (`v5.1.2`)  
 > **Identifiants d'accès :** `#corrective_cloture` et `#corrective_analyse`  
 > **Onglets :** *Rapports Clôturés* & *Analyse Corrective & Pareto*  
-> **Public cible :** Responsables Maintenance, Ingénieurs Fiabilité, Contrôleurs de Gestion, Chefs d'Atelier.
+> **Public cible :** Responsables Maintenance, Ingénieurs Fiabilité, Chefs d'Atelier (`TEAM_FULL`) et Ingénieurs Maintenance autonomes (`SOLO_EXPERT`).
 
 ---
 
 ## 1. Rôle et Objectif
 
-La clôture d'une intervention ne marque pas la fin du travail de maintenance, mais le début de l'exploitation analytique des données :
-
-- **Rapports Clôturés (`#corrective_cloture`) :** Archive immuable de l'ensemble des interventions passées avec coût complet (main-d'œuvre + pièces de rechange) et PV d'intervention téléchargeable / imprimable.
-- **Analyse Corrective (`#corrective_analyse`) :** Tableau de bord décisionnel automatisant les calculs de fiabilité industrielle : MTTR (durée moyenne de réparation), MTBF (fréquence moyenne des pannes), Taux de disponibilité opérationnelle, et diagrammes de Pareto 80/20.
-
----
-
-## 2. Consultation et Export des Rapports Clôturés
-
-L'onglet `#corrective_cloture` regroupe l'historique exhaustif des BT finalisés :
-
-1. **Recherche et Filtrage Avancé :**
-   - Filtrage par période (mois, trimestre, année ou plage de dates personnalisée).
-   - Filtrage par équipement ou par ligne de production.
-   - Filtrage par technicien intervenant ou type de cause de défaillance.
-2. **Détail Complet d'un Rapport :**
-   - En cliquant sur un BT clôturé, l'opérateur consulte la fiche récapitulative :
-     - Identité de la machine, date et heure d'arrêt, date et heure de redémarrage.
-     - Symptôme d'origine et diagnostic constaté.
-     - Actions techniques exécutées.
-     - Liste détaillée des pièces de rechange avec référence, quantité et coût unitaire PUMP (`cout_pdr`).
-     - Détail des **Bons d'Atelier Fabrication Mécanique internes (`BR` / `RECT`)** associés (`code_bon`, type Réalisation/Rectification, quantité, description des travaux et statut d'avancement), avec possibilité d'émettre un nouveau bon (`+ Demande Réalisation / Rectification`) si le BT est encore actif ou d'ouvrir directement l'onglet de suivi (`Ouvrir Suivi Atelier` → `#corrective_atelier`).
-     - Détail du **Bon de Sortie Externe / Sous-Traitance** associé (`code_sortie_atelier`, nature d'usinage/bobinage externe, prestataire et `cout_atelier`).
-     - Coût global consolidé de l'intervention : $\text{Coût Total} = \text{Coût PDR} + \text{Coût Atelier / Externe}$ (+ valorisation MO).
-3. **Export Excel et Impression :**
-   - Bouton **« Exporter vers Excel »** : Génération immédiate d'un classeur structuré pour audit et reporting hiérarchique.
-   - Bouton **« Imprimer / PDF »** : Fiche d'intervention au format A4 normalisé avec zones d'émargement technicien et production.
+La clôture d'un Bon de Travail (`BT`) transforme l'intervention terrain en mémoire technique et analytique exploitable :
+- **Rapports Clôturés (`#corrective_cloture`) :** Registre immuable des interventions finalisées, permettant de consulter la fiche 360° du dépannage, de suivre les Bons d'Atelier (`BR / RECT`) associés, d'éditer le **Rapport Technique d'Intervention A4 (`RCA` — Analyse de Cause Racine)** sauvegardé directement dans le SSOT, et d'exporter les données en Excel Type B.
+- **Analyse Corrective (`#corrective_analyse`) :** Moteur décisionnel calculant en temps réel les indicateurs normés **EN 13306** (`MTTR`, `MTBF`, Disponibilité opérationnelle $D_o$), les courbes de **Pareto 80/20** (par machine, par symptôme et par famille technique) et les **recommandations automatiques de plans préventifs**.
 
 ---
 
-## 3. Analyse de Fiabilité : MTTR, MTBF et Disponibilité
+## 2. Rapport Technique d'Intervention A4 & Analyse de Cause Racine (`RCA` Persisté SSOT)
 
-L'onglet `#corrective_analyse` calcule automatiquement les métriques de la norme EN 13306 :
+Au-delà du simple compte-rendu de clôture, chaque `BT` dispose d'un **Rapport Technique d'Expertise au format A4 normalisé** (`InterventionReportModal.tsx`) :
 
-### 3.1 Les Indicateurs Clés (KPIs)
-- **MTTR (Temps Moyen de Réparation) :** Exprimé en heures ou minutes. Indique la rapidité et l'efficacité des équipes techniques à diagnostiquer et remettre en route un équipement défaillant.
-- **MTBF (Temps Moyen Entre Pannes) :** Exprimé en heures de fonctionnement. Mesure la robustesse intrinsèque de l'équipement ou l'efficacité de la maintenance préventive appliquée.
-- **Taux de Disponibilité ($D_o$) :** Pourcentage du temps durant lequel la machine était apte à produire.
-- **Nombre Total d'Interventions & Heures d'Arrêt Cumulées :** Suivi de l'impact global sur la capacité de l'usine.
-
----
-
-## 4. Diagrammes de Pareto 80/20 : Cibler les Priorités
-
-Le principe de Pareto stipule que **80% des arrêts ou des coûts de maintenance proviennent généralement de 20% des causes ou des machines**.
-
-La page propose deux vues de Pareto dynamiques :
-
-### 4.1 Pareto par Équipement (Machines Gourmandes)
-- Classe les machines par ordre décroissant d'heures d'arrêt ou de coût cumulé.
-- Une courbe cumulative affiche le pourcentage atteint.
-- **Action Managériale :** Les 2 ou 3 premières machines qui dépassent 50% de la courbe cumulative doivent faire l'objet d'un audit de conception, d'un rétrofit ou d'un renforcement immédiat du plan préventif (`Maintenance Préventive`).
-
-### 4.2 Pareto par Famille de Défaillance (Symptômes & Causes)
-- Répartition des pannes par nature :
-  - *Mécanique :* Roulements, courroies, réducteurs, paliers.
-  - *Électrique :* Disjoncteurs, variateurs, capteurs inductifs, relais.
-  - *Hydraulique & Pneumatique :* Vérins, distributeurs, fuites de flexibles, baisse de pression.
-  - *Automatisme & Programmation :* Défauts de bus, fins de course, blocs logiques.
-- **Action Managériale :** Ajuster les formations des techniciens ou le stock de sécurité des pièces de rechange sur les familles les plus vulnérables.
+1. **Ouverture du Rapport Technique A4 :**
+   - Dans `#corrective_cloture`, cliquez sur l'icône **Aperçu (`👁️`)** d'un `BT` puis sur **« Rapport Technique A4 »** (ou directement sur l'icône **`📄` Rapport** de la ligne).
+   - Le rapport pré-remplit automatiquement les faits certains du `BT` (Date, Code & Désignation Machine, Référence `BT`, Type de maintenance, Durée d'arrêt, Nature du défaut, Intervenant et Référence documentaire `RT-BT-...`) **sans jamais inventer d'analyse fictive**.
+2. **Saisie de l'Expertise & Analyse `RCA` :**
+   - **Synthèse Exécutive :** Résumé du contexte et de l'impact opérationnel.
+   - **Tableau d'Expertise Technique (`RCA`) :** Renseignez les composants inspectés, les observations physiques constatées et leur impact (avec bouton **`+ Ajouter une ligne d'observation`** pour documenter autant d'organes que nécessaire).
+   - **Cause Racine (`Root Cause`) & Facteur Déclencheur :** Détaillez la cause première de la défaillance et son effet.
+   - **Travaux Réalisés, Contrôles de Remise en Service & Actions Préventives / Recommandations :** Documentez les essais de validation et les actions préventives proposées pour éviter la récidive.
+   - **Visas :** Signature de l'intervenant et visa du responsable maintenance.
+3. **Sauvegarde Directe dans le SSOT (`handleSaveInterventionReport`) & Impression A4 :**
+   - Cliquez sur **« Enregistrer » (`💾`)** :
+     - Le rapport est **persisté directement dans le SSOT** sur l'intervention (`intervention.technical_report`), met à jour `cause_racine` ainsi que l'indicateur `rapport_redige = 'OUI'`, et écrit un événement d'audit immuable **`CORRECTIVE_RCA_SAVED`** dans `STORAGE_KEYS.AUDIT_EVENTS` (avec miroir local pour résilience hors-ligne).
+     - *Note d'intégrité :* l'enrichissement post-mortem d'un rapport `RCA` sur un `BT` déjà `CLOTURE` est explicitement autorisé sans jamais altérer le statut, les mouvements de stock PDR ni les coûts financiers verrouillés.
+   - Cliquez sur **« Imprimer / PDF A4 » (`🖨️`)** pour générer la fiche officielle A4 prête pour l'archivage qualité ISO ou la revue de direction.
 
 ---
 
-## 5. Bonnes Pratiques d'Exploitation
+## 3. Fiche Récapitulative du BT, Passerelle Atelier (`BR / RECT`) & Export Excel Type B
 
-1. **Régularité des Clôtures :** Un BT doit être clôturé dans les 24 heures suivant la fin de l'intervention pour garantir la fraîcheur des données de Pareto hebdomadaire.
-2. **Précision des Diagnostics :** Éviter les termes génériques comme *« machine en panne »* ou *« réparation faite »*. Renseigner le composant exact et le symptôme pour fiabiliser le catalogue de pannes.
-3. **Analyse Mensuelle :** Organiser chaque début de mois une revue de Pareto avec la production pour décider des actions correctives de fond (Plans d'Amélioration Continue).
+En ouvrant la fiche détaillée (`👁️`) d'une intervention dans `#corrective_cloture` :
+- **Traçabilité Technique & Temporelle :** Demandeur, intervenant résolu par matricule (`TECH-XX`), heures de début/fin, temps d'intervention calculé (pause déjeuner neutralisée) et indicateur d'arrêt machine.
+- **Bilan Pièces de Rechange (`PDR`) :** Liste complète des références consommées, quantités et valorisation au PUMP (`cout_pdr`).
+- **Suivi & Émission des Bons d'Atelier Mécanique (`BR / RECT`) :**
+  - Affiche tous les ordres d'usinage/rectification liés (`code_bon`, type, quantité, statut `EMIS` ➔ `RECEPTIONNE_MONTAGE`).
+  - Permet d'émettre un bon complémentaire ou de basculer en 1 clic vers **`Ouvrir Suivi Atelier` (`#corrective_atelier`)**.
+- **Export Excel Filtré (Type B) :** Le bouton **« Exporter Excel (.xlsx) »** génère un classeur structuré multi-colonnes (`Col A` à `Col N`) contenant exactement le périmètre filtré à l'écran.
+
+---
+
+## 4. Analyse de Fiabilité (`MTTR`, `MTBF`, Pareto 80/20 & Recommandations Préventives)
+
+L'onglet **Analyse Corrective (`#corrective_analyse`)** exploite les données réelles des `BT` :
+1. **Indicateurs Normés EN 13306 :**
+   - **`MTTR` (Temps Moyen de Réparation)**, **`MTBF` (Temps Moyen Entre Pannes)** et **Disponibilité Opérationnelle ($D_o$)** calculés dynamiquement sans aucune donnée simulée.
+2. **Triple Analyse de Pareto (Loi des 80/20) :**
+   - **Pareto par Machine (`correctiveParetoMachines`) :** Identifie les 20 % d'équipements responsables de 80 % des arrêts ou des interventions.
+   - **Pareto par Anomalie (`correctiveParetoAnomalies`) :** Classe les symptômes récurrents.
+   - **Pareto par Domaine Technique (`correctiveParetoTypes`) :** Répartition `Mécanique`, `Électrique`, `Hydraulique`, `Pneumatique`, `Automatisme`.
+3. **Boucle d'Amélioration Continue (`correctivePreventiveRecommendations`) :**
+   - Dès qu'un couple `(Machine, Anomalie)` franchit le seuil de récurrence critique, le moteur génère automatiquement une **Recommandation de Plan Préventif** pour transformer les dépannages répétitifs en gamme préventive systématique dans `#preventive`.
+
+---
+
+## 5. Utilisation en Mode `TEAM_FULL` vs Mode `SOLO_EXPERT`
+
+| Fonctionnalité | Mode `TEAM_FULL` (Équipe Complète) | Mode `SOLO_EXPERT` (Ingénieur Terrain + Équipe) |
+| :--- | :--- | :--- |
+| **Périmètre de visibilité** | Les techniciens voient leurs interventions assignées (`scopedInterventions`) ; les superviseurs/admins voient toute l'usine. | L'Ingénieur (`@admin`) visualise l'ensemble de l'usine et filtre par technicien terrain pour évaluer la performance individuelle de son équipe. |
+| **Rapport Technique A4 (`RCA`)** | Rédigé par le technicien ou l'ingénieur fiabilité et visé par le responsable maintenance (`CORRECTIVE_RCA_SAVED`). | **Identique et 100 % actif :** permet à l'expert solo de documenter ses analyses de causes racines (`RCA`) sur les pannes critiques et d'imprimer un rapport A4 professionnel pour la direction ou le client. |
+| **Pareto 80/20, `MTTR` / `MTBF` & Recommandations PM** | Pilotage par le service Méthodes / Fiabilité. | **Outil d'aide à la décision directe :** identifie immédiatement quelle machine ou quel technicien concentre les heures d'arrêt et quelles pannes récurrentes doivent passer en préventif. |

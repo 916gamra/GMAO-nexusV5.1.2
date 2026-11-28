@@ -289,7 +289,8 @@ export function evaluateTechniciansForIntervention({
 
   for (const tech of technicians || []) {
     const rec = tech as Record<string, unknown>;
-    if (rec.is_active === false || rec.actif === false) continue;
+    const rawStatut = String(rec.statut || rec.status || '').trim().toUpperCase();
+    if (rec.is_active === false || rec.actif === false || rawStatut.startsWith('ARCHIV')) continue;
 
     const habs = extractTechnicianHabilitations(tech);
     const validSet = new Set<HabilitationCode>();

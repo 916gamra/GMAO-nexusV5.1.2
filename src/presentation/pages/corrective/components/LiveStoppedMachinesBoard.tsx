@@ -9,6 +9,8 @@ import {
   Coins,
 } from 'lucide-react';
 import { isMachineStoppageFlag } from '../../../../domain/corrective/services/CorrectiveCalculationService';
+import { useCurrency } from '../../../../utils/currencyService';
+import { useWorkspaceProfile } from '../../../../core/workspace/workspaceProfile';
 import type { IMachine } from '../../../../types/domain';
 import type { CorrectiveInterventionItem } from '../../../../types/store';
 
@@ -69,6 +71,8 @@ export function LiveStoppedMachinesBoard({
   onOpenDi,
   nowMs,
 }: LiveStoppedMachinesBoardProps) {
+  const { symbol } = useCurrency();
+  const workspaceProfile = useWorkspaceProfile();
   const [tickMs, setTickMs] = useState<number>(() => nowMs ?? Date.now());
 
   useEffect(() => {
@@ -176,13 +180,15 @@ export function LiveStoppedMachinesBoard({
           </span>
         </div>
 
-        {totalEstimatedLoss > 0 && (
+        {workspaceProfile.showFinance && totalEstimatedLoss > 0 && (
           <div
             data-testid="live-stopped-total-loss"
             className="inline-flex items-center gap-1.5 px-3 py-1 rounded-xl bg-white border border-rose-300 text-rose-900 text-xs font-mono font-black shadow-2xs self-start sm:self-auto"
           >
             <Coins className="w-3.5 h-3.5 text-rose-600" />
-            <span>Perte prod. estimée : {totalEstimatedLoss.toLocaleString()} DH</span>
+            <span>
+              Perte prod. estimée : {totalEstimatedLoss.toLocaleString()} {symbol}
+            </span>
           </div>
         )}
       </div>
@@ -256,9 +262,9 @@ export function LiveStoppedMachinesBoard({
                       <span className="truncate max-w-[110px]">{item.intervenant}</span>
                     </span>
                   )}
-                  {hourlyRate > 0 && (
+                  {workspaceProfile.showFinance && hourlyRate > 0 && (
                     <span className="text-[10.5px] font-black text-rose-800">
-                      ~{estimatedLoss.toLocaleString()} DH
+                      ~{estimatedLoss.toLocaleString()} {symbol}
                     </span>
                   )}
                 </div>

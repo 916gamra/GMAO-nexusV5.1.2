@@ -11,6 +11,8 @@ import {
 } from 'lucide-react';
 import { INTERVENTION_NATURE_OPTIONS } from '../../../components/common/ValidationStatusBadge';
 import { SortieExterneService } from '../../../../application/services/SortieExterneService';
+import { useCurrency } from '../../../../utils/currencyService';
+import { useWorkspaceProfile } from '../../../../core/workspace/workspaceProfile';
 
 export interface BtValidationReviewModalProps {
   reviewModalBt: any;
@@ -59,6 +61,8 @@ export default function BtValidationReviewModal({
   setReviewNote,
   handleReviewDecision,
 }: BtValidationReviewModalProps) {
+  const { symbol } = useCurrency();
+  const workspaceProfile = useWorkspaceProfile();
   const [pdrSearch, setPdrSearch] = useState('');
   const [selectedPdrRef, setSelectedPdrRef] = useState('');
   const [selectedPdrQty, setSelectedPdrQty] = useState<number>(1);
@@ -500,9 +504,11 @@ export default function BtValidationReviewModal({
                           <span className="text-[11px] opacity-80">
                             • {ord.fournisseur_externe}
                           </span>
-                          <span className="font-mono font-bold text-[11px] bg-white/80 px-2 py-0.5 rounded">
-                            {Number(ord.cout_bobinage || 0).toLocaleString()} DH
-                          </span>
+                          {workspaceProfile.showFinance && (
+                            <span className="font-mono font-bold text-[11px] bg-white/80 px-2 py-0.5 rounded">
+                              {Number(ord.cout_bobinage || 0).toLocaleString()} {symbol}
+                            </span>
+                          )}
                         </div>
                         <div className="flex items-center gap-2 shrink-0">
                           <span

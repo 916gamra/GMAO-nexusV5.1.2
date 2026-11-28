@@ -969,5 +969,116 @@ describe('Corrective Phase 2 Hardening — SSOT Technical Report (RCA), Cross-Ta
   });
 });
 
+describe('Corrective Phases 2–4 — Archived Technician Filtering, Closure Intervenant Assignment & SOLO_EXPERT Profile', () => {
+  beforeEach(() => {
+    resetStoreState();
+    SecurityService.saveSessionSecure('gmao_session_v2', {
+      userId: 'ADM-P4',
+      nom: 'Ingénieur Maintenance Solo',
+      role: 'ADMIN',
+    });
+    useGmaoStore.setState({
+      machines: [
+        {
+          id_machine: 'M-P4',
+          code_machine: 'M-P4',
+          nom: 'Centre Usinage 5 Axes',
+          status: 'OPERATIONNELLE',
+        } as any,
+      ],
+      correctiveInterventions: [
+        {
+          id: 'BT-P4-1',
+          num_bt: 'BT-2026-900',
+          code_machine: 'M-P4',
+          statut: 'EN_COURS',
+          intervenant: 'Non assigné',
+        } as CorrectiveInterventionItem,
+      ],
+    });
+  });
+
+  afterEach(() => {
+    resetStoreState();
+  });
+
+  it('excludes archived or inactive technicians (ARCHIVEE / ARCHIVE / is_active=false) from evaluateTechniciansForIntervention', async () => {
+    const { evaluateTechniciansForIntervention } = await import(
+      '../../domain/workforce/workforceCapacityService'
+    );
+
+    const candidateList = evaluateTechniciansForIntervention({
+      intervention: {
+        type_panne: 'E',
+      },
+      technicians: [
+        {
+          id: 'T-ACT',
+          id_technician: 'TECH-01',
+          matricule: 'TECH-01',
+          nom: 'Karim Actif',
+          specialite: 'Electromécanique',
+          statut: 'Actif',
+          is_active: true,
+        },
+        {
+          id: 'T-ARCH-1',
+          id_technician: 'TECH-02',
+          matricule: 'TECH-02',
+          nom: 'Youssef Archivé',
+          specialite: 'Electromécanique',
+          statut: 'ARCHIVEE',
+          is_active: true,
+        },
+        {
+          id: 'T-ARCH-2',
+          id_technician: 'TECH-03',
+          matricule: 'TECH-03',
+          nom: 'Rachid Archivé 2',
+          specialite: 'Mécanique',
+          status: 'ARCHIVE',
+        },
+        {
+          id: 'T-INACT',
+          id_technician: 'TECH-04',
+          matricule: 'TECH-04',
+          nom: 'Nabil Inactif',
+          specialite: 'Hydraulique',
+          is_active: false,
+        },
+      ],
+      activeInterventions: [],
+      preventiveTasks: [],
+      estimatedTaskMinutes: 60,
+      referenceDate: '2026-06-01',
+    });
+
+    expect(candidateList).toHaveLength(1);
+    expect(candidateList[0].technicianName).toBe('Karim Actif');
+    expect(candidateList[0].technicianId).toBe('TECH-01');
+  });
+
+  it('allows assigning or updating the executing technician (intervenant + technicien_matricule) upon direct BT closure', () => {
+    const closed = useGmaoStore.getState().handleClotureIntervention('BT-P4-1', {
+      date_debut: '2026-06-01',
+      heure_debut: '08:00',
+      date_fin: '2026-06-01',
+      heure_fin: '10:00',
+      action_realisee: 'Remplacement codeur absolu et calibration axe C',
+      intervenant: 'Karim Actif',
+      technicien_matricule: 'TECH-01',
+      arret_machine: true,
+      temps_arret: '02:00',
+      pdr_utilisees: [],
+    });
+
+    expect(closed).not.toBeNull();
+    expect(closed?.statut).toBe('CLOTURE');
+    expect(closed?.intervenant).toBe('Karim Actif');
+    expect((closed as any)?.technicien_matricule).toBe('TECH-01');
+  });
+});
+
+
 
 

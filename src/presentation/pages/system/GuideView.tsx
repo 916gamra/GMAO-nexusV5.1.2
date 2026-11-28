@@ -146,9 +146,9 @@ const MODULE_ROADMAP: RoadmapGroupMeta[] = [
       en: 'Corrective Maintenance (DI / WO, Workshop & Closure)',
     },
     description: {
-      fr: 'Cycle complet Demande d’Intervention (DI) ➔ Bon de Travail (BT) ➔ Intervention Live ➔ Atelier Fabrication Mécanique (BR / Rectification) ➔ Clôture, machine à états finis et Pareto.',
-      ar: 'الدورة الكاملة من طلب التدخل (DI) إلى أمر العمل (BT) والتنفيذ الحي والورشة الميكانيكية (BR / RECT) ثم الإغلاق وتحليل Pareto.',
-      en: 'Full workflow from Intervention Request (DI) ➔ Work Order (WO) ➔ Live Timer ➔ Mechanical Workshop (BR / RECT) ➔ Closure, state machine, and Pareto.',
+      fr: 'Cycle complet en TEAM_FULL & SOLO_EXPERT : DI (pré-remplie 1-clic depuis Catalogue) ➔ BT & Conversion Live ⚡ ➔ Consignation LOTO & Contrôle Stock Temps Réel ➔ Besoins (BES / Fast-Track) & Atelier Mécanique (BR / RECT) ➔ Clôture (Maker-Checker ou SOLO_DIRECT), Rapport Technique A4 (RCA SSOT) et Pareto.',
+      ar: 'الدورة الكاملة في TEAM_FULL وSOLO_EXPERT: طلب التدخل DI (تعبئة بنقرة من الكتالوج) ➔ أمر العمل BT والبدء الفوري Live ⚡ ➔ عزل الطاقة LOTO وفحص المخزون اللحظي ➔ طلبات الاحتياج (BES / Fast-Track) والورشة الميكانيكية (BR / RECT) ➔ الإغلاق (Maker-Checker أو SOLO_DIRECT) والتقرير التقني A4 (RCA SSOT) وتحليل Pareto.',
+      en: 'Full workflow in TEAM_FULL & SOLO_EXPERT: DI (1-click Catalog preset) ➔ WO & Live Start ⚡ ➔ LOTO Energy Lockout & Real-Time Stock Guard ➔ Need Requests (BES / Fast-Track) & Mechanical Workshop (BR / RECT) ➔ Closure (Maker-Checker or SOLO_DIRECT), A4 Technical Report (SSOT RCA), and Pareto.',
     },
     icon: Wrench,
     tabs: [

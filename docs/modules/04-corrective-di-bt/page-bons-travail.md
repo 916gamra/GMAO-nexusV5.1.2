@@ -5,109 +5,92 @@ groupTitle: Maintenance Corrective (DI / BT & Clôture)
 docType: page
 audience: user
 tabId: corrective_bt
-title: Bons de Travail (BT) & Intervention Live
-subtitle: Planification des ordres de travail, chronomètre d'atelier, gestion des shifts et protocole Maker-Checker
-summary: Guide d'exécution terrain pour les techniciens et superviseurs de maintenance. Décrit le chronométrage Live avec neutralisation automatique de la pause déjeuner, la saisie des PDR et la réconciliation Maker-Checker.
+title: Bons de Travail (BT), Consignation LOTO & Intervention Live
+subtitle: Pilotage des ordres de travail, consignation énergétique LOTO, chronomètre Shift-Aware, contrôle de stock temps réel, expressions de besoin et gouvernance Maker-Checker vs SOLO_DIRECT
+summary: Guide d'exécution terrain pour les techniciens, superviseurs (TEAM_FULL) et ingénieurs Solo Expert (SOLO_EXPERT). Décrit le cycle BT, le cadenas LOTO, le chronométrage Live (pause déjeuner neutralisée), le calcul temps réel du stock PDR, les Bons d'Atelier (BR/RECT), les Expressions de Besoin (BES) et la clôture directe vs Maker-Checker.
 relatedTabs:
   - corrective_di
+  - corrective_live
   - corrective_atelier
   - corrective_cloture
   - validation_center
   - stock
 ---
 
-# 🛠️ Guide Utilisateur : Bons de Travail (BT) & Intervention Live
+# 🛠️ Guide Utilisateur : Bons de Travail (`#corrective_bt`), Consignation `LOTO` & Intervention Live (`#corrective_live`)
 
-> **Module :** Maintenance Corrective  
+> **Module :** Maintenance Corrective (`v5.1.2`)  
 > **Identifiants d'accès :** `#corrective_bt` et `#corrective_live`  
 > **Onglets :** *Bons de Travail* & *Intervention en Direct (Live)*  
-> **Public cible :** Techniciens d'atelier, Chefs d'équipe, Responsables Méthodes & Maintenance.
+> **Public cible :** Techniciens d'atelier, Chefs d'équipe, Responsables Maintenance (`TEAM_FULL`) et Ingénieurs Maintenance autonomes pilotant une équipe terrain (`SOLO_EXPERT`).
 
 ---
 
 ## 1. Rôle et Objectif
 
-Le **Bon de Travail (BT)** formalise l'ordre d'exécution d'une tâche de maintenance corrective sur un équipement. Il trace :
-- La machine ciblée et son historique d'intervention.
-- Le diagnostic et les travaux prescrits.
-- Les intervenants assignés.
-- Le chronométrage précis du temps de dépannage (début, fin, pauses shifts).
-- Les pièces de rechange (PDR) consommées et leur valorisation financière.
-
-L'onglet **Intervention Live** (`#corrective_live`) fournit un tableau de bord en temps réel pour suivre les interventions en cours à l'atelier avec chronomètre actif.
+Le **Bon de Travail (`BT`)** est le dossier d'exécution technique et transactionnel d'un dépannage. Il gouverne :
+- La sécurité énergétique avant et après démontage (**Consignation `LOTO`**).
+- Le chronométrage réel d'immobilisation (**Shifts industriels `08:00–17:00`** avec neutralisation automatique de la pause déjeuner `13:15–14:00`).
+- La consommation contrôlée des **Pièces de Rechange (`PDR`)** avec vérification du stock disponible en temps réel (`StockCalculationService`).
+- Les passerelles d'attente réelle : **Bons d'Atelier Fabrication Mécanique (`BR / RECT`)**, **Sorties Externes (`SORT-EXT`)** et **Expressions de Besoin (`BES`)**.
+- La synchronisation optionnelle de la nomenclature physique montée (**Nexus BOM As-Built**).
 
 ---
 
-## 2. Cycle Opérationnel d'un Bon de Travail
-
-Tout BT traverse les phases suivantes conformément à la machine à états :
+## 2. Cycle Opérationnel & Distinction Sémantique des Statuts
 
 ```text
-[ Planifié ] ➔ [ En Cours ] ➔ [ En Attente PDR (si blocage) ] ➔ [ Réconciliation ] ➔ [ Clôturé ]
+[ BT Planifié ] ➔ (Consignation LOTO si requis) ➔ [ En Cours (Live) ]
+       │
+       ├──► [ ATTENTE ATELIER ] (Bon BR / RECT ou Sortie Externe actif — Clôture verrouillée)
+       ├──► [ ATTENTE PDR / BESOIN ] (Rupture magasin ou Besoin BES ouvert — Clôture verrouillée)
+       ▼
+(Déconsignation LOTO si requis) ➔ [ Validation Maker-Checker (TEAM_FULL) OU Clôture Directe (SOLO_DIRECT) ] ➔ [ Clôturé ]
 ```
 
-### Statuts et Significations (Distinction Sémantique `ATTENTE ATELIER` vs `ATTENTE PDR`)
-- **BT Planifié :** Créé et attribué à un technicien, en attente de prise en charge physique.
-- **En Cours :** Le technicien est activement sur la machine ou le chronomètre Live a été déclenché.
-- **Attente Atelier (`ATTENTE ATELIER`) :** Le `BT` est mis en attente car un **Bon de Réalisation (`BR-YYYY-NNN`)**, un **Bon de Rectification (`RECT-YYYY-NNN`)** ou une **Sortie Externe** est en cours d'exécution à l'Atelier Fabrication Mécanique ou chez un sous-traitant.
-- **Attente PDR (`ATTENTE PDR`) :** L'intervention est suspendue car une pièce de rechange magasin est en rupture de stock.
-- **En Attente de Validation (Maker-Checker) :** L'intervention est physiquement terminée par le technicien ; les pièces et heures déclarées doivent être visées par le superviseur.
-- **Clôturé :** Intervention finalisée, pièces déduites, coût calculé, machine remise à disposition de la production.
+- **`BT_PLANIFIE` :** Ordre de travail émis et attribué à un technicien actif, ou en **`ATTENTE_CONSIGNATION` (`LOTO`)**.
+- **`EN_COURS` :** Intervention active sur le terrain avec chronomètre Live.
+- **`ATTENTE ATELIER` (Badge Indigo) :** Un Bon de Réalisation (`BR-YYYY-NNN`), de Rectification (`RECT-YYYY-NNN`) ou une Sortie Externe est en cours d'usinage/réparation.
+- **`ATTENTE PDR` (Badge Ambre) :** Suspension pour rupture de stock PDR ou Expression de Besoin (`BES-YYYY-NNN`) en cours d'approvisionnement.
+- **`PENDING_VALIDATION` (`Maker-Checker` en `TEAM_FULL`) :** Travail terminé par le technicien ; pièces réservées sans déduction physique tant que le superviseur n'a pas approuvé.
+- **`CLOTURE` :** État terminal immuable ; stock PDR déduit **une seule fois (`1×`)**, coûts consolidés (`cout_pdr + cout_atelier`), machine remise en service.
 
 ---
 
-## 3. Prise en Main de l'Intervention Live (`#corrective_live`)
+## 3. Sécurité Énergétique : Protocole de Consignation `LOTO` (`Lockout / Tagout`)
 
-L'onglet Live permet un suivi dynamique des équipes sur le terrain :
-
-1. **Démarrer une Intervention :**
-   - Sélectionnez le BT concerné et cliquez sur **« Démarrer le Chrono »** (icône ▶️).
-   - L'heure de début exacte est enregistrée.
-2. **Gestion Automatique des Équipes & Horaires (Shifts Industriels) :**
-   - **Équipe du Matin (08:00 – 13:15) :** Le chronomètre incrémente les minutes travaillées.
-   - **Pause Déjeuner (13:15 – 14:00) :** Si l'intervention chevauche cette période, **45 minutes sont automatiquement neutralisées** du calcul du temps machine afin de ne pas pénaliser le MTTR de l'usine.
-   - **Équipe de l'Après-Midi (14:00 – 17:00) :** Reprise normale du calcul.
-   - **Hors Shift (Après 17:00, Nuits et Dimanches) :** Le calcul d'arrêt effectif est gelé jusqu'à la reprise de la prochaine période ouvrée.
-3. **Mise en Pause / Attente PDR :**
-   - Si un problème de pièce survient, cliquez sur **« Mettre en Attente PDR »**. Le compteur d'intervention active s'interrompt et la mention apparaît en orange clignotant.
-4. **Finaliser le Travail Terrain :**
-   - Cliquez sur **« Terminer l'Intervention »**. La durée totale réelle s'affiche et vous êtes redirigé vers la saisie du compte-rendu.
+Lorsqu'un `BT` comporte l'exigence **`LOTO Requis`** (`requires_loto: true`) :
+1. **Avant le démarrage des travaux (`ATTENTE_CONSIGNATION` ➔ `CONSIGNE`) :**
+   - Dans la console **Intervention Live (`#corrective_live`)**, ouvrez le panneau **Permis de Consignation LOTO**.
+   - Sélectionnez les **Énergies coupées** (`Électrique`, `Pneumatique`, `Hydraulique`, `Mécanique / Gravité`, `Thermique / Vapeur`, `Chimique`), saisissez le **Numéro de Cadenas** et le **Point d'isolement**, puis cochez la **Vérification d'Absence de Tension / Énergie (`VAT Vérifiée`)**.
+   - Cliquez sur **« Valider la Consignation »** : l'événement `LOTO_CONSIGNED` est gravé dans `AUDIT_EVENTS` et le `BT` est autorisé à passer en `EN_COURS`.
+2. **Avant la clôture du BT (`CONSIGNE` ➔ `DECONSIGNE`) :**
+   - Tant que le cadenas est posé (`CONSIGNE`), le système **interdit toute clôture du `BT`** (`canCloseWorkWithLoto`).
+   - Une fois les carters remontés et la zone sécurisée, validez la **Déconsignation** (`LOTO_DECONSIGNED`). En cas d'absence du consignateur initial, seuls un **Responsable Maintenance** ou un **Admin** peuvent exécuter un **Forçage de Cadenas (`Break-Lock Override`)** avec motif obligatoire tracé en audit (`LOTO_BREAK_LOCK_OVERRIDE`).
 
 ---
 
-## 4. Déclaration Terrain : Pièces Consommées, Bon Atelier Mécanique (`BR / RECT`) & Sortie Externe
+## 4. Console `Intervention Live` (`#corrective_live`) : PDR Temps Réel, Besoins (`BES`) & Atelier (`BR / RECT`)
 
-Lors de la saisie du rapport d'intervention dans `#corrective_live` :
-1. **Nature de l'Intervention (Contrôle de cohérence `VAL-4`) :**
-   - Choisissez la nature réelle du dépannage : *Remplacement PDR (`+PDR`)*, *Réparation*, *Réglage*, *Nettoyage*, *Diagnostic* ou **`Atelier / Rectif.`** (*Bon d’Atelier / Rectification / Externe*).
-2. **Émission d'un Bon Atelier Mécanique Interne (`BR / RECT`) depuis l'Intervention Live :**
-   - Cliquez sur le bouton ambre **« Bon atelier mécanique (BR / RECT) »**.
-   - Sélectionnez la nature de la demande :
-     - **`REALISATION`** : Confection / usinage d'une pièce mécanique neuve (`BR-YYYY-NNN`).
-     - **`RECTIFICATION`** : Tournage, fraisage, alésage ou rectification d'une pièce existante (`RECT-YYYY-NNN`).
-   - Saisissez la **quantité**, la **description technique des travaux** (obligatoire) et l'observation éventuelle, puis cliquez sur **« Émettre Bon Atelier & Mettre BT en Attente »**.
-   - Le bon est immédiatement créé vers `Atelier Fabrication Mécanique` (sans aucun impact sur le stock PDR magasin), un Toast confirme son numéro, et le `BT` passe en **`ATTENTE ATELIER`** sans être clôturé.
-   - Dès que l'atelier marque le bon **`PRET_LIVRAISON`**, un bouton **« Réceptionner Montage »** apparaît directement dans la carte du `BT` Live pour passer le bon à **`RECEPTIONNE_MONTAGE`** et débloquer la clôture du `BT`.
-3. **Expression de Besoin Corrective (`NeedRequest` — `BES-YYYY-NNN`) :**
-   - Lorsqu'une pièce ou un organe manque pour terminer le dépannage, cliquez sur **« Exprimer un Besoin »** (`NeedRequestsModal.tsx`) depuis la ligne du `BT` ou l'écran Live.
-   - Le système oriente automatiquement le besoin selon les **Tags de Politique Matérielle (`MaterialPolicyTag`)** vers un **Achat PDR (`PO`)**, une **Fabrication / Rectification Atelier (`BR / RECT`)** ou une **Sous-traitance externe**, et suspend le `BT` en `EN_ATTENTE_PDR`.
-4. **Cas d'une Sous-Traitance Externe (`+ Sortie Externe / Bobinage`) :**
-   - Pour un envoi externe (ex. bobinage moteur chez un prestataire), cliquez sur **« + Sortie Externe / Bobinage »** (`SORT-EXT-xxx`).
-5. **Règle d'Or Anti-Clôture Prématurée :**
-   - Tant qu'un Bon Atelier Mécanique (`EMIS`, `EN_COURS_FABRICATION`, `PRET_LIVRAISON`), une Expression de Besoin bloquante (`hasOpenNeedRequest`) ou un Bon Externe lié est actif, le système **verrouille la clôture définitive du BT**.
-6. **Ajout des Pièces de Rechange (PDR) & Soumission :**
-   - Sélectionnez les articles PDR consommés (avec mise en avant `★ BOM`).
-   - **Technicien :** Cliquez sur **« Soumettre pour Validation Responsable »** (`PENDING_VALIDATION` sans déstockage immédiat).
-   - **Administrateur / Responsable :** Clôture directe uniquement si aucun bon d'atelier ni besoin bloquant n'est encore ouvert.
+1. **Sélection & Contrôle Temps Réel des Pièces de Rechange (`PDR`) :**
+   - Le sélecteur d'articles met en tête les pièces appartenant à la nomenclature de la machine (**`★ BOM`**).
+   - **Solde Temps Réel Garanti :** pour chaque article, le solde disponible est calculé dynamiquement selon l'invariant $\text{Stock Actuel} = \text{Stock Initial} + \text{Entrées} - \text{Sorties}$.
+   - **Garde Anti-Surconsommation :** le contrôleur additionne les quantités déjà présentes dans la liste du `BT` et bloque immédiatement toute tentative d'ajouter une quantité supérieure au stock disponible réel (ou de clôturer si le stock a été consommé entre-temps).
+2. **Émission d'un Bon Atelier Mécanique (`BR / RECT`) en 1 Clic :**
+   - Cliquez sur **« Bon atelier mécanique (BR / RECT) »**, choisissez `REALISATION` (`BR`) ou `RECTIFICATION` (`RECT`), la quantité et la description d'usinage.
+   - Le bon est émis sans impacter le stock PDR et le `BT` passe automatiquement en **`ATTENTE ATELIER`**. Dès que l'atelier marque la pièce **`PRET_LIVRAISON`**, le bouton **« Réceptionner Montage »** apparaît directement dans la console Live pour passer à `RECEPTIONNE_MONTAGE` et déverrouiller la clôture.
+3. **Expression de Besoin Corrective (`BES-YYYY-NNN` — `NeedRequestsModal`) :**
+   - Si une pièce est absente ou nécessite un arbitrage (Magasin `STOCK`, Commande `ACHAT`, Usinage `ATELIER` ou `EXTERNE`), cliquez sur **« Exprimer un Besoin »**.
+   - Le moteur `policyTagsService` suggère les canaux valides (en interdisant par exemple le canal `ATELIER` pour un consommable `PDR` standard) et verrouille la clôture du `BT` tant que le besoin bloquant n'est pas servi et posé (`POSE_ESSAI_OK`).
 
 ---
 
-## 5. Validation Superviseur : Protocole Maker-Checker & Contrôle Atelier
+## 5. Clôture et Gouvernance : `TEAM_FULL` (`Maker-Checker`) vs `SOLO_EXPERT` (`SOLO_DIRECT`)
 
-Pour les chefs d'équipe et responsables maintenance dans l'onglet **Bons de Travail (`#corrective_bt`)** :
-
-1. **Colonne `PDR & Atelier (Col L)` :** Affiche les pièces PDR ainsi que le badge **`Atelier: BR-2026-001 (EMIS)`** ou **`Atelier: RECT-2026-001 (EN_COURS_FABRICATION)`** en ambre tant que le bon est actif, et en indigo lorsqu'il est **`RECEPTIONNE_MONTAGE`**.
-2. **Colonne `Statut & Validation` :** Distingue visuellement **`ATTENTE ATELIER`** (badge indigo avec icône clé) de **`ATTENTE PDR`** (badge ambre).
-3. **Modale de Réconciliation (`Valider`) :**
-   - Si un Bon d'Atelier Mécanique (`BR / RECT`) ou Externe lié au `BT` est encore actif, l'approbation (`APPROVED`) est bloquée avec un message explicite indiquant le code du bon en cours.
-   - Une fois le bon réceptionné et monté (`RECEPTIONNE_MONTAGE`), l'approbation déduit les éventuelles PDR consommées et archive l'événement dans `AUDIT_EVENTS`.
+| Fonctionnalité | Mode `TEAM_FULL` (Équipe Complète) | Mode `SOLO_EXPERT` (Ingénieur Terrain + Équipe) |
+| :--- | :--- | :--- |
+| **Démarrage depuis une DI** | Conversion en `BT_PLANIFIE` puis lancement par le technicien. | Bouton 1-clic **`Créer BT & Démarrer Live ⚡`** qui ouvre directement la console Live sur le nouveau `BT`. |
+| **Fin d'intervention & Stock PDR** | Le **Technicien** clique sur **« Soumettre pour Validation »** (`PENDING_VALIDATION`, stock réservé mais non déduit). Le **Superviseur** valide dans `#corrective_bt` ou `#validation_center` ➔ déduction unique `1×`. | L'Ingénieur (`@admin`) clique sur **« Clôturer le BT »** : clôture directe en **1 seule étape** (`SOLO_DIRECT`), déduction immédiate et unique (`1×`) du stock PDR, et événement `CORRECTIVE_BT_CLOSED` avec `executionMode: 'SOLO_DIRECT'`. |
+| **Traitement d'un Besoin (`BES`)** | Workflow multi-acteurs (Soumission ➔ Revue Superviseur ➔ Approvisionnement ➔ Pose & Essai). | Bouton **`Fast-Track ⚡`** (`handleFastTrackNeedRequest`) permettant de valider et réceptionner un besoin terrain en circuit court sans étapes bureaucratiques. |
+| **Gestion de l'Équipe de Techniciens** | Chaque technicien se connecte avec son compte (isolation `R4` : ne voit et n'édite que ses `BT`). | Vous gérez toute votre équipe depuis votre session `@admin` : assignez le technicien réel sur chaque `BT`, filtrez par intervenant et suivez son temps de réparation (`MTTR`) et ses interventions réalisées. |
+| **Gardes de Sécurité & Vérité Terrain** | Bloque la clôture si `LOTO` non déconsigné, `BR/RECT` actif ou `BES` ouvert. | **Strictement identiques :** même en `SOLO_EXPERT`, aucun `BT` ne peut être clôturé par erreur si un cadenas `LOTO` est encore posé ou si une pièce est encore à l'atelier d'usinage. |

@@ -49,7 +49,9 @@ export default function InterventionLiveTab(props: InterventionLiveTabProps) {
     user,
     isTechUser,
     isReadOnlyUser,
+    canExecuteLive,
     canFastTrackNeed,
+    activeTechnicianOptions,
     actorName,
     actorRole,
     activeIntervention,
@@ -191,6 +193,8 @@ export default function InterventionLiveTab(props: InterventionLiveTabProps) {
       machineParts={machineParts}
       isWizardMode={isWizardMode}
       liveWorkingTime={liveWorkingTime}
+      isTechUser={isTechUser}
+      activeTechnicianOptions={activeTechnicianOptions}
     />
   );
 
@@ -684,22 +688,24 @@ export default function InterventionLiveTab(props: InterventionLiveTabProps) {
             <div className="flex flex-col sm:flex-row items-center justify-between gap-4 pt-4 border-t border-slate-100">
               {pauseAndSuspendButtons}
 
-              <button
-                type="submit"
-                data-testid="live-submit-btn"
-                className={`px-6 py-3 rounded-xl text-white font-bold text-xs transition cursor-pointer shadow-lg active:scale-95 flex items-center justify-center gap-2 w-full sm:w-auto ${
-                  isTechUser
-                    ? 'bg-purple-600 hover:bg-purple-700 shadow-purple-600/25'
-                    : 'bg-emerald-600 hover:bg-emerald-700 shadow-emerald-600/25'
-                }`}
-              >
-                {isTechUser ? <ShieldCheck className="w-4 h-4" /> : <CheckCircle className="w-4 h-4" />}
-                <span>
-                  {isTechUser
-                    ? 'Soumettre pour Validation Responsable (Sans déstockage)'
-                    : "Clôturer l'Intervention & Valider le Rapport"}
-                </span>
-              </button>
+              {canExecuteLive && (
+                <button
+                  type="submit"
+                  data-testid="live-submit-btn"
+                  className={`px-6 py-3 rounded-xl text-white font-bold text-xs transition cursor-pointer shadow-lg active:scale-95 flex items-center justify-center gap-2 w-full sm:w-auto ${
+                    isTechUser
+                      ? 'bg-purple-600 hover:bg-purple-700 shadow-purple-600/25'
+                      : 'bg-emerald-600 hover:bg-emerald-700 shadow-emerald-600/25'
+                  }`}
+                >
+                  {isTechUser ? <ShieldCheck className="w-4 h-4" /> : <CheckCircle className="w-4 h-4" />}
+                  <span>
+                    {isTechUser
+                      ? 'Soumettre pour Validation Responsable (Sans déstockage)'
+                      : "Clôturer l'Intervention & Valider le Rapport"}
+                  </span>
+                </button>
+              )}
             </div>
           </form>
         )}

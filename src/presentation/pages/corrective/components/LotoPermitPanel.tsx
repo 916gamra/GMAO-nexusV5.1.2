@@ -110,7 +110,8 @@ export default function LotoPermitPanel({
     normalizedRole === 'SUPERVISEUR' ||
     normalizedRole === 'SUPERVISOR' ||
     normalizedRole === 'CHEF_ATELIER' ||
-    normalizedRole === 'RESPONSABLE';
+    normalizedRole === 'RESPONSABLE' ||
+    normalizedRole === 'RESPONSABLE_MAINTENANCE';
   const consignateurIdNorm = String(permit.consignateur_id || '').trim().toUpperCase();
   const actorIdNorm = String(actorId || '').trim().toUpperCase();
   const isDifferentLockHolder =

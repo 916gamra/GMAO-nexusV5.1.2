@@ -126,7 +126,7 @@ export default function CorrectiveView({
 
   const isReadOnlyUser = AuthorizationService.isReadOnly(user);
   const canCreateDi = Boolean(user) && AuthorizationService.hasPermission(user, 'corrective.execute');
-  const canManageCorrective = Boolean(user) && !isTechUser && !isReadOnlyUser;
+  const canManageCorrective = Boolean(user) && AuthorizationService.hasPermission(user, 'corrective.manage');
   const demoFlag = storageService.getItem(STORAGE_KEYS.DEMO_MODE);
   const startMode = storageService.getItem(STORAGE_KEYS.START_MODE);
   const isExplicitDemoMode =
@@ -482,7 +482,8 @@ export default function CorrectiveView({
         >
           {activeTab === 'corrective_di' && (
             <DemandesInterventionTab
-              interventions={interventions}
+              interventions={techScopedInterventions}
+              allInterventions={interventions}
               onAddDemande={onAddDemande}
               onConvertToBt={onConvertToBt}
               onStartLive={onStartLive}
@@ -509,7 +510,7 @@ export default function CorrectiveView({
 
           {activeTab === 'corrective_bt' && (
             <BonsTravailTab
-              interventions={interventions}
+              interventions={techScopedInterventions}
               machines={machines}
               onStartLive={onStartLive}
               onUpdateIntervention={onUpdateIntervention}
@@ -530,7 +531,7 @@ export default function CorrectiveView({
 
           {activeTab === 'corrective_live' && (
             <InterventionLiveTab
-              interventions={interventions}
+              interventions={techScopedInterventions}
               machines={machines}
               technicians={technicians}
               activeLiveId={activeLiveId}
@@ -566,7 +567,7 @@ export default function CorrectiveView({
 
           {activeTab === 'corrective_cloture' && (
             <ClotureRapportsTab
-              interventions={interventions}
+              interventions={techScopedInterventions}
               machines={machines}
               stockItems={stockItems}
               warehouseItems={warehouseItems}
@@ -579,7 +580,7 @@ export default function CorrectiveView({
 
           {activeTab === 'corrective_analyse' && (
             <AnalyseCorrectiveTab
-              interventions={interventions}
+              interventions={techScopedInterventions}
               machines={machines}
               stockItems={stockItems}
               technicians={technicians}

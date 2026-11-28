@@ -215,7 +215,7 @@ export function InterventionLiveDiagnosticStep({
           {showTravailSuggestions && filteredSuggestions.length > 0 && (
             <div className="absolute left-0 right-0 top-full mt-1 z-40 bg-white rounded-2xl border border-slate-200 shadow-xl max-h-48 overflow-y-auto p-2 space-y-1">
               <div className="text-[10px] font-extrabold uppercase text-slate-400 px-2 py-1">
-                Suggestions Base Usine (143 phrases types) :
+                Suggestions Base Usine ({filteredSuggestions.length} phrases types) :
               </div>
               {filteredSuggestions.map((item, idx) => (
                 <div

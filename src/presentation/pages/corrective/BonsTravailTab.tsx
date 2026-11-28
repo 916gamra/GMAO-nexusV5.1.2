@@ -60,6 +60,8 @@ import {
   canStartWorkWithLoto,
 } from '../../../domain/corrective/lotoService';
 import BtValidationReviewModal from './components/BtValidationReviewModal';
+import { useCurrency } from '../../../utils/currencyService';
+import { useWorkspaceProfile } from '../../../core/workspace/workspaceProfile';
 
 export default function BonsTravailTab({
   interventions = [],
@@ -79,11 +81,16 @@ export default function BonsTravailTab({
   showToast,
 }: any) {
   const { t } = useI18n();
+  const { symbol } = useCurrency();
+  const workspaceProfile = useWorkspaceProfile();
   const { user } = useAuth();
   const isTechUser = isTechnicianRole(user);
   const isReadOnlyUser = AuthorizationService.isReadOnly(user);
   const canExecuteBt = Boolean(user) && AuthorizationService.hasPermission(user, 'corrective.execute');
-  const canValidateBt = Boolean(user) && !isTechUser && !isReadOnlyUser;
+  const canValidateBt =
+    Boolean(user) &&
+    (AuthorizationService.hasPermission(user, 'corrective.manage') ||
+      AuthorizationService.hasPermission(user, 'validation.approve'));
   const storeReviewValidation = useGmaoStore((s) => s.handleReviewInterventionValidation);
   const storeMouvements = useGmaoStore((s) => s.mouvements);
   const storePreventiveExecutions = useGmaoStore((s) => s.preventiveExecutions);
@@ -764,9 +771,11 @@ export default function BonsTravailTab({
               <span className="truncate">
                 {internalStatut ? `Atelier: ${workshopCode} (${internalStatut})` : workshopCode}
               </span>
-              {!primaryInternal && Number(primaryWorkshop?.cout_bobinage ?? bt.cout_atelier ?? 0) > 0 && (
+              {workspaceProfile.showFinance &&
+                !primaryInternal &&
+                Number(primaryWorkshop?.cout_bobinage ?? bt.cout_atelier ?? 0) > 0 && (
                 <span className="text-[9.5px] opacity-80">
-                  • {Number(primaryWorkshop?.cout_bobinage ?? bt.cout_atelier ?? 0)} DH
+                  • {Number(primaryWorkshop?.cout_bobinage ?? bt.cout_atelier ?? 0)} {symbol}
                 </span>
               )}
             </span>
