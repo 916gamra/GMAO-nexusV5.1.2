@@ -93,6 +93,17 @@ export default function CorrectiveView({
     if (subTab) {
       setActiveTab(subTab);
     }
+    try {
+      const pendingPreset = storageService.getItem(STORAGE_KEYS.CORRECTIVE_DI_PRESET);
+      if (pendingPreset && typeof pendingPreset === 'object') {
+        storageService.removeItem(STORAGE_KEYS.CORRECTIVE_DI_PRESET);
+        setDiPresetData(pendingPreset);
+        setActiveTab('corrective_di');
+        setTriggerCreateDiModal(true);
+      }
+    } catch {
+      // ignore storage errors
+    }
   }, [subTab]);
 
   const handleTabChange = (tabId) => {
@@ -474,6 +485,7 @@ export default function CorrectiveView({
               interventions={interventions}
               onAddDemande={onAddDemande}
               onConvertToBt={onConvertToBt}
+              onStartLive={onStartLive}
               machines={machines}
               blueprints={blueprints}
               technicians={technicians}

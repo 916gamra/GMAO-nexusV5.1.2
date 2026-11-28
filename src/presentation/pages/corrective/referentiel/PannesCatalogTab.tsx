@@ -23,6 +23,8 @@ export default function PannesCatalogTab({
   CATEGORY_META = {},
   expandedPanne = null,
   setExpandedPanne: _setExpandedPanne = () => {},
+  canManageCatalog = true,
+  canCreateDi = true,
   onAddDemandeWithPreset = () => {},
   setSearchQuery = () => {},
   setSelectedCategory = () => {},
@@ -200,45 +202,51 @@ export default function PannesCatalogTab({
         align: 'center',
         render: (panne) => (
           <div className="flex items-center justify-center gap-1.5 whitespace-nowrap">
-            <button
-              type="button"
-              onClick={() => {
-                if (typeof onAddDemandeWithPreset === 'function') {
-                  onAddDemandeWithPreset({
-                    type_panne: panne.category,
-                    anomalie: panne.code,
-                  });
-                }
-              }}
-              className="px-2 py-1 rounded-lg bg-amber-600 hover:bg-amber-700 text-white font-bold text-[10.5px] transition inline-flex items-center gap-1 cursor-pointer active:scale-95 shadow-2xs"
-              title={t('corrective.pannes.preset_action', 'Créer une Demande d\'Intervention directe')}
-            >
-              <Plus className="w-3 h-3" />
-              <span>DI</span>
-            </button>
+            {canCreateDi && (
+              <button
+                type="button"
+                onClick={() => {
+                  if (typeof onAddDemandeWithPreset === 'function') {
+                    onAddDemandeWithPreset({
+                      type_panne: panne.category,
+                      anomalie: panne.code,
+                    });
+                  }
+                }}
+                className="px-2 py-1 rounded-lg bg-amber-600 hover:bg-amber-700 text-white font-bold text-[10.5px] transition inline-flex items-center gap-1 cursor-pointer active:scale-95 shadow-2xs"
+                title={t('corrective.pannes.preset_action', 'Créer une Demande d\'Intervention directe')}
+              >
+                <Plus className="w-3 h-3" />
+                <span>DI</span>
+              </button>
+            )}
 
-            <button
-              type="button"
-              onClick={() => handleOpenEditModal(panne)}
-              className="p-1 rounded-lg bg-slate-100 hover:bg-blue-50 hover:text-blue-700 text-slate-600 transition cursor-pointer border border-slate-200/80"
-              title={t('corrective.pannes.edit_title', 'Modifier le code de l\'anomalie')}
-            >
-              <Edit2 className="w-3.5 h-3.5" />
-            </button>
+            {canManageCatalog && (
+              <>
+                <button
+                  type="button"
+                  onClick={() => handleOpenEditModal(panne)}
+                  className="p-1 rounded-lg bg-slate-100 hover:bg-blue-50 hover:text-blue-700 text-slate-600 transition cursor-pointer border border-slate-200/80"
+                  title={t('corrective.pannes.edit_title', 'Modifier le code de l\'anomalie')}
+                >
+                  <Edit2 className="w-3.5 h-3.5" />
+                </button>
 
-            <button
-              type="button"
-              onClick={() => setPanneToDelete(panne)}
-              className="p-1 rounded-lg bg-slate-100 hover:bg-rose-50 hover:text-rose-700 text-slate-600 transition cursor-pointer border border-slate-200/80"
-              title={t('corrective.pannes.delete_title', 'Supprimer cette anomalie du catalogue')}
-            >
-              <Trash2 className="w-3.5 h-3.5" />
-            </button>
+                <button
+                  type="button"
+                  onClick={() => setPanneToDelete(panne)}
+                  className="p-1 rounded-lg bg-slate-100 hover:bg-rose-50 hover:text-rose-700 text-slate-600 transition cursor-pointer border border-slate-200/80"
+                  title={t('corrective.pannes.delete_title', 'Supprimer cette anomalie du catalogue')}
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                </button>
+              </>
+            )}
           </div>
         ),
       },
     ],
-    [CATEGORY_META, onAddDemandeWithPreset, t]
+    [CATEGORY_META, canCreateDi, canManageCatalog, onAddDemandeWithPreset, t]
   );
 
   return (
@@ -276,15 +284,17 @@ export default function PannesCatalogTab({
         {/* Right: New Panne Button + Mode Switch (Grille vs Tableau Excel) */}
         <div className="flex items-center gap-2 shrink-0">
           {/* Add Panne Button */}
-          <button
-            type="button"
-            onClick={handleOpenAddModal}
-            className="px-3 py-1.5 rounded-xl bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold transition flex items-center gap-1.5 cursor-pointer shadow-xs active:scale-95"
-            title={t('corrective.pannes.add_title', "Ajouter une nouvelle anomalie")}
-          >
-            <Plus className="w-3.5 h-3.5" />
-            <span>{t('corrective.pannes.add_button', 'Nouvelle Panne')}</span>
-          </button>
+          {canManageCatalog && (
+            <button
+              type="button"
+              onClick={handleOpenAddModal}
+              className="px-3 py-1.5 rounded-xl bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold transition flex items-center gap-1.5 cursor-pointer shadow-xs active:scale-95"
+              title={t('corrective.pannes.add_title', "Ajouter une nouvelle anomalie")}
+            >
+              <Plus className="w-3.5 h-3.5" />
+              <span>{t('corrective.pannes.add_button', 'Nouvelle Panne')}</span>
+            </button>
+          )}
 
           <div className="inline-flex items-center p-1 bg-slate-100/90 rounded-xl border border-slate-200/80 shadow-2xs">
             <button
@@ -387,40 +397,46 @@ export default function PannesCatalogTab({
 
               <div className="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between gap-2">
                 <div className="flex items-center gap-1">
-                  <button
-                    type="button"
-                    onClick={() => handleOpenEditModal(panne)}
-                    className="p-1.5 rounded-lg bg-slate-100 hover:bg-blue-50 hover:text-blue-700 text-slate-600 transition cursor-pointer border border-slate-200/80"
-                    title="Modifier l'anomalie"
-                  >
-                    <Edit2 className="w-3.5 h-3.5" />
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setPanneToDelete(panne)}
-                    className="p-1.5 rounded-lg bg-slate-100 hover:bg-rose-50 hover:text-rose-700 text-slate-600 transition cursor-pointer border border-slate-200/80"
-                    title="Supprimer l'anomalie"
-                  >
-                    <Trash2 className="w-3.5 h-3.5" />
-                  </button>
+                  {canManageCatalog && (
+                    <>
+                      <button
+                        type="button"
+                        onClick={() => handleOpenEditModal(panne)}
+                        className="p-1.5 rounded-lg bg-slate-100 hover:bg-blue-50 hover:text-blue-700 text-slate-600 transition cursor-pointer border border-slate-200/80"
+                        title="Modifier l'anomalie"
+                      >
+                        <Edit2 className="w-3.5 h-3.5" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setPanneToDelete(panne)}
+                        className="p-1.5 rounded-lg bg-slate-100 hover:bg-rose-50 hover:text-rose-700 text-slate-600 transition cursor-pointer border border-slate-200/80"
+                        title="Supprimer l'anomalie"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </>
+                  )}
                 </div>
 
-                <button
-                  type="button"
-                  onClick={() => {
-                    if (typeof onAddDemandeWithPreset === 'function') {
-                      onAddDemandeWithPreset({
-                        type_panne: panne.category,
-                        anomalie: panne.code,
-                      });
-                    }
-                  }}
-                  className="px-3 py-1.5 rounded-xl bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold transition flex items-center gap-1 cursor-pointer shadow-2xs active:scale-95"
-                  title="Créer une Demande d'Intervention directe"
-                >
-                  <Plus className="w-3.5 h-3.5" />
-                  <span>Créer DI</span>
-                </button>
+                {canCreateDi && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (typeof onAddDemandeWithPreset === 'function') {
+                        onAddDemandeWithPreset({
+                          type_panne: panne.category,
+                          anomalie: panne.code,
+                        });
+                      }
+                    }}
+                    className="px-3 py-1.5 rounded-xl bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold transition flex items-center gap-1 cursor-pointer shadow-2xs active:scale-95"
+                    title="Créer une Demande d'Intervention directe"
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                    <span>Créer DI</span>
+                  </button>
+                )}
               </div>
             </div>
           );

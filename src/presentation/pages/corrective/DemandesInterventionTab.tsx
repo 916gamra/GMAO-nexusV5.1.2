@@ -49,6 +49,7 @@ export default function DemandesInterventionTab({
   interventions = [],
   onAddDemande,
   onConvertToBt,
+  onStartLive,
   machines = [],
   blueprints = [],
   technicians = [],
@@ -397,16 +398,40 @@ export default function DemandesInterventionTab({
 
   useEffect(() => {
     if (presetData) {
-      setNewForm((prev) => ({
-        ...prev,
-        type_panne: presetData.type_panne || prev.type_panne,
-        anomalie: presetData.anomalie || prev.anomalie,
-        travail_a_faire: presetData.travail_a_faire || prev.travail_a_faire,
-      }));
+      setNewForm((prev) => {
+        let inferredTypePanne = presetData.type_panne || prev.type_panne;
+        const targetAnomalie = presetData.anomalie || prev.anomalie;
+        if (!presetData.type_panne && presetData.anomalie && panneCategories) {
+          for (const [catKey, list] of Object.entries(panneCategories)) {
+            if (
+              Array.isArray(list) &&
+              list.some(
+                (item) =>
+                  String(item).trim().toLowerCase() ===
+                  String(presetData.anomalie).trim().toLowerCase()
+              )
+            ) {
+              inferredTypePanne = catKey;
+              break;
+            }
+          }
+        }
+        return {
+          ...prev,
+          code_machine: presetData.code_machine || prev.code_machine,
+          type_panne: inferredTypePanne,
+          anomalie: targetAnomalie,
+          priorite: presetData.priorite || prev.priorite,
+          travail_a_faire:
+            presetData.travail_a_faire ||
+            presetData.travail_demande ||
+            prev.travail_a_faire,
+        };
+      });
       setShowCreateModal(true);
       onClearPreset?.();
     }
-  }, [presetData, onClearPreset]);
+  }, [presetData, onClearPreset, panneCategories]);
 
   // Convert Modal State
   const [convertForm, setConvertForm] = useState({
@@ -712,9 +737,8 @@ export default function DemandesInterventionTab({
     });
   };
 
-  // Submit conversion to BT
-  const handleConvertSubmit = (e) => {
-    e.preventDefault();
+  // Submit conversion to BT (with optional immediate Live launch for Solo Expert & rapid field response)
+  const executeConversionToBt = (startLiveImmediately = false) => {
     if (!showConvertModal) return;
 
     if (
@@ -785,6 +809,22 @@ export default function DemandesInterventionTab({
       return;
     }
 
+    setShowConvertModal(null);
+
+    if (startLiveImmediately) {
+      if (typeof onStartLive === 'function') {
+        onStartLive(converted.id || showConvertModal.id);
+      }
+      showToast?.(
+        `BT ${converted.num_bt || convertForm.num_bt} créé et console Intervention Live démarrée !`,
+        'success'
+      );
+      if (onNavigateToTab) {
+        onNavigateToTab('corrective_live');
+      }
+      return;
+    }
+
     showToast?.(
       convertForm.requires_loto && nextStatut === 'BT_PLANIFIE'
         ? `BT ${converted.num_bt || convertForm.num_bt} planifié (LOTO requis avant démarrage).`
@@ -793,10 +833,18 @@ export default function DemandesInterventionTab({
         : `DI convertie en Bon de Travail ${converted.num_bt || convertForm.num_bt}`,
       'success'
     );
-    setShowConvertModal(null);
     if (onNavigateToTab) {
       onNavigateToTab('corrective_bt');
     }
+  };
+
+  const handleConvertSubmit = (e) => {
+    e.preventDefault();
+    executeConversionToBt(false);
+  };
+
+  const handleConvertAndStartLive = () => {
+    executeConversionToBt(true);
   };
 
   const diColumns = useMemo(
@@ -1728,6 +1776,7 @@ export default function DemandesInterventionTab({
         showConvertModal={showConvertModal}
         setShowConvertModal={setShowConvertModal}
         handleConvertSubmit={handleConvertSubmit}
+        handleConvertAndStartLive={handleConvertAndStartLive}
         convertForm={convertForm}
         setConvertForm={setConvertForm}
         allTechnicianOptions={allTechnicianOptions}

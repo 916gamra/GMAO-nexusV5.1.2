@@ -21,6 +21,8 @@ export default function MatricesActionsTab({
   copiedIndex = null,
   handleCopyText = () => {},
   formatPanneName = (s: any) => s,
+  canManageCatalog = true,
+  canCreateDi = true,
   onAddDemandeWithPreset = () => {},
   onAddActionForPanne,
   onUpdateActionForPanne,
@@ -190,22 +192,26 @@ export default function MatricesActionsTab({
                         <Copy className="w-3 h-3" />
                       )}
                     </button>
-                    <button
-                      type="button"
-                      onClick={() => handleOpenEditAction(panneKey, actIdx, act)}
-                      className="p-1 text-slate-400 hover:text-blue-700 hover:bg-blue-50 rounded cursor-pointer"
-                      title={t('corrective.actions.edit_title', 'Modifier')}
-                    >
-                      <Edit2 className="w-3 h-3" />
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setActionToDelete({ panneKey, actionIndex: actIdx, actionText: act })}
-                      className="p-1 text-slate-400 hover:text-rose-700 hover:bg-rose-50 rounded cursor-pointer"
-                      title={t('corrective.actions.delete_title', 'Supprimer')}
-                    >
-                      <Trash2 className="w-3 h-3" />
-                    </button>
+                    {canManageCatalog && (
+                      <>
+                        <button
+                          type="button"
+                          onClick={() => handleOpenEditAction(panneKey, actIdx, act)}
+                          className="p-1 text-slate-400 hover:text-blue-700 hover:bg-blue-50 rounded cursor-pointer"
+                          title={t('corrective.actions.edit_title', 'Modifier')}
+                        >
+                          <Edit2 className="w-3 h-3" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setActionToDelete({ panneKey, actionIndex: actIdx, actionText: act })}
+                          className="p-1 text-slate-400 hover:text-rose-700 hover:bg-rose-50 rounded cursor-pointer"
+                          title={t('corrective.actions.delete_title', 'Supprimer')}
+                        >
+                          <Trash2 className="w-3 h-3" />
+                        </button>
+                      </>
+                    )}
                   </div>
                 </div>
               ))}
@@ -235,36 +241,41 @@ export default function MatricesActionsTab({
         align: 'center',
         render: (item) => (
           <div className="flex items-center justify-center gap-1.5 whitespace-nowrap">
-            <button
-              type="button"
-              onClick={() => handleOpenAddModal(item.panneKey)}
-              className="px-2 py-1 rounded-lg bg-emerald-50 hover:bg-emerald-100 text-emerald-800 font-bold text-[10.5px] border border-emerald-200 transition flex items-center gap-1 cursor-pointer active:scale-95 shadow-2xs"
-              title={t('corrective.actions.add_title', 'Ajouter une action à cette anomalie')}
-            >
-              <Plus className="w-3 h-3" />
-              <span>Action</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                if (typeof onAddDemandeWithPreset === 'function') {
-                  onAddDemandeWithPreset({
-                    anomalie: item.panneKey,
-                    travail_demande: item.actions[0] || '',
-                  });
-                }
-              }}
-              className="px-2 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-[10.5px] transition flex items-center gap-1 cursor-pointer active:scale-95 shadow-2xs"
-              title={t('corrective.pannes.preset_action', 'Créer une Demande d\'Intervention directe')}
-            >
-              <Plus className="w-3 h-3" />
-              <span>DI</span>
-            </button>
+            {canManageCatalog && (
+              <button
+                type="button"
+                onClick={() => handleOpenAddModal(item.panneKey)}
+                className="px-2 py-1 rounded-lg bg-emerald-50 hover:bg-emerald-100 text-emerald-800 font-bold text-[10.5px] border border-emerald-200 transition flex items-center gap-1 cursor-pointer active:scale-95 shadow-2xs"
+                title={t('corrective.actions.add_title', 'Ajouter une action à cette anomalie')}
+              >
+                <Plus className="w-3 h-3" />
+                <span>Action</span>
+              </button>
+            )}
+            {canCreateDi && (
+              <button
+                type="button"
+                onClick={() => {
+                  if (typeof onAddDemandeWithPreset === 'function') {
+                    onAddDemandeWithPreset({
+                      anomalie: item.panneKey,
+                      travail_demande: item.actions[0] || '',
+                      travail_a_faire: item.actions[0] || '',
+                    });
+                  }
+                }}
+                className="px-2 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-[10.5px] transition flex items-center gap-1 cursor-pointer active:scale-95 shadow-2xs"
+                title={t('corrective.pannes.preset_action', 'Créer une Demande d\'Intervention directe')}
+              >
+                <Plus className="w-3 h-3" />
+                <span>DI</span>
+              </button>
+            )}
           </div>
         ),
       },
     ],
-    [copiedIndex, formatPanneName, handleCopyText, onAddDemandeWithPreset, t]
+    [canCreateDi, canManageCatalog, copiedIndex, formatPanneName, handleCopyText, onAddDemandeWithPreset, t]
   );
 
   return (
@@ -304,15 +315,17 @@ export default function MatricesActionsTab({
 
         {/* Right: New Action Button + Mode Switch (Grille vs Tableau Excel) */}
         <div className="flex items-center gap-2 shrink-0">
-          <button
-            type="button"
-            onClick={() => handleOpenAddModal()}
-            className="px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold transition flex items-center gap-1.5 cursor-pointer shadow-xs active:scale-95"
-            title={t('corrective.actions.add_title', 'Ajouter une nouvelle action corrective')}
-          >
-            <Plus className="w-3.5 h-3.5" />
-            <span>{t('corrective.actions.add_button', 'Nouvelle Action')}</span>
-          </button>
+          {canManageCatalog && (
+            <button
+              type="button"
+              onClick={() => handleOpenAddModal()}
+              className="px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold transition flex items-center gap-1.5 cursor-pointer shadow-xs active:scale-95"
+              title={t('corrective.actions.add_title', 'Ajouter une nouvelle action corrective')}
+            >
+              <Plus className="w-3.5 h-3.5" />
+              <span>{t('corrective.actions.add_button', 'Nouvelle Action')}</span>
+            </button>
+          )}
 
           <div className="inline-flex items-center p-1 bg-slate-100/90 rounded-xl border border-slate-200/80 shadow-2xs">
             <button
@@ -390,14 +403,16 @@ export default function MatricesActionsTab({
                 <div className="pt-2 border-t border-slate-100">
                   <div className="text-[11px] font-bold text-slate-500 mb-1.5 flex items-center justify-between">
                     <span>Solutions Types :</span>
-                    <button
-                      type="button"
-                      onClick={() => handleOpenAddModal(panneKey)}
-                      className="text-[10px] font-bold text-emerald-700 hover:underline flex items-center gap-0.5 cursor-pointer"
-                    >
-                      <Plus className="w-2.5 h-2.5" />
-                      <span>Ajouter</span>
-                    </button>
+                    {canManageCatalog && (
+                      <button
+                        type="button"
+                        onClick={() => handleOpenAddModal(panneKey)}
+                        className="text-[10px] font-bold text-emerald-700 hover:underline flex items-center gap-0.5 cursor-pointer"
+                      >
+                        <Plus className="w-2.5 h-2.5" />
+                        <span>Ajouter</span>
+                      </button>
+                    )}
                   </div>
 
                   <div className="space-y-1.5 max-h-36 overflow-y-auto">
@@ -407,24 +422,26 @@ export default function MatricesActionsTab({
                         className="text-[11px] text-slate-700 bg-slate-50 p-1.5 rounded-lg border border-slate-200/60 flex items-center justify-between gap-1 group/act"
                       >
                         <span className="truncate leading-tight">{action}</span>
-                        <div className="flex items-center gap-1 opacity-80 group-hover/act:opacity-100 shrink-0">
-                          <button
-                            type="button"
-                            onClick={() => handleOpenEditAction(panneKey, aIdx, action)}
-                            className="p-0.5 rounded hover:bg-white text-slate-400 hover:text-blue-700 cursor-pointer"
-                            title="Modifier"
-                          >
-                            <Edit2 className="w-3 h-3" />
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => setActionToDelete({ panneKey, actionIndex: aIdx, actionText: action })}
-                            className="p-0.5 rounded hover:bg-white text-slate-400 hover:text-rose-700 cursor-pointer"
-                            title="Supprimer"
-                          >
-                            <Trash2 className="w-3 h-3" />
-                          </button>
-                        </div>
+                        {canManageCatalog && (
+                          <div className="flex items-center gap-1 opacity-80 group-hover/act:opacity-100 shrink-0">
+                            <button
+                              type="button"
+                              onClick={() => handleOpenEditAction(panneKey, aIdx, action)}
+                              className="p-0.5 rounded hover:bg-white text-slate-400 hover:text-blue-700 cursor-pointer"
+                              title="Modifier"
+                            >
+                              <Edit2 className="w-3 h-3" />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setActionToDelete({ panneKey, actionIndex: aIdx, actionText: action })}
+                              className="p-0.5 rounded hover:bg-white text-slate-400 hover:text-rose-700 cursor-pointer"
+                              title="Supprimer"
+                            >
+                              <Trash2 className="w-3 h-3" />
+                            </button>
+                          </div>
+                        )}
                       </div>
                     ))}
                   </div>
@@ -450,20 +467,24 @@ export default function MatricesActionsTab({
                   )}
                 </button>
 
-                <button
-                  type="button"
-                  onClick={() => {
-                    if (typeof onAddDemandeWithPreset === 'function') {
-                      onAddDemandeWithPreset({
-                        anomalie: panneKey,
-                      });
-                    }
-                  }}
-                  className="px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold transition flex items-center gap-1 cursor-pointer shadow-2xs active:scale-95"
-                >
-                  <Plus className="w-3.5 h-3.5" />
-                  <span>Créer DI</span>
-                </button>
+                {canCreateDi && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (typeof onAddDemandeWithPreset === 'function') {
+                        onAddDemandeWithPreset({
+                          anomalie: panneKey,
+                          travail_demande: actionsList[0] || '',
+                          travail_a_faire: actionsList[0] || '',
+                        });
+                      }
+                    }}
+                    className="px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold transition flex items-center gap-1 cursor-pointer shadow-2xs active:scale-95"
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                    <span>Créer DI</span>
+                  </button>
+                )}
               </div>
             </div>
           );

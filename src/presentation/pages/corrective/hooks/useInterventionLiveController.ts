@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo, useRef, useSyncExternalStore, type FormEvent } from 'react';
 import { CorrectiveCalculationService } from '../../../../domain/corrective/services/CorrectiveCalculationService';
+import { StockCalculationService } from '../../../../domain/pdr/services/StockCalculationService';
 import { stockIndexStore } from '../../../../application/StockIndexStore';
 import { isWarehouseComponent, isWarehousePart } from '../../../../core/domain/EntrepotItem';
 import { rankStockItemsByMachineBom } from '../../../../core/domain';
@@ -217,6 +218,8 @@ export function useInterventionLiveController({
 
   const blueprints = useGmaoStore((s) => s.blueprints);
   const machineElementsLedger = useGmaoStore((s) => s.machineElementsLedger);
+  const storeRawStock = useGmaoStore((s) => s.rawStock || []);
+  const storeMouvements = useGmaoStore((s) => s.mouvements || []);
   const storeSubmitForValidation = useGmaoStore((s) => s.handleSubmitInterventionForValidation);
   const handleStartLiveIntervention = useGmaoStore((s) => s.handleStartLiveIntervention);
   const sortiesExterne = useGmaoStore((s) => s.sortiesExterne);
@@ -748,14 +751,33 @@ export function useInterventionLiveController({
     return [];
   }, [activeIntervention, actionsByPanne, getActionsForPanneProp]);
 
-  // BOM-Ranked Stock Items for PDR lookup
+  // BOM-Ranked Stock Items for PDR lookup (enriched with real-time StockCalculationService balances)
   const [pdrSearch, setPdrSearch] = useState('');
   const [showPdrList, setShowPdrList] = useState(false);
+
+  const enrichedStockItems = useMemo(() => {
+    const baseItems =
+      Array.isArray(stockItems) && stockItems.length > 0 ? stockItems : storeRawStock;
+    return (baseItems || []).map((item) => {
+      if (item.stockActuel !== undefined && item.stockActuel !== null) {
+        return item;
+      }
+      if (item.stock_actuel !== undefined && item.stock_actuel !== null) {
+        return { ...item, stockActuel: Number(item.stock_actuel) };
+      }
+      const computed = StockCalculationService.calculateStockActuel(item, storeMouvements);
+      return {
+        ...item,
+        stockActuel: computed,
+        stock_actuel: computed,
+      };
+    });
+  }, [stockItems, storeRawStock, storeMouvements]);
 
   const rankedMachineStockItems = useMemo(() => {
     return rankStockItemsByMachineBom(
       activeIntervention?.code_machine,
-      stockItems,
+      enrichedStockItems,
       machines,
       blueprints,
       formState.id_composant || formState.nom_composant || formState.id_part || formState.nom_part,
@@ -764,7 +786,7 @@ export function useInterventionLiveController({
     );
   }, [
     activeIntervention?.code_machine,
-    stockItems,
+    enrichedStockItems,
     machines,
     blueprints,
     formState.id_composant,
@@ -812,30 +834,55 @@ export function useInterventionLiveController({
       showToast?.('Veuillez sélectionner un article PDR et une quantité valide.', 'warning');
       return;
     }
+
+    const matchedArticle = enrichedStockItems.find(
+      (s) => String(s.ref || s.code_article || '').trim().toUpperCase() === ref.toUpperCase()
+    );
+    const availableStock =
+      matchedArticle !== undefined
+        ? Number(matchedArticle.stockActuel ?? matchedArticle.stock_actuel ?? matchedArticle.quantite ?? 0)
+        : formState.pdr_stock_actuel !== undefined
+        ? Number(formState.pdr_stock_actuel)
+        : null;
+
+    const currentList = Array.isArray(formState.pieces_utilisees) ? formState.pieces_utilisees : [];
+    const existingItem = currentList.find(
+      (p) => String(p.ref || '').trim().toUpperCase() === ref.toUpperCase()
+    );
+    const cumulativeQty = Number(existingItem?.quantite || 0) + qty;
+
+    if (availableStock !== null && Number.isFinite(availableStock) && cumulativeQty > availableStock) {
+      showToast?.(
+        `Stock magasin insuffisant pour ${ref} : quantité cumulée demandée (${cumulativeQty}) > stock disponible (${availableStock}).`,
+        'warning'
+      );
+      return;
+    }
+
     setFormState((prev) => {
-      const currentList = Array.isArray(prev.pieces_utilisees) ? [...prev.pieces_utilisees] : [];
-      const existingIdx = currentList.findIndex(
+      const nextList = Array.isArray(prev.pieces_utilisees) ? [...prev.pieces_utilisees] : [];
+      const existingIdx = nextList.findIndex(
         (p) => String(p.ref || '').toUpperCase() === ref.toUpperCase()
       );
       if (existingIdx >= 0) {
-        currentList[existingIdx] = {
-          ...currentList[existingIdx],
-          quantite: Number(currentList[existingIdx].quantite || 0) + qty,
+        nextList[existingIdx] = {
+          ...nextList[existingIdx],
+          quantite: Number(nextList[existingIdx].quantite || 0) + qty,
         };
       } else {
-        currentList.push({
+        nextList.push({
           ref,
-          designation: prev.pdr_designation || ref,
+          designation: prev.pdr_designation || matchedArticle?.designation || ref,
           quantite: qty,
-          prix_unitaire: Number(prev.pdr_prix || 0),
-          unite: prev.pdr_unite || 'Pièce',
+          prix_unitaire: Number(prev.pdr_prix || matchedArticle?.prixUnitaire || matchedArticle?.prix || 0),
+          unite: prev.pdr_unite || matchedArticle?.unite || 'Pièce',
           marque: prev.marque || '',
           etat_piece: prev.etat_piece || 'Neuve',
         });
       }
       return {
         ...prev,
-        pieces_utilisees: currentList,
+        pieces_utilisees: nextList,
         pdr_ref: '',
         pdr_designation: '',
         pdr_quantite: 1,
@@ -998,6 +1045,29 @@ export function useInterventionLiveController({
         'warning'
       );
       return false;
+    }
+
+    if (effectivePieces.length > 0 && enrichedStockItems.length > 0) {
+      for (const piece of effectivePieces) {
+        const pieceRef = String(piece.ref || '').trim().toUpperCase();
+        const reqQty = Number(piece.quantite || 0);
+        if (!pieceRef || !(reqQty > 0)) continue;
+        const stockArticle = enrichedStockItems.find(
+          (s) => String(s.ref || s.code_article || '').trim().toUpperCase() === pieceRef
+        );
+        if (stockArticle) {
+          const avail = Number(
+            stockArticle.stockActuel ?? stockArticle.stock_actuel ?? stockArticle.quantite ?? 0
+          );
+          if (Number.isFinite(avail) && reqQty > avail) {
+            showToast?.(
+              `Clôture bloquée : stock magasin insuffisant pour ${piece.ref} (demandé: ${reqQty}, disponible: ${avail}).`,
+              'error'
+            );
+            return false;
+          }
+        }
+      }
     }
 
     const closedResult =

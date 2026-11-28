@@ -20,6 +20,8 @@ import TravauxStandardTab from './referentiel/TravauxStandardTab';
 import MatricesActionsTab from './referentiel/MatricesActionsTab';
 import EquipeIntervenantsTab from './referentiel/EquipeIntervenantsTab';
 import { useI18n } from '../../../i18n/I18nContext';
+import { useAuth } from '../../../context/AuthContext';
+import { AuthorizationService } from '../../../core/security/AuthorizationService';
 import { Logger } from '../../../core/logger/LoggerService';
 
 const CATEGORY_META = {
@@ -46,6 +48,8 @@ export default function ReferentielPannesTravauxTab({
   activeSubTab,
   onSubTabChange,
   hideHeaderCard = false,
+  canManageCatalog,
+  canCreateDi,
   panneCategories = {},
   travauxAFaire = [],
   actionsByPanne = {},
@@ -70,6 +74,15 @@ export default function ReferentielPannesTravauxTab({
   showToast,
 }) {
   const { t } = useI18n();
+  const { user } = useAuth();
+  const effectiveCanManageCatalog =
+    canManageCatalog !== undefined
+      ? Boolean(canManageCatalog)
+      : Boolean(user) && AuthorizationService.hasPermission(user, 'corrective.manage');
+  const effectiveCanCreateDi =
+    canCreateDi !== undefined
+      ? Boolean(canCreateDi)
+      : Boolean(user) && AuthorizationService.hasPermission(user, 'corrective.execute');
   const [internalSubTab, setInternalSubTab] = useState('pannes'); // 'pannes', 'travaux', 'actions', 'intervenants'
   const subTab = activeSubTab || internalSubTab;
   const setSubTab = (val) => {
@@ -619,6 +632,8 @@ export default function ReferentielPannesTravauxTab({
           CATEGORY_META={CATEGORY_META}
           expandedPanne={expandedPanne}
           setExpandedPanne={setExpandedPanne}
+          canManageCatalog={effectiveCanManageCatalog}
+          canCreateDi={effectiveCanCreateDi}
           onAddDemandeWithPreset={onAddDemandeWithPreset}
           setSearchQuery={setSearchQuery}
           setSelectedCategory={setSelectedCategory}
@@ -635,6 +650,8 @@ export default function ReferentielPannesTravauxTab({
           totalTravauxCount={totalTravauxCount}
           copiedIndex={copiedIndex}
           handleCopyText={handleCopyText}
+          canManageCatalog={effectiveCanManageCatalog}
+          canCreateDi={effectiveCanCreateDi}
           onAddDemandeWithPreset={onAddDemandeWithPreset}
           setSearchQuery={setSearchQuery}
           onAddTravail={onAddTravail}
@@ -651,6 +668,8 @@ export default function ReferentielPannesTravauxTab({
           copiedIndex={copiedIndex}
           handleCopyText={handleCopyText}
           formatPanneName={formatPanneName}
+          canManageCatalog={effectiveCanManageCatalog}
+          canCreateDi={effectiveCanCreateDi}
           onAddDemandeWithPreset={onAddDemandeWithPreset}
           onAddActionForPanne={onAddActionForPanne}
           onUpdateActionForPanne={onUpdateActionForPanne}
@@ -664,6 +683,8 @@ export default function ReferentielPannesTravauxTab({
         <EquipeIntervenantsTab
           filteredIntervenants={filteredIntervenants}
           totalIntervenantsCount={totalIntervenantsCount}
+          canManageCatalog={effectiveCanManageCatalog}
+          canCreateDi={effectiveCanCreateDi}
           onAddDemandeWithPreset={onAddDemandeWithPreset}
           setSearchQuery={setSearchQuery}
           onAddTechnician={onAddTechnician}

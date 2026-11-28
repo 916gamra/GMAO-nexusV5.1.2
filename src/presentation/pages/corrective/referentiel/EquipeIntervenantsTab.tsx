@@ -31,6 +31,8 @@ import {
 export default function EquipeIntervenantsTab({
   filteredIntervenants = [],
   totalIntervenantsCount = 0,
+  canManageCatalog = true,
+  canCreateDi = true,
   onAddDemandeWithPreset = () => {},
   setSearchQuery: _setSearchQuery = () => {},
   onAddTechnician,
@@ -321,45 +323,51 @@ export default function EquipeIntervenantsTab({
           const name = tech.nom || tech.name || 'Technicien';
           return (
             <div className="flex items-center justify-center gap-1.5 whitespace-nowrap">
-              <button
-                type="button"
-                onClick={() => handleOpenEditModal(tech)}
-                className="p-1.5 rounded-lg bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 transition cursor-pointer active:scale-95"
-                title={t('corrective.intervenants.edit_title', 'Modifier les informations du technicien')}
-              >
-                <Edit2 className="w-3.5 h-3.5" />
-              </button>
+              {canManageCatalog && (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => handleOpenEditModal(tech)}
+                    className="p-1.5 rounded-lg bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 transition cursor-pointer active:scale-95"
+                    title={t('corrective.intervenants.edit_title', 'Modifier les informations du technicien')}
+                  >
+                    <Edit2 className="w-3.5 h-3.5" />
+                  </button>
 
-              <button
-                type="button"
-                onClick={() => setTechToDelete(tech)}
-                className="p-1.5 rounded-lg bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 transition cursor-pointer active:scale-95"
-                title={t('corrective.intervenants.delete_title', 'Supprimer ce technicien de l\'équipe')}
-              >
-                <Trash2 className="w-3.5 h-3.5" />
-              </button>
+                  <button
+                    type="button"
+                    onClick={() => setTechToDelete(tech)}
+                    className="p-1.5 rounded-lg bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 transition cursor-pointer active:scale-95"
+                    title={t('corrective.intervenants.delete_title', 'Supprimer ce technicien de l\'équipe')}
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </button>
+                </>
+              )}
 
-              <button
-                type="button"
-                onClick={() => {
-                  if (typeof onAddDemandeWithPreset === 'function') {
-                    onAddDemandeWithPreset({
-                      intervenant: name,
-                    });
-                  }
-                }}
-                className="px-2 py-1 rounded-lg bg-purple-600 hover:bg-purple-700 text-white font-bold text-[10.5px] transition inline-flex items-center gap-1 cursor-pointer active:scale-95 shadow-2xs"
-                title="Affecter ce technicien à une nouvelle Demande"
-              >
-                <Plus className="w-3 h-3" />
-                <span>DI</span>
-              </button>
+              {canCreateDi && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (typeof onAddDemandeWithPreset === 'function') {
+                      onAddDemandeWithPreset({
+                        intervenant: name,
+                      });
+                    }
+                  }}
+                  className="px-2 py-1 rounded-lg bg-purple-600 hover:bg-purple-700 text-white font-bold text-[10.5px] transition inline-flex items-center gap-1 cursor-pointer active:scale-95 shadow-2xs"
+                  title="Affecter ce technicien à une nouvelle Demande"
+                >
+                  <Plus className="w-3 h-3" />
+                  <span>DI</span>
+                </button>
+              )}
             </div>
           );
         },
       },
     ],
-    [startIndex, onAddDemandeWithPreset, t, storeInterventions, storePreventiveTasks]
+    [canCreateDi, canManageCatalog, startIndex, onAddDemandeWithPreset, t, storeInterventions, storePreventiveTasks]
   );
 
   return (
@@ -400,15 +408,17 @@ export default function EquipeIntervenantsTab({
         {/* Right: New Tech Button + Mode Switch (Grille vs Tableau Excel) */}
         <div className="flex items-center gap-2 shrink-0">
           {/* Nouveau Technicien 3D Button */}
-          <button
-            type="button"
-            onClick={handleOpenAddModal}
-            className="px-3 py-1.5 rounded-xl bg-purple-600 hover:bg-purple-700 text-white text-xs font-bold transition flex items-center gap-1.5 cursor-pointer shadow-xs active:scale-95"
-            title={t('corrective.intervenants.add_title', 'Ajouter un nouveau technicien')}
-          >
-            <Plus className="w-3.5 h-3.5" />
-            <span>{t('corrective.intervenants.add_button', 'Nouveau Technicien')}</span>
-          </button>
+          {canManageCatalog && (
+            <button
+              type="button"
+              onClick={handleOpenAddModal}
+              className="px-3 py-1.5 rounded-xl bg-purple-600 hover:bg-purple-700 text-white text-xs font-bold transition flex items-center gap-1.5 cursor-pointer shadow-xs active:scale-95"
+              title={t('corrective.intervenants.add_title', 'Ajouter un nouveau technicien')}
+            >
+              <Plus className="w-3.5 h-3.5" />
+              <span>{t('corrective.intervenants.add_button', 'Nouveau Technicien')}</span>
+            </button>
+          )}
 
           <div className="inline-flex items-center p-1 bg-slate-100/90 rounded-xl border border-slate-200/80 shadow-2xs">
             <button
@@ -509,40 +519,46 @@ export default function EquipeIntervenantsTab({
 
               <div className="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between gap-1.5">
                 <div className="flex items-center gap-1">
-                  <button
-                    type="button"
-                    onClick={() => handleOpenEditModal(tech)}
-                    className="p-1.5 rounded-lg bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 transition cursor-pointer active:scale-95"
-                    title="Modifier ce technicien"
-                  >
-                    <Edit2 className="w-3.5 h-3.5" />
-                  </button>
+                  {canManageCatalog && (
+                    <>
+                      <button
+                        type="button"
+                        onClick={() => handleOpenEditModal(tech)}
+                        className="p-1.5 rounded-lg bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 transition cursor-pointer active:scale-95"
+                        title="Modifier ce technicien"
+                      >
+                        <Edit2 className="w-3.5 h-3.5" />
+                      </button>
 
-                  <button
-                    type="button"
-                    onClick={() => setTechToDelete(tech)}
-                    className="p-1.5 rounded-lg bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 transition cursor-pointer active:scale-95"
-                    title="Supprimer ce technicien"
-                  >
-                    <Trash2 className="w-3.5 h-3.5" />
-                  </button>
+                      <button
+                        type="button"
+                        onClick={() => setTechToDelete(tech)}
+                        className="p-1.5 rounded-lg bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 transition cursor-pointer active:scale-95"
+                        title="Supprimer ce technicien"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </>
+                  )}
                 </div>
 
-                <button
-                  type="button"
-                  onClick={() => {
-                    if (typeof onAddDemandeWithPreset === 'function') {
-                      onAddDemandeWithPreset({
-                        intervenant: name,
-                      });
-                    }
-                  }}
-                  className="px-2.5 py-1.5 rounded-xl bg-purple-600 hover:bg-purple-700 text-white font-bold text-xs transition flex items-center gap-1 cursor-pointer active:scale-95 shadow-2xs"
-                  title="Créer une DI avec ce technicien"
-                >
-                  <Plus className="w-3.5 h-3.5" />
-                  <span>Affecter DI</span>
-                </button>
+                {canCreateDi && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (typeof onAddDemandeWithPreset === 'function') {
+                        onAddDemandeWithPreset({
+                          intervenant: name,
+                        });
+                      }
+                    }}
+                    className="px-2.5 py-1.5 rounded-xl bg-purple-600 hover:bg-purple-700 text-white font-bold text-xs transition flex items-center gap-1 cursor-pointer active:scale-95 shadow-2xs"
+                    title="Créer une DI avec ce technicien"
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                    <span>Affecter DI</span>
+                  </button>
+                )}
               </div>
             </div>
           );

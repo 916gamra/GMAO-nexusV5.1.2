@@ -1,5 +1,5 @@
 import React from 'react';
-import { Flame, X, Wrench, BookOpen, Check } from 'lucide-react';
+import { Flame, X, Wrench, BookOpen, Check, Play } from 'lucide-react';
 import { useI18n } from '../../../../i18n/I18nContext';
 import type {
   IBlueprintCommonFailureItem,
@@ -122,6 +122,7 @@ export interface DemandesInterventionModalsProps {
   showConvertModal: CorrectiveInterventionItem | null;
   setShowConvertModal: (di: CorrectiveInterventionItem | null) => void;
   handleConvertSubmit: (e: React.FormEvent) => void;
+  handleConvertAndStartLive?: () => void;
   convertForm: DemandesConvertFormState;
   setConvertForm: React.Dispatch<React.SetStateAction<DemandesConvertFormState>>;
   allTechnicianOptions: DemandesTechnicianOption[];
@@ -157,6 +158,7 @@ export default function DemandesInterventionModals({
   showConvertModal,
   setShowConvertModal,
   handleConvertSubmit,
+  handleConvertAndStartLive,
   convertForm,
   setConvertForm,
   allTechnicianOptions,
@@ -924,7 +926,7 @@ export default function DemandesInterventionModals({
               </div>
 
               {/* Modal Footer */}
-              <div className="pt-3 border-t border-slate-200 flex items-center justify-end gap-2">
+              <div className="pt-3 border-t border-slate-200 flex items-center justify-end gap-2 flex-wrap">
                 <button
                   type="button"
                   onClick={() => setShowConvertModal(null)}
@@ -932,6 +934,18 @@ export default function DemandesInterventionModals({
                 >
                   Annuler
                 </button>
+                {handleConvertAndStartLive && (
+                  <button
+                    type="button"
+                    data-testid="convert-and-start-live-btn"
+                    onClick={handleConvertAndStartLive}
+                    className="px-4 py-2 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs transition cursor-pointer shadow-md shadow-amber-600/20 active:scale-95 flex items-center gap-1.5"
+                    title="Générer le BT et basculer immédiatement sur la console Chrono Live (Solo Expert / Urgence)"
+                  >
+                    <Play className="w-3.5 h-3.5 fill-current" />
+                    <span>Créer BT &amp; Démarrer Live</span>
+                  </button>
+                )}
                 <button
                   type="submit"
                   className="px-5 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs transition cursor-pointer shadow-md shadow-blue-600/25 active:scale-95 flex items-center gap-1.5"

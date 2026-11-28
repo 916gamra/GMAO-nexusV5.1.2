@@ -16,6 +16,8 @@ import { useAuth } from '../../../context/AuthContext';
 import { AuthorizationService } from '../../../core/security/AuthorizationService';
 import { Logger } from '../../../core/logger/LoggerService';
 import { exportTypeBWorkbook } from '../../../utils/safeExcelExport';
+import { storageService } from '../../../utils/storageService';
+import { STORAGE_KEYS } from '../../../infrastructure/persistence/storageKeys';
 
 export default function CatalogueDonneesView({
   panneCategories = {},
@@ -46,8 +48,25 @@ export default function CatalogueDonneesView({
   const { user } = useAuth();
   const canManageCatalog =
     Boolean(user) && AuthorizationService.hasPermission(user, 'corrective.manage');
+  const canCreateDi =
+    Boolean(user) && AuthorizationService.hasPermission(user, 'corrective.execute');
   const [activeSubTab, setActiveSubTab] = useState('pannes'); // 'pannes', 'travaux', 'actions', 'intervenants'
   const [isSyncing, setIsSyncing] = useState(false);
+
+  const handleAddDemandeFromCatalog = (preset) => {
+    if (typeof onAddDemandeWithPreset === 'function') {
+      onAddDemandeWithPreset(preset);
+      return;
+    }
+    try {
+      storageService.setItem(STORAGE_KEYS.CORRECTIVE_DI_PRESET, preset || {});
+    } catch {
+      // ignore storage errors
+    }
+    if (typeof onNavigateToTab === 'function') {
+      onNavigateToTab('corrective_di');
+    }
+  };
 
   // Dynamic Relational Formula:
   // Intervenants = FILTER(Utilisateurs/Technicians, active)
@@ -309,13 +328,15 @@ export default function CatalogueDonneesView({
         activeSubTab={activeSubTab}
         onSubTabChange={setActiveSubTab}
         hideHeaderCard={true}
+        canManageCatalog={canManageCatalog}
+        canCreateDi={canCreateDi}
         panneCategories={panneCategories}
         travauxAFaire={travauxAFaire}
         actionsByPanne={actionsByPanne}
         intervenants={resolvedIntervenants}
         technicians={technicians}
         interventions={interventions}
-        onAddDemandeWithPreset={onAddDemandeWithPreset}
+        onAddDemandeWithPreset={handleAddDemandeFromCatalog}
         onForceSyncSeed={onForceSyncSeed}
         onAddActionForPanne={onAddActionForPanne}
         onUpdateActionForPanne={onUpdateActionForPanne}

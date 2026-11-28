@@ -61,6 +61,9 @@ export default function ClotureRapportsTab({
   const isTechUser = isTechnicianRole(user);
   const workshopOrders = useGmaoStore((s) => s.workshopOrders || []);
   const handleCreateWorkshopOrder = useGmaoStore((s) => s.handleCreateWorkshopOrder);
+  const handleSaveInterventionReport = useGmaoStore(
+    (s) => s.handleSaveInterventionReport
+  );
   const [showModalAtelierForm, setShowModalAtelierForm] = useState(false);
   const [modalAtelierType, setModalAtelierType] = useState<WorkshopOrderType>('REALISATION');
   const [modalAtelierQty, setModalAtelierQty] = useState<number>(1);
@@ -1843,6 +1846,7 @@ export default function ClotureRapportsTab({
             : null
         }
         technicianName={reportTargetItem ? resolveTechNom(reportTargetItem) : undefined}
+        onSaveReport={handleSaveInterventionReport}
         showToast={showToast}
       />
     </div>

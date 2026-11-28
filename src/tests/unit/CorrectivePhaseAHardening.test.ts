@@ -1,5 +1,6 @@
 import { beforeEach, afterEach, describe, expect, it } from 'vitest';
 import { CorrectiveCalculationService } from '../../domain/corrective/services/CorrectiveCalculationService';
+import { StockCalculationService } from '../../domain/pdr/services/StockCalculationService';
 import {
   AvailabilityCalculationService,
   countWorkingDaysBetween,
@@ -831,4 +832,142 @@ describe('Corrective Phase 1 Audit Hardening — C1 Double Stock Deduction Defen
     expect((auditEvent?.after as any)?.executionMode).toBe('SOLO_DIRECT');
   });
 });
+
+describe('Corrective Phase 2 Hardening — SSOT Technical Report (RCA), Cross-Tab Catalog Preset DI, & Real-Time Stock Calculation', () => {
+  beforeEach(() => {
+    resetStoreState();
+    SecurityService.saveSessionSecure('gmao_session_v2', {
+      userId: 'ADM-P2',
+      nom: 'Admin Phase 2',
+      role: 'ADMIN',
+    });
+    useGmaoStore.setState({
+      machines: [
+        { id_machine: 'M-P2', code_machine: 'M-P2', nom: 'Tour CNC P2', status: 'OPERATIONNELLE' } as any,
+      ],
+      rawStock: [
+        {
+          id: 'PDR-P2',
+          ref: 'PDR-P2',
+          reference: 'PDR-P2',
+          designation: 'Roulement Céramique',
+          stockInitial: 5,
+          stockMin: 1,
+          prix_unitaire: 120,
+        } as any,
+      ],
+      mouvements: [
+        {
+          id: 'MVT-SORTIE-1',
+          type: 'SORTIE',
+          ref: 'PDR-P2',
+          quantite: 3,
+          date: '2026-06-01',
+        } as any,
+      ],
+      correctiveInterventions: [
+        {
+          id: 'BT-RCA-1',
+          num_bt: 'BT-2026-800',
+          code_machine: 'M-P2',
+          statut: 'CLOTURE',
+          anomalie: 'Échauffement palier',
+        } as CorrectiveInterventionItem,
+      ],
+    });
+  });
+
+  afterEach(() => {
+    resetStoreState();
+  });
+
+  it('persists Technical Report (RCA) into SSOT intervention.technical_report via handleSaveInterventionReport and emits CORRECTIVE_RCA_SAVED audit event', () => {
+    const res = useGmaoStore.getState().handleSaveInterventionReport('BT-RCA-1', {
+      fields: {
+        defect_nature: 'Température palier > 85°C',
+        rca_1_component: 'Roulement principal',
+        rca_1_observation: 'Frottement excessif et dégradation film lubrifiant',
+        rca_1_impact: 'Échauffement critique',
+        root_cause_title: 'Cause racine / Facteur déclencheur',
+        root_cause_detail: 'Absence de purge trimestrielle du circuit de graissage',
+        root_cause_effect: 'Obstruction graisseur automatique',
+        action_repair_1: 'Nettoyage circuit + remplacement roulement PDR-P2',
+        action_checks: 'Essai 30 min à 1500 tr/min : T° stable à 42°C',
+        action_preventive: 'Ajouter purge circuit graissage au plan PM trimestriel',
+        manager_visa: 'Ing. Maintenance',
+      },
+      extraRcaRows: [
+        {
+          id: 'rca-extra-1',
+          component: 'Conduit graissage',
+          observation: 'Graisse carbonisée',
+          impact: 'Débit nul',
+        },
+      ],
+      updatedAt: '2026-06-02T10:00:00.000Z',
+    });
+
+    expect(res.valid).toBe(true);
+    const updatedBt = useGmaoStore
+      .getState()
+      .correctiveInterventions.find((i) => i.id === 'BT-RCA-1');
+    expect(updatedBt?.technical_report).toBeDefined();
+    expect(updatedBt?.technical_report?.fields.root_cause_detail).toBe(
+      'Absence de purge trimestrielle du circuit de graissage'
+    );
+    expect(updatedBt?.cause_racine).toBe(
+      'Absence de purge trimestrielle du circuit de graissage'
+    );
+    expect(updatedBt?.rapport_redige).toBe('OUI');
+    expect(updatedBt?.technical_report?.extraRcaRows).toHaveLength(1);
+
+    const audit = useGmaoStore
+      .getState()
+      .auditEvents.find(
+        (e) =>
+          e.actionType === 'CORRECTIVE_RCA_SAVED' && e.entityId === 'BT-RCA-1'
+      );
+    expect(audit).toBeDefined();
+    expect((audit?.after as any)?.cause_racine).toBe(
+      'Absence de purge trimestrielle du circuit de graissage'
+    );
+  });
+
+  it('computes real-time available stock balance (stockInitial + entrées - sorties) for rawStock items without pre-populated stockActuel', () => {
+    const { rawStock, mouvements } = useGmaoStore.getState();
+    const article = rawStock[0];
+    expect((article as any).stockActuel).toBeUndefined();
+
+    // Real-time balance: 5 initial - 3 sortie = 2 available
+    const computedAvailable = StockCalculationService.calculateStockActuel(article, mouvements);
+    expect(computedAvailable).toBe(2);
+  });
+
+  it('supports one-click DI creation and immediate BT conversion + Live console start (Convertir & Démarrer Live ⚡)', () => {
+    const di = useGmaoStore.getState().handleAddDemandeIntervention({
+      code_machine: 'M-P2',
+      type_panne: 'M',
+      anomalie: 'Vibration broche',
+      travail_a_faire: 'Contrôler équilibrage et roulements',
+      priorite: 'HAUTE',
+    } as any);
+    expect(di).not.toBeNull();
+
+    const converted = useGmaoStore.getState().handleConvertToBt(di!.id, {
+      num_bt: 'BT-2026-801',
+      intervenant: 'Tech Expert',
+      statut: 'EN_COURS',
+    });
+    expect(converted).not.toBeNull();
+
+    useGmaoStore.getState().handleStartLiveIntervention(converted!.id);
+    expect(useGmaoStore.getState().activeLiveInterventionId).toBe(converted!.id);
+    const liveBt = useGmaoStore
+      .getState()
+      .correctiveInterventions.find((i) => i.id === converted!.id);
+    expect(liveBt?.statut).toBe('EN_COURS');
+  });
+});
+
+
 

@@ -37,6 +37,7 @@ export const STORAGE_KEYS = {
   CORRECTIVE_TRAVAUX: 'gmao_corrective_travaux_v4',
   CORRECTIVE_INTERVENANTS: 'gmao_corrective_intervenants_v4',
   CORRECTIVE_ACTIVE_LIVE: 'gmao_corrective_active_live',
+  CORRECTIVE_DI_PRESET: 'gmao_corrective_di_preset_v1',
   WORKSHOP_ORDERS: 'gmao_workshop_orders_v1',
   NEED_REQUESTS: 'gmao_need_requests_v1',
 
