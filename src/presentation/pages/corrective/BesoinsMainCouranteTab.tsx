@@ -95,8 +95,7 @@ export default function BesoinsMainCouranteTab({
   const isTechUser = isTechnicianRole(user);
   const canCreateNeed =
     Boolean(user) &&
-    (AuthorizationService.hasPermission(user, 'need.create') ||
-      AuthorizationService.hasPermission(user, 'corrective.execute'));
+    AuthorizationService.hasPermission(user, 'need.create');
   const canReviewNeed =
     Boolean(user) &&
     !isTechUser &&

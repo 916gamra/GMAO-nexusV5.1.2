@@ -9,7 +9,6 @@ import {
   MapPin,
   Wrench,
   CheckCircle2,
-  FileSpreadsheet,
   User,
   Zap,
   Edit2,

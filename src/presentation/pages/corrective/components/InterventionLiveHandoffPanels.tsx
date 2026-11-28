@@ -51,6 +51,9 @@ export interface InterventionLiveHandoffPanelsProps {
   activeIntervention: any;
   formState: any;
   isTechUser: boolean;
+  canCreateNeed?: boolean;
+  canCreateWorkshop?: boolean;
+  canManageCorrective?: boolean;
   canFastTrackNeed?: boolean;
   showNeedRequestForm: boolean;
   setShowNeedRequestForm: React.Dispatch<React.SetStateAction<boolean>>;
@@ -84,6 +87,9 @@ export function InterventionLiveHandoffPanels({
   activeIntervention,
   formState,
   isTechUser,
+  canCreateNeed = true,
+  canCreateWorkshop = true,
+  canManageCorrective = !isTechUser,
   canFastTrackNeed = false,
   showNeedRequestForm,
   setShowNeedRequestForm,
@@ -129,19 +135,21 @@ export function InterventionLiveHandoffPanels({
               Déclarez un besoin matière (PDR, Part, Composant). Le responsable choisit le canal (STOCK, ACHAT, ATELIER, EXTERNE), puis vous validez la pose et l’essai (POSE_ESSAI ➔ CLOTURE_FIELD).
             </p>
           </div>
-          <div className="flex items-center gap-2 shrink-0">
-            <button
-              type="button"
-              data-testid="toggle-need-request-form-btn"
-              onClick={() => setShowNeedRequestForm((v) => !v)}
-              className="px-3 py-1.5 rounded-xl bg-purple-700 hover:bg-purple-800 text-white font-bold text-xs transition cursor-pointer inline-flex items-center gap-1.5 shadow-2xs"
-            >
-              <Plus className="w-3.5 h-3.5" />
-              <span>
-                {showNeedRequestForm ? 'Fermer Formulaire Besoin' : '+ Demande de Besoin (ND)'}
-              </span>
-            </button>
-          </div>
+          {canCreateNeed && (
+            <div className="flex items-center gap-2 shrink-0">
+              <button
+                type="button"
+                data-testid="toggle-need-request-form-btn"
+                onClick={() => setShowNeedRequestForm((v) => !v)}
+                className="px-3 py-1.5 rounded-xl bg-purple-700 hover:bg-purple-800 text-white font-bold text-xs transition cursor-pointer inline-flex items-center gap-1.5 shadow-2xs"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                <span>
+                  {showNeedRequestForm ? 'Fermer Formulaire Besoin' : '+ Demande de Besoin (ND)'}
+                </span>
+              </button>
+            </div>
+          )}
         </div>
 
         {showNeedRequestForm && (
@@ -399,56 +407,58 @@ export function InterventionLiveHandoffPanels({
             </div>
 
             {/* Unified 2-Mode Segmented Switcher */}
-            <div
-              className="inline-flex items-center p-1 rounded-xl bg-white border border-indigo-200 shadow-2xs shrink-0 self-start sm:self-auto"
-              role="group"
-              aria-label="Mode Atelier ou Sous-traitance"
-            >
-              <button
-                type="button"
-                data-testid="toggle-bon-atelier-mecanique-btn"
-                onClick={() => {
-                  const nextOpen = !showBonAtelierMecaniqueForm;
-                  setShowBonAtelierMecaniqueForm(nextOpen);
-                  if (nextOpen) setShowQuickWorkshopForm(false);
-                }}
-                className={`px-3 py-1.5 rounded-lg font-bold text-xs transition cursor-pointer inline-flex items-center gap-1.5 ${
-                  showBonAtelierMecaniqueForm
-                    ? 'bg-amber-600 text-white shadow-2xs'
-                    : 'text-amber-900 hover:bg-amber-50'
-                }`}
+            {canCreateWorkshop && (
+              <div
+                className="inline-flex items-center p-1 rounded-xl bg-white border border-indigo-200 shadow-2xs shrink-0 self-start sm:self-auto"
+                role="group"
+                aria-label="Mode Atelier ou Sous-traitance"
               >
-                <Wrench className="w-3.5 h-3.5" />
-                <span>Interne (BR / RECT)</span>
-              </button>
-              <button
-                type="button"
-                data-testid="toggle-quick-workshop-btn"
-                onClick={() => {
-                  const nextOpen = !showQuickWorkshopForm;
-                  setShowQuickWorkshopForm(nextOpen);
-                  if (nextOpen) {
-                    setShowBonAtelierMecaniqueForm(false);
-                    setWorkshopQuickForm((prev) => ({
-                      ...prev,
-                      categorie_flux: 'SOUS_TRAITANCE_EXTERNE',
-                      fournisseur_externe:
-                        prev.fournisseur_externe === 'Atelier Mécanique Interne'
-                          ? 'Atelier Bobinage Externe'
-                          : prev.fournisseur_externe || 'Atelier Bobinage Externe',
-                    }));
-                  }
-                }}
-                className={`px-3 py-1.5 rounded-lg font-bold text-xs transition cursor-pointer inline-flex items-center gap-1.5 ${
-                  showQuickWorkshopForm
-                    ? 'bg-indigo-700 text-white shadow-2xs'
-                    : 'text-indigo-900 hover:bg-indigo-50'
-                }`}
-              >
-                <Building2 className="w-3.5 h-3.5" />
-                <span>Externe (Sous-traitance)</span>
-              </button>
-            </div>
+                <button
+                  type="button"
+                  data-testid="toggle-bon-atelier-mecanique-btn"
+                  onClick={() => {
+                    const nextOpen = !showBonAtelierMecaniqueForm;
+                    setShowBonAtelierMecaniqueForm(nextOpen);
+                    if (nextOpen) setShowQuickWorkshopForm(false);
+                  }}
+                  className={`px-3 py-1.5 rounded-lg font-bold text-xs transition cursor-pointer inline-flex items-center gap-1.5 ${
+                    showBonAtelierMecaniqueForm
+                      ? 'bg-amber-600 text-white shadow-2xs'
+                      : 'text-amber-900 hover:bg-amber-50'
+                  }`}
+                >
+                  <Wrench className="w-3.5 h-3.5" />
+                  <span>Interne (BR / RECT)</span>
+                </button>
+                <button
+                  type="button"
+                  data-testid="toggle-quick-workshop-btn"
+                  onClick={() => {
+                    const nextOpen = !showQuickWorkshopForm;
+                    setShowQuickWorkshopForm(nextOpen);
+                    if (nextOpen) {
+                      setShowBonAtelierMecaniqueForm(false);
+                      setWorkshopQuickForm((prev) => ({
+                        ...prev,
+                        categorie_flux: 'SOUS_TRAITANCE_EXTERNE',
+                        fournisseur_externe:
+                          prev.fournisseur_externe === 'Atelier Mécanique Interne'
+                            ? 'Atelier Bobinage Externe'
+                            : prev.fournisseur_externe || 'Atelier Bobinage Externe',
+                      }));
+                    }
+                  }}
+                  className={`px-3 py-1.5 rounded-lg font-bold text-xs transition cursor-pointer inline-flex items-center gap-1.5 ${
+                    showQuickWorkshopForm
+                      ? 'bg-indigo-700 text-white shadow-2xs'
+                      : 'text-indigo-900 hover:bg-indigo-50'
+                  }`}
+                >
+                  <Building2 className="w-3.5 h-3.5" />
+                  <span>Externe (Sous-traitance)</span>
+                </button>
+              </div>
+            )}
           </div>
 
           {/* MODE 1: Internal Mechanical Workshop Order Form (BR / RECT with optional hours & cost) */}
@@ -673,7 +683,7 @@ export function InterventionLiveHandoffPanels({
                     className="w-full py-2 px-2.5 text-xs rounded-lg border border-slate-200 bg-white"
                   />
                 </div>
-                {workspaceProfile.showFinance && (
+                {workspaceProfile.moduleVisibility.showFinance && (
                   <div>
                     <label className="block text-[10px] font-bold text-slate-600 uppercase mb-1">
                       Coût devis / estimé ({symbol})
@@ -762,7 +772,7 @@ export function InterventionLiveHandoffPanels({
                           {ord.heures_atelier}h
                         </span>
                       )}
-                      {workspaceProfile.showFinance && Number(ord.cout_atelier || 0) > 0 && (
+                      {workspaceProfile.moduleVisibility.showFinance && Number(ord.cout_atelier || 0) > 0 && (
                         <span className="font-mono font-bold text-[10.5px] bg-white/80 px-1.5 py-0.5 rounded border border-amber-200">
                           {Number(ord.cout_atelier).toLocaleString()} {symbol}
                         </span>
@@ -778,7 +788,7 @@ export function InterventionLiveHandoffPanels({
                       >
                         Atelier: {WORKSHOP_STATUS_LABELS[ord.statut] || ord.statut}
                       </span>
-                      {ord.statut === 'PRET_LIVRAISON' && (
+                      {canManageCorrective && ord.statut === 'PRET_LIVRAISON' && (
                         <button
                           type="button"
                           onClick={() => {
@@ -825,7 +835,7 @@ export function InterventionLiveHandoffPanels({
                         {ord.nature_travail || ord.type_probleme}
                       </span>
                       <span className="text-[11px] opacity-80">• {ord.fournisseur_externe}</span>
-                      {workspaceProfile.showFinance && (
+                      {workspaceProfile.moduleVisibility.showFinance && (
                         <span className="font-mono font-bold text-[11px] bg-white/80 px-2 py-0.5 rounded">
                           {Number(ord.cout_bobinage || 0).toLocaleString()} {symbol}
                         </span>
@@ -841,7 +851,7 @@ export function InterventionLiveHandoffPanels({
                       >
                         {ord.etat}
                       </span>
-                      {isOpen && !isTechUser && (
+                      {isOpen && canManageCorrective && (
                         <button
                           type="button"
                           onClick={() => {

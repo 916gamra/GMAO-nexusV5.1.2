@@ -50,6 +50,9 @@ export default function InterventionLiveTab(props: InterventionLiveTabProps) {
     isTechUser,
     isReadOnlyUser,
     canExecuteLive,
+    canManageCorrective,
+    canCreateNeed,
+    canCreateWorkshop,
     canFastTrackNeed,
     activeTechnicianOptions,
     actorName,
@@ -136,6 +139,9 @@ export default function InterventionLiveTab(props: InterventionLiveTabProps) {
       formState={formState}
       setFormState={setFormState}
       isTechUser={isTechUser}
+      canCreateNeed={canCreateNeed}
+      canCreateWorkshop={canCreateWorkshop}
+      canManageCorrective={canManageCorrective}
       canFastTrackNeed={canFastTrackNeed}
       isWizardMode={isWizardMode}
       showNeedRequestForm={showNeedRequestForm}
@@ -194,6 +200,7 @@ export default function InterventionLiveTab(props: InterventionLiveTabProps) {
       isWizardMode={isWizardMode}
       liveWorkingTime={liveWorkingTime}
       isTechUser={isTechUser}
+      canManageCorrective={canManageCorrective}
       activeTechnicianOptions={activeTechnicianOptions}
     />
   );
@@ -212,7 +219,7 @@ export default function InterventionLiveTab(props: InterventionLiveTabProps) {
         Mettre en Pause / Quitter
       </button>
 
-      {typeof props.onUpdateIntervention === 'function' && (
+      {canExecuteLive && typeof props.onUpdateIntervention === 'function' && (
         <button
           type="button"
           onClick={() => {
@@ -476,7 +483,7 @@ export default function InterventionLiveTab(props: InterventionLiveTabProps) {
       </div>
 
       {/* PHASE C4b — Clôture Express (Panne mineure — 0 PDR) */}
-      {!isReadOnlyUser && activeIntervention.statut !== 'CLOTURE' && (() => {
+      {canExecuteLive && activeIntervention.statut !== 'CLOTURE' && (() => {
         const lotoCheck: { valid: boolean; reason?: string } = !isTechUser
           ? canCloseWorkOrderWithLoto(activeIntervention)
           : { valid: true };

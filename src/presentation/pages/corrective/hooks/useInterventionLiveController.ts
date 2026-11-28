@@ -230,6 +230,14 @@ export function useInterventionLiveController({
     !isReadOnlyUser &&
     (AuthorizationService.hasPermission(user, 'corrective.manage') ||
       AuthorizationService.hasPermission(user, 'validation.approve'));
+  const canCreateNeed =
+    Boolean(user) &&
+    !isReadOnlyUser &&
+    AuthorizationService.hasPermission(user, 'need.create');
+  const canCreateWorkshop =
+    Boolean(user) &&
+    !isReadOnlyUser &&
+    AuthorizationService.hasPermission(user, 'workshop.create');
 
   const blueprints = useGmaoStore((s) => s.blueprints);
   const machineElementsLedger = useGmaoStore((s) => s.machineElementsLedger);
@@ -1258,6 +1266,8 @@ export function useInterventionLiveController({
     isReadOnlyUser,
     canExecuteLive,
     canManageCorrective,
+    canCreateNeed,
+    canCreateWorkshop,
     canFastTrackNeed,
     activeTechnicianOptions,
     actorName,

@@ -75,12 +75,10 @@ export const AtelierFabricationTab: React.FC<AtelierFabricationTabProps> = ({
   const { user: currentUser } = useAuth();
   const canCreate =
     Boolean(currentUser) &&
-    (AuthorizationService.hasPermission(currentUser, 'workshop.create') ||
-      AuthorizationService.hasPermission(currentUser, 'corrective.execute'));
+    AuthorizationService.hasPermission(currentUser, 'workshop.create');
   const canManage =
     Boolean(currentUser) &&
-    (AuthorizationService.hasPermission(currentUser, 'workshop.manage') ||
-      AuthorizationService.hasPermission(currentUser, 'corrective.execute'));
+    AuthorizationService.hasPermission(currentUser, 'workshop.manage');
 
   const activeMachines = useMemo(() => filterActiveMachines(machines), [machines]);
   const machineLookup = useMemo(() => {

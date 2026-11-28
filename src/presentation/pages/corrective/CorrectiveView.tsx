@@ -39,6 +39,7 @@ import { isWorkshopOrderActive } from '../../../domain/corrective/workshopOrderS
 import { isNeedRequestActive } from '../../../domain/corrective/needRequestService';
 import { Package } from 'lucide-react';
 import { exportTypeBWorkbook } from '../../../utils/safeExcelExport';
+import { useWorkspaceProfile } from '../../../core/workspace/workspaceProfile';
 
 export default function CorrectiveView({
   subTab = 'corrective_di',
@@ -79,6 +80,7 @@ export default function CorrectiveView({
 }) {
   const { t } = useI18n();
   const { user } = useAuth();
+  const workspaceProfile = useWorkspaceProfile();
   const isTechUser = isTechnicianRole(user);
   const workshopOrders = useGmaoStore((s) => s.workshopOrders || []);
   const needRequests = useGmaoStore((s) => s.needRequests || []);
@@ -124,7 +126,6 @@ export default function CorrectiveView({
     ? interventions.filter((i) => matchesTechnicianRecord(i, user, technicians))
     : interventions;
 
-  const isReadOnlyUser = AuthorizationService.isReadOnly(user);
   const canCreateDi = Boolean(user) && AuthorizationService.hasPermission(user, 'corrective.execute');
   const canManageCorrective = Boolean(user) && AuthorizationService.hasPermission(user, 'corrective.manage');
   const demoFlag = storageService.getItem(STORAGE_KEYS.DEMO_MODE);
@@ -212,8 +213,8 @@ export default function CorrectiveView({
     }
   };
 
-  const pendingDiCount = interventions.filter(
-    (i) => i.statut === 'DEMANDE' || i.statut === 'DEMANDE_CREEE' || i.statut === 'EN_ATTENTE_VALIDATION'
+  const pendingDiCount = techScopedInterventions.filter(
+    (i) => i.statut === 'DEMANDE' || i.statut === 'DEMANDE_CREEE'
   ).length;
   const inProgressBtCount = techScopedInterventions.filter(
     (i) => (i.statut === 'EN_COURS' || i.statut === 'BT_PLANIFIE' || i.statut === 'EN_ATTENTE_PDR') && i.num_bt
@@ -310,6 +311,11 @@ export default function CorrectiveView({
               <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 text-emerald-800 border border-emerald-200 font-mono">
                 {t('corrective.interventions_count', { count: techScopedInterventions.length.toLocaleString() })}
               </span>
+              {workspaceProfile.preset === 'SOLO_EXPERT' && (
+                <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-indigo-50 text-indigo-800 border border-indigo-200 font-mono">
+                  Mode Solo Expert · Clôture Directe
+                </span>
+              )}
               {isTechUser && (
                 <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-purple-50 text-purple-800 border border-purple-200 font-mono">
                   Mes Interventions · {getTechnicianBadgeLabel(user, technicians)}

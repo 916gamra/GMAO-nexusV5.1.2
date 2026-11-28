@@ -16,7 +16,6 @@ import {
   Layers,
   Wrench,
   Check,
-  BookOpen,
   Factory,
   ChevronDown,
   User,

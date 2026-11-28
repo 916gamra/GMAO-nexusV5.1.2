@@ -18,6 +18,9 @@ interface InterventionLiveDiagnosticStepProps {
   formState: LiveInterventionFormState;
   setFormState: Dispatch<SetStateAction<LiveInterventionFormState>>;
   isTechUser: boolean;
+  canCreateNeed?: boolean;
+  canCreateWorkshop?: boolean;
+  canManageCorrective?: boolean;
   canFastTrackNeed?: boolean;
   isWizardMode: boolean;
   showNeedRequestForm: boolean;
@@ -59,6 +62,9 @@ export function InterventionLiveDiagnosticStep({
   formState,
   setFormState,
   isTechUser,
+  canCreateNeed,
+  canCreateWorkshop,
+  canManageCorrective,
   canFastTrackNeed,
   isWizardMode,
   showNeedRequestForm,
@@ -161,6 +167,9 @@ export function InterventionLiveDiagnosticStep({
         activeIntervention={activeIntervention}
         formState={formState}
         isTechUser={isTechUser}
+        canCreateNeed={canCreateNeed}
+        canCreateWorkshop={canCreateWorkshop}
+        canManageCorrective={canManageCorrective}
         canFastTrackNeed={canFastTrackNeed}
         showNeedRequestForm={showNeedRequestForm}
         setShowNeedRequestForm={setShowNeedRequestForm}

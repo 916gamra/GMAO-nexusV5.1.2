@@ -16,6 +16,7 @@ interface InterventionLiveLifecycleStepProps {
   isWizardMode: boolean;
   liveWorkingTime: { formatted: string; minutes: number };
   isTechUser?: boolean;
+  canManageCorrective?: boolean;
   activeTechnicianOptions?: Array<{ id_technician: string; nom: string; specialite: string }>;
 }
 
@@ -28,12 +29,13 @@ export function InterventionLiveLifecycleStep({
   isWizardMode,
   liveWorkingTime,
   isTechUser = false,
+  canManageCorrective = !isTechUser,
   activeTechnicianOptions = [],
 }: InterventionLiveLifecycleStepProps) {
   return (
     <div className="space-y-4">
       {/* Intervenant exécutant (Attribution / Modification directe pour Solo Expert & Responsable) */}
-      {!isTechUser && (
+      {canManageCorrective && (
         <div className="p-3.5 rounded-2xl bg-indigo-50/50 border border-indigo-200/80 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div className="flex items-center gap-2">
             <User className="w-4 h-4 text-indigo-700 shrink-0" />

@@ -708,7 +708,7 @@ export default function AnalyseCorrectiveTab({
         </div>
 
         {/* Coût Global TCO */}
-        {workspaceProfile.showFinance && (
+        {workspaceProfile.moduleVisibility.showFinance && (
           <div
             data-testid="analyse-tco-kpi-card"
             className="bg-white p-4 sm:p-5 rounded-2xl border border-slate-200/90 hover:border-purple-300/80 shadow-[0_4px_16px_-2px_rgba(0,0,0,0.05)] hover:shadow-[0_12px_28px_-4px_rgba(168,85,247,0.12)] hover:-translate-y-1 transition-all duration-300 relative overflow-hidden group flex flex-col justify-between"
@@ -744,7 +744,7 @@ export default function AnalyseCorrectiveTab({
       </div>
 
       {/* 1.25. Ventilation Financière TCO (Direct vs Indirect Production Stoppage) */}
-      {workspaceProfile.showFinance && (
+      {workspaceProfile.moduleVisibility.showFinance && (
         <div
           data-testid="analyse-tco-breakdown-strip"
           className="bg-white border border-slate-200/90 rounded-2xl p-4 shadow-xs grid grid-cols-2 lg:grid-cols-4 gap-3"
@@ -906,7 +906,7 @@ export default function AnalyseCorrectiveTab({
             [
               { id: 'COUNT', label: 'Fréquence' },
               { id: 'DOWNTIME', label: "Temps d'Arrêt" },
-              ...(workspaceProfile.showFinance
+              ...(workspaceProfile.moduleVisibility.showFinance
                 ? [{ id: 'COST' as ParetoDimension, label: `Coût TCO (${symbol})` }]
                 : []),
             ] as Array<{ id: ParetoDimension; label: string }>
@@ -1001,7 +1001,7 @@ export default function AnalyseCorrectiveTab({
                       <span>{item.count} BT</span>
                       <span>•</span>
                       <span>Arrêt: {CorrectiveCalculationService.formatDurationHuman(item.downtimeMinutes)}</span>
-                      {workspaceProfile.showFinance && (
+                      {workspaceProfile.moduleVisibility.showFinance && (
                         <>
                           <span>•</span>
                           <span>
@@ -1090,7 +1090,7 @@ export default function AnalyseCorrectiveTab({
                       <span>{item.count} BT</span>
                       <span>•</span>
                       <span>Arrêt: {CorrectiveCalculationService.formatDurationHuman(item.downtimeMinutes)}</span>
-                      {workspaceProfile.showFinance && (
+                      {workspaceProfile.moduleVisibility.showFinance && (
                         <>
                           <span>•</span>
                           <span>

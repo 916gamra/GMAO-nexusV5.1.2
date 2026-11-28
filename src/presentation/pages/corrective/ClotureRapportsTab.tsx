@@ -67,9 +67,7 @@ export default function ClotureRapportsTab({
   const canEmitWorkshopOrder =
     Boolean(user) &&
     !AuthorizationService.isReadOnly(user) &&
-    (AuthorizationService.hasPermission(user, 'workshop.create') ||
-      AuthorizationService.hasPermission(user, 'corrective.execute') ||
-      AuthorizationService.hasPermission(user, 'corrective.manage'));
+    AuthorizationService.hasPermission(user, 'workshop.create');
   const workshopOrders = useGmaoStore((s) => s.workshopOrders || []);
   const handleCreateWorkshopOrder = useGmaoStore((s) => s.handleCreateWorkshopOrder);
   const handleSaveInterventionReport = useGmaoStore(

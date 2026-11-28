@@ -62,7 +62,7 @@ export const AtelierCreateOrderForm: React.FC<AtelierCreateOrderFormProps> = ({
               Émission d&apos;un Bon de Réalisation / Rectification (Atelier Mécanique)
             </h3>
             <p className="text-[11px] text-slate-500">
-              Section Maintenance (SM) ➔ Atelier Fabrication Mécanique • Hors stockActuel PDR • Ne clôture pas le BT automatiquement
+              Section Maintenance (SM) ➔ Atelier Fabrication Mécanique • Hors Stock Magasin PDR • Ne clôture pas le BT automatiquement
             </p>
           </div>
         </div>
